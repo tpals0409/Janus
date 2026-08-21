@@ -60,7 +60,17 @@ def _path(agent_id: str) -> Path:
 
 @app.get("/health")
 def health():
-    return {"ok": True, "version": app.version}
+    # 렌더러는 이 서버하고만 통신한다 — 모델 서버 상태도 여기서 대신 확인해준다.
+    # 모델 로드에 수십 초가 걸리므로 UI가 "모델 로딩 중"을 구분해 보여줄 수 있어야 한다.
+    import socket
+
+    mlx = False
+    try:
+        with socket.create_connection(("127.0.0.1", 8080), timeout=0.3):
+            mlx = True
+    except OSError:
+        pass
+    return {"ok": True, "version": app.version, "mlx": mlx}
 
 
 @app.get("/agents")

@@ -195,6 +195,7 @@ export function AgentList() {
 
 export function StatusBar() {
   const serverUp = useStore((s) => s.serverUp)
+  const mlxUp = useStore((s) => s.mlxUp)
   const workspace = useStore((s) => s.workspace)
   const pickWorkspace = useStore((s) => s.pickWorkspace)
   const dirty = useStore((s) => s.dirty)
@@ -208,6 +209,13 @@ export function StatusBar() {
           style={{ background: serverUp ? 'var(--color-ok)' : 'var(--color-danger)' }}
         />
         {serverUp ? 'janus-server :8765' : '서버 연결 안 됨'}
+      </span>
+      <span className="flex items-center gap-1.5" title="LLM 노드가 쓰는 모델 서버 (:8080)">
+        <span
+          className="h-1.5 w-1.5 rounded-full"
+          style={{ background: mlxUp ? 'var(--color-ok)' : 'var(--color-warn)' }}
+        />
+        {mlxUp ? 'model :8080' : '모델 로딩 중…'}
       </span>
       <button
         onClick={pickWorkspace}

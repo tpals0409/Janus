@@ -105,29 +105,42 @@ export default function App() {
   const [bottom, setBottom] = useState<(typeof BOTTOM_TABS)[number]>('Run')
   const { h, onMouseDown } = useDragHeight(280)
 
+  const pollHealth = useStore((s) => s.pollHealth)
+
   useEffect(() => {
     boot()
   }, [boot])
+
+  // 앱이 백엔드를 직접 띄우므로(main process) 처음 몇 초는 연결이 안 되는 게 정상.
+  // 붙을 때까지 자동 재시도하고, 붙은 뒤엔 모델 서버 상태를 따라간다.
+  useEffect(() => {
+    if (serverUp === false) {
+      const t = setTimeout(boot, 2000)
+      return () => clearTimeout(t)
+    }
+    const t = setInterval(pollHealth, 5000)
+    return () => clearInterval(t)
+  }, [serverUp, boot, pollHealth])
 
   if (serverUp === false) {
     return (
       <div className="grid h-full place-items-center px-8 text-center">
         <div>
-          <AlertTriangle size={28} className="mx-auto mb-3 text-warn" />
-          <p className="mb-3 text-[14px]">janus-server에 연결할 수 없습니다.</p>
-          <pre className="rounded-md border border-border-strong bg-panel-2 px-3 py-2 text-left font-mono text-[11px] text-muted">
-            {'cd "로컬 LLM 실습/janus_server"\nuv run python -m janus_server.server'}
-          </pre>
-          <p className="mt-3 text-[11px] text-faint">
-            LLM 노드를 실행하려면 MLX 서버(:8080)도 떠 있어야 합니다.
+          <Loader2 size={28} className="mx-auto mb-3 animate-spin text-accent-fg" />
+          <p className="mb-2 text-[14px]">백엔드를 시작하는 중…</p>
+          <p className="text-[11px] text-faint">
+            janus-server와 MLX 모델 서버를 앱이 직접 띄웁니다.
+            <br />
+            모델 로드는 수십 초 걸릴 수 있습니다. 자동으로 다시 연결합니다.
           </p>
-          <button
-            onClick={() => boot()}
-            className="mt-4 rounded-md px-3 py-1.5 text-[12px] text-white"
-            style={{ background: 'var(--color-accent)' }}
-          >
-            다시 연결
-          </button>
+          <details className="mt-4 text-left">
+            <summary className="cursor-pointer text-[11px] text-faint">
+              계속 안 되면 — 수동 실행 명령
+            </summary>
+            <pre className="mt-2 rounded-md border border-border-strong bg-panel-2 px-3 py-2 font-mono text-[10.5px] text-muted">
+              {'cd janus_server && uv run python -m janus_server.server\n# 로그: /tmp/janus-server.log, /tmp/janus-mlx.log'}
+            </pre>
+          </details>
         </div>
       </div>
     )

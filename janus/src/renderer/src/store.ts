@@ -7,6 +7,7 @@ const BASE = 'http://localhost:8765'
 
 interface State {
   serverUp: boolean | null
+  mlxUp: boolean | null
   workspace: string | null
   agents: AgentSummary[]
   tools: ToolInfo[]
@@ -41,6 +42,7 @@ interface State {
   viewingRunId: string | null
 
   boot(): Promise<void>
+  pollHealth(): Promise<void>
   pickWorkspace(): Promise<void>
   openAgent(id: string): Promise<void>
   createAgent(name: string): Promise<void>
@@ -157,6 +159,7 @@ function blankNode(spec: Spec, type: NodeType, models: { name: string }[], tools
 
 export const useStore = create<State>((set, get) => ({
   serverUp: null,
+  mlxUp: null,
   workspace: null,
   agents: [],
   tools: [],
@@ -183,16 +186,27 @@ export const useStore = create<State>((set, get) => ({
 
   async boot() {
     try {
-      const [agents, tools, models, ws] = await Promise.all([
+      const [health, agents, tools, models, ws] = await Promise.all([
+        fetch(`${BASE}/health`).then((r) => r.json()),
         fetch(`${BASE}/agents`).then((r) => r.json()),
         fetch(`${BASE}/tools`).then((r) => r.json()),
         fetch(`${BASE}/models`).then((r) => r.json()),
         fetch(`${BASE}/workspace`).then((r) => r.json())
       ])
-      set({ serverUp: true, agents, tools, models, workspace: ws.path })
+      set({ serverUp: true, mlxUp: Boolean(health.mlx), agents, tools, models, workspace: ws.path })
       if (agents[0]) await get().openAgent(agents[0].id)
     } catch {
       set({ serverUp: false })
+    }
+  },
+
+  /** 가벼운 상태 갱신 — 모델 서버가 늦게 뜨는 걸 상태바가 따라잡는다. */
+  async pollHealth() {
+    try {
+      const h = await fetch(`${BASE}/health`).then((r) => r.json())
+      set({ serverUp: true, mlxUp: Boolean(h.mlx) })
+    } catch {
+      set({ serverUp: false, mlxUp: null })
     }
   },
 
