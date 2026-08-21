@@ -66,13 +66,15 @@ def build_system_prompt(base: str, tool_names: list[str]) -> str:
     )
 
 
-def _assemble(stream, emit, cancel=None) -> tuple[str, list[dict]]:
-    """스트리밍 청크를 (텍스트, tool_calls)로 조립.
+def _assemble(stream, emit, cancel=None) -> tuple[str, list[dict], dict | None]:
+    """스트리밍 청크를 (텍스트, tool_calls, usage)로 조립.
 
     cancel이 켜지면 스트림을 닫고 즉시 나온다 — 생성 도중에도 멈출 수 있어야 한다.
+    usage는 로컬에선 비용이 아니라 지연시간의 원인이다(prefill = prompt_tokens에 비례).
     """
     parts: list[str] = []
     calls: dict[int, dict] = {}
+    usage: dict | None = None
 
     for chunk in stream:
         if cancel is not None and cancel.is_set():
@@ -81,6 +83,12 @@ def _assemble(stream, emit, cancel=None) -> tuple[str, list[dict]]:
             except Exception:
                 pass
             break
+        # 마지막 청크(choices 비어있음)에 usage가 실려온다
+        if getattr(chunk, "usage", None):
+            u = chunk.usage
+            usage = {"prompt_tokens": u.prompt_tokens,
+                     "completion_tokens": u.completion_tokens,
+                     "total_tokens": u.total_tokens}
         if not chunk.choices:
             continue
         delta = chunk.choices[0].delta
@@ -98,7 +106,7 @@ def _assemble(stream, emit, cancel=None) -> tuple[str, list[dict]]:
             if tc.function and tc.function.arguments:
                 slot["function"]["arguments"] += tc.function.arguments
 
-    return "".join(parts), [calls[i] for i in sorted(calls)]
+    return "".join(parts), [calls[i] for i in sorted(calls)], usage
 
 
 def run(
@@ -128,6 +136,7 @@ def run(
     schemas = T.schemas_for(tool_names)
     fail_streak: dict[str, int] = {}
     last_text = ""
+    tok_prompt = tok_completion = 0
 
     for step in range(max_steps):
         if cancel is not None and cancel.is_set():
@@ -140,10 +149,16 @@ def run(
         # 첫 step만 전체, 이후엔 직전 assistant/tool 응답 이후의 증분(마지막 2개)만.
         emit("llm_call", messages=msgs if step == 0 else msgs[-2:],
              total_messages=len(msgs))
-        kwargs = {"model": model, "messages": msgs, "stream": True}
+        kwargs = {"model": model, "messages": msgs, "stream": True,
+                  "stream_options": {"include_usage": True}}
         if schemas:
             kwargs["tools"] = schemas
-        text, calls = _assemble(client.chat.completions.create(**kwargs), emit, cancel)
+        text, calls, usage = _assemble(client.chat.completions.create(**kwargs), emit, cancel)
+        if usage:
+            tok_prompt += usage["prompt_tokens"]
+            tok_completion += usage["completion_tokens"]
+            # step별 토큰 — 어느 step이 컨텍스트를 부풀려 느려지는지 보인다
+            emit("usage", step=step + 1, **usage)
 
         if cancel is not None and cancel.is_set():
             emit("done", reason="cancelled")

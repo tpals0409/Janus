@@ -31,6 +31,9 @@ export interface AgentEvent {
   reason?: string
   messages?: { role: string; content: string }[]
   total_messages?: number
+  prompt_tokens?: number
+  completion_tokens?: number
+  step?: number
 }
 
 export interface RunSummary {
@@ -73,6 +76,7 @@ export interface Span {
   input?: unknown
   output?: unknown
   events?: AgentEvent[]
+  usage?: { prompt_tokens: number; completion_tokens: number }
 }
 
 export interface AgentSummary {

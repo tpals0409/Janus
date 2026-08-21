@@ -48,6 +48,7 @@ async def run(
     loop = asyncio.get_running_loop()
     open_spans: dict[str, dict] = {}          # langgraph run_id -> span
     sessions: dict[str, list[dict]] = {}      # node_id -> 세션 이벤트 누적
+    usage: dict[str, dict] = {}               # node_id -> {prompt, completion} 누적
     t0 = time.perf_counter()
 
     def ms() -> int:
@@ -55,6 +56,10 @@ async def run(
 
     def sink(node_id: str, kind: str, data: dict) -> None:
         """agent 워커 스레드에서 호출된다 — 반드시 스레드 안전해야 한다."""
+        if kind == "usage":
+            u = usage.setdefault(node_id, {"prompt_tokens": 0, "completion_tokens": 0})
+            u["prompt_tokens"] += data.get("prompt_tokens", 0)
+            u["completion_tokens"] += data.get("completion_tokens", 0)
         ev = {"type": "agent_event", "node_id": node_id, "kind": kind,
               "at_ms": ms(), **_clip(data)}
         sessions.setdefault(node_id, []).append(ev)
@@ -91,8 +96,18 @@ async def run(
                     span.update(status="success",
                                 duration_ms=ms() - span["started_ms"],
                                 output=_clip(own),
-                                events=sessions.get(name, []))
+                                events=sessions.get(name, []),
+                                usage=usage.get(name))
                     await q.put({"type": "span_end", "span": span})
+
+                elif kind == "on_chat_model_end":
+                    node = next((sp["node_id"] for sp in open_spans.values()), None)
+                    out = (ev.get("data") or {}).get("output")
+                    um = getattr(out, "usage_metadata", None)
+                    if node and um:
+                        u = usage.setdefault(node, {"prompt_tokens": 0, "completion_tokens": 0})
+                        u["prompt_tokens"] += um.get("input_tokens", 0)
+                        u["completion_tokens"] += um.get("output_tokens", 0)
 
                 elif kind == "on_chat_model_stream":
                     # llm 노드의 토큰. astream_events는 langchain Runnable(=llm 노드)만

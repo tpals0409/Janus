@@ -111,7 +111,8 @@ def _make_llm(node: dict):
     conf = _model_conf(node)
 
     kwargs: dict[str, Any] = {"temperature": m.get("temperature", 0.0),
-                              "model": conf["model"], "api_key": conf["api_key"]}
+                              "model": conf["model"], "api_key": conf["api_key"],
+                              "stream_usage": True}
     if m.get("max_tokens"):
         kwargs["max_tokens"] = m["max_tokens"]
     if conf["base_url"]:

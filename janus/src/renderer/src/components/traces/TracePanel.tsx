@@ -4,6 +4,15 @@ import { useStore } from '../../store'
 import SessionView from './SessionView'
 import type { Span } from '../../types'
 
+/** 토큰을 '비용'이 아니라 '지연시간의 원인'으로 보여준다. 로컬은 tok/s가 벽. */
+function perfLine(s: Span): string | null {
+  if (!s.usage) return null
+  const secs = (s.duration_ms ?? 0) / 1000
+  const gen = s.usage.completion_tokens
+  const rate = secs > 0 && gen ? ` · ${(gen / secs).toFixed(1)} tok/s` : ''
+  return `${s.usage.prompt_tokens} prompt · ${gen} gen${rate}`
+}
+
 function pretty(v: unknown): string {
   if (v == null) return '—'
   if (typeof v === 'string') return v
@@ -117,7 +126,11 @@ export default function TracePanel() {
           >
             <StatusIcon s={s.status} />
             <span className="truncate text-[12px]">{s.node_id}</span>
-            {(s.events?.length || liveEvents[s.node_id]?.length) ? (
+            {s.usage ? (
+              <span className="shrink-0 font-mono text-[9.5px] text-faint" title="prompt+gen 토큰">
+                {s.usage.prompt_tokens}+{s.usage.completion_tokens}
+              </span>
+            ) : (s.events?.length || liveEvents[s.node_id]?.length) ? (
               <span className="shrink-0 rounded bg-raised px-1 text-[9.5px] text-faint">
                 {s.events?.length ?? liveEvents[s.node_id]?.length}
               </span>
@@ -141,6 +154,9 @@ export default function TracePanel() {
                 +{span.started_ms}ms · {span.duration_ms ?? '…'}ms
               </span>
             </div>
+            {perfLine(span) && (
+              <div className="mb-2 font-mono text-[10.5px] text-faint">{perfLine(span)}</div>
+            )}
             {events.length ? (
               <SessionView events={events} live={isLive} />
             ) : (
