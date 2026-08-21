@@ -7,6 +7,7 @@ import type {
 
 const BASE = 'http://localhost:8765'
 const TOKEN = window.janus?.authToken ?? ''
+let openAgentSequence = 0
 
 function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers)
@@ -61,7 +62,7 @@ interface State {
   spans: Span[]
   /** 아직 끝나지 않은 agent 노드의 세션 — span_end 전까지 여기서 자란다 */
   liveEvents: Record<string, AgentEvent[]>
-  approval: ApprovalRequest | null
+  approvals: ApprovalRequest[]
   /** 실행 중인 WS. 승인 응답과 취소를 여기로 보낸다. */
   ws: WebSocket | null
   selectedSpanId: string | null
@@ -104,7 +105,7 @@ interface State {
   setView(v: 'graph' | 'yaml' | 'file'): void
   run(inputs: Record<string, string>): void
   cancel(): void
-  respondApproval(approved: boolean): void
+  respondApproval(id: string, approved: boolean): void
   loadRuns(): Promise<void>
   loadRun(runId: string): Promise<void>
   loadComparison(runId: string): Promise<void>
@@ -225,7 +226,7 @@ export const useStore = create<State>((set, get) => ({
   running: false,
   spans: [],
   liveEvents: {},
-  approval: null,
+  approvals: [],
   ws: null,
   selectedSpanId: null,
   runError: null,
@@ -348,7 +349,15 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async openAgent(id) {
-    const r = await apiFetch(`${BASE}/agents/${id}`).then((x) => x.json())
+    const sequence = ++openAgentSequence
+    const active = get().ws
+    if (active) {
+      if (active.readyState === WebSocket.OPEN) active.send(JSON.stringify({ type: 'cancel' }))
+      active.close()
+      set({ ws: null, running: false, approvals: [] })
+    }
+    const r = await apiJson(`${BASE}/agents/${id}`)
+    if (sequence !== openAgentSequence) return
     set({
       agentId: id,
       spec: r.spec,
@@ -360,7 +369,7 @@ export const useStore = create<State>((set, get) => ({
       runInputs: {},
       spans: [],
       liveEvents: {},
-      approval: null,
+      approvals: [],
       selectedSpanId: null,
       runError: null,
       pastRuns: [],
@@ -523,7 +532,7 @@ export const useStore = create<State>((set, get) => ({
   run(inputs) {
     const { agentId, running } = get()
     if (!agentId || running) return
-    set({ running: true, spans: [], liveEvents: {}, approval: null,
+    set({ running: true, spans: [], liveEvents: {}, approvals: [],
           selectedSpanId: null, runError: null, cancelled: false, viewingRunId: null,
           lastRunInputs: { ...inputs } })
 
@@ -532,6 +541,7 @@ export const useStore = create<State>((set, get) => ({
     ws.onopen = () => ws.send(JSON.stringify({ type: 'run', inputs }))
 
     ws.onmessage = (m) => {
+      if (get().ws !== ws) return
       const ev = JSON.parse(m.data)
       if (ev.type === 'span_start') {
         set({
@@ -561,30 +571,37 @@ export const useStore = create<State>((set, get) => ({
           }
         })
       } else if (ev.type === 'approval_request') {
-        set({ approval: ev })
+        if (!get().approvals.some((request) => request.id === ev.id)) {
+          set({ approvals: [...get().approvals, ev] })
+        }
       } else if (ev.type === 'run_error') {
-        set({ runError: ev.error, running: false, approval: null })
+        set({ runError: ev.error, running: false, approvals: [] })
         ws.close()
       } else if (ev.type === 'run_end') {
-        set({ running: false, approval: null, cancelled: Boolean(ev.cancelled) })
+        set({ running: false, approvals: [], cancelled: Boolean(ev.cancelled) })
         get().loadRuns()   // 방금 실행이 기록됐다 — 히스토리 갱신
         get().refreshTree() // 에이전트가 파일을 만들었을 수 있다
         ws.close()
       }
     }
-    ws.onerror = () => set({ runError: '서버에 연결할 수 없습니다', running: false })
-    ws.onclose = () => set({ running: false, approval: null, ws: null })
+    ws.onerror = () => {
+      if (get().ws === ws) set({ runError: '서버에 연결할 수 없습니다', running: false })
+    }
+    ws.onclose = () => {
+      if (get().ws === ws) set({ running: false, approvals: [], ws: null })
+    }
   },
 
   cancel() {
     get().ws?.send(JSON.stringify({ type: 'cancel' }))
+    set({ approvals: [] })
   },
 
-  respondApproval(approved) {
-    const { approval, ws } = get()
-    if (!approval || !ws) return
-    ws.send(JSON.stringify({ type: 'approval_response', id: approval.id, approved }))
-    set({ approval: null })
+  respondApproval(id, approved) {
+    const { approvals, ws } = get()
+    if (!approvals.some((request) => request.id === id) || !ws || ws.readyState !== WebSocket.OPEN) return
+    ws.send(JSON.stringify({ type: 'approval_response', id, approved }))
+    set({ approvals: approvals.filter((request) => request.id !== id) })
   },
 
   async loadRuns() {
@@ -592,7 +609,7 @@ export const useStore = create<State>((set, get) => ({
     if (!agentId) return
     try {
       const runs = await apiFetch(`${BASE}/runs/${agentId}`).then((r) => r.json())
-      set({ pastRuns: runs })
+      if (get().agentId === agentId) set({ pastRuns: runs })
     } catch {
       /* 히스토리는 있으면 좋은 것 — 실패해도 조용히 */
     }
@@ -604,7 +621,7 @@ export const useStore = create<State>((set, get) => ({
     const r = (await apiJson(`${BASE}/runs/${agentId}/${runId}`)) as RunDetail
     // 과거 실행을 스팬 뷰에 로드한다. running/live와 섞이지 않게 플래그를 세운다.
     set({
-      spans: r.spans, liveEvents: {}, running: false, approval: null,
+      spans: r.spans, liveEvents: {}, running: false, approvals: [],
       cancelled: Boolean(r.cancelled), viewingRunId: runId,
       selectedSpanId: r.spans[0]?.id ?? null, runError: null,
       runInputs: { ...r.inputs }, lastRunInputs: { ...r.inputs }

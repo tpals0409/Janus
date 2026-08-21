@@ -40,8 +40,9 @@ function summarize(tool: string, args: Record<string, unknown>) {
  * 서버에서 대기 중인 에이전트 스레드를 실제로 풀어주거나 막는다.
  */
 export default function ApprovalCard() {
-  const approval = useStore((s) => s.approval)
+  const approvals = useStore((s) => s.approvals)
   const respond = useStore((s) => s.respondApproval)
+  const approval = approvals[0]
   if (!approval) return null
 
   return (
@@ -55,15 +56,20 @@ export default function ApprovalCard() {
           <b>{approval.node_id}</b> 에이전트가{' '}
           <b className="font-mono">{approval.tool}</b> 실행을 요청합니다
         </span>
+        {approvals.length > 1 && (
+          <span className="rounded bg-raised px-1.5 py-0.5 text-[10px] text-warn">
+            대기 {approvals.length - 1}건
+          </span>
+        )}
         <div className="ml-auto flex gap-2">
           <button
-            onClick={() => respond(false)}
+            onClick={() => respond(approval.id, false)}
             className="rounded-md border border-border-strong px-3 py-1 text-[12px] text-muted hover:text-fg"
           >
             거부
           </button>
           <button
-            onClick={() => respond(true)}
+            onClick={() => respond(approval.id, true)}
             className="rounded-md px-3 py-1 text-[12px] font-medium text-white"
             style={{ background: 'var(--color-warn)', color: '#1a1400' }}
           >

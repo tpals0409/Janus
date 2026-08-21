@@ -6,6 +6,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ["JANUS_AUTH_TOKEN"] = "test-token"
 os.environ["JANUS_ALLOWED_ORIGINS"] = "http://localhost:5173"
@@ -18,6 +19,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from janus_server import compile as C
 from janus_server import server
+from janus_server import spec as S
 from janus_server import tools as T
 
 
@@ -157,6 +159,89 @@ class ServerBoundaryTests(unittest.TestCase):
 
         self.assertFalse(server._origin_allowed("https://attacker.example"))
         self.assertFalse(server._token_valid("wrong-token"))
+
+    def test_parallel_tools_emit_two_independent_approval_requests(self):
+        spec = {
+            "name": "parallel-approval",
+            "nodes": [
+                {"id": "start", "type": "start", "outputs": []},
+                {
+                    "id": "write_a",
+                    "type": "tool",
+                    "tool": "write_file",
+                    "inputs": {"path": "a.txt", "content": "A"},
+                    "output": {"name": "result"},
+                },
+                {
+                    "id": "write_b",
+                    "type": "tool",
+                    "tool": "write_file",
+                    "inputs": {"path": "b.txt", "content": "B"},
+                    "output": {"name": "result"},
+                },
+                {
+                    "id": "end",
+                    "type": "end",
+                    "inputs": {
+                        "a": "{{ write_a.result }}",
+                        "b": "{{ write_b.result }}",
+                    },
+                },
+            ],
+            "edges": [
+                {"from": "start", "to": "write_a"},
+                {"from": "start", "to": "write_b"},
+                {"from": "write_a", "to": "end"},
+                {"from": "write_b", "to": "end"},
+            ],
+        }
+
+        previous_workspace = T.WORKSPACE
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            agents = root / "agents"
+            runs = root / "runs"
+            workspace = root / "workspace"
+            agents.mkdir()
+            workspace.mkdir()
+            (agents / "parallel.yaml").write_text(S.dumps(spec), encoding="utf-8")
+            T.set_workspace(str(workspace))
+            try:
+                with (
+                    patch.object(server, "AGENTS_DIR", agents),
+                    patch.object(server, "RUNS_DIR", runs),
+                    self.client.websocket_connect(
+                        "/run/parallel",
+                        headers={"origin": self.origin},
+                        subprotocols=["janus", "test-token"],
+                    ) as ws,
+                ):
+                    ws.send_json({"type": "run", "inputs": {}})
+                    approvals = []
+                    while len(approvals) < 2:
+                        message = ws.receive_json()
+                        if message["type"] == "run_error":
+                            self.fail(message["error"])
+                        if message["type"] == "approval_request":
+                            approvals.append(message)
+
+                    self.assertEqual({"write_a", "write_b"}, {r["node_id"] for r in approvals})
+                    for request in approvals:
+                        ws.send_json(
+                            {"type": "approval_response", "id": request["id"], "approved": True}
+                        )
+
+                    while True:
+                        message = ws.receive_json()
+                        if message["type"] == "run_error":
+                            self.fail(message["error"])
+                        if message["type"] == "run_end":
+                            break
+
+                self.assertEqual("A", (workspace / "a.txt").read_text(encoding="utf-8"))
+                self.assertEqual("B", (workspace / "b.txt").read_text(encoding="utf-8"))
+            finally:
+                T.WORKSPACE = previous_workspace
 
 
 if __name__ == "__main__":

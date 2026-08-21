@@ -390,6 +390,7 @@ async def run_agent(ws: WebSocket, agent_id: str):
     await ws.accept(subprotocol="janus")
     loop = asyncio.get_running_loop()
     pending: dict[str, list] = {}   # req_id -> [threading.Event, approved]
+    pending_lock = threading.Lock()
     run_task: asyncio.Task | None = None
     cancel_event = threading.Event()
 
@@ -397,16 +398,20 @@ async def run_agent(ws: WebSocket, agent_id: str):
         """agent 워커 스레드에서 **블로킹**으로 호출된다."""
         req_id = uuid.uuid4().hex[:12]
         ev = threading.Event()
-        pending[req_id] = [ev, False]
+        with pending_lock:
+            pending[req_id] = [ev, False]
         asyncio.run_coroutine_threadsafe(
             ws.send_json({"type": "approval_request", "id": req_id,
                           "node_id": node_id, "tool": tool, "args": args}),
             loop,
         )
         if not ev.wait(timeout=APPROVAL_TIMEOUT):
-            pending.pop(req_id, None)
+            with pending_lock:
+                pending.pop(req_id, None)
             return False
-        return pending.pop(req_id)[1]
+        with pending_lock:
+            slot = pending.pop(req_id, None)
+        return bool(slot and slot[1])
 
     async def do_run(inputs: dict):
         p = _path(agent_id)
@@ -452,7 +457,8 @@ async def run_agent(ws: WebSocket, agent_id: str):
                 run_task = asyncio.create_task(do_run(msg.get("inputs") or {}))
 
             elif t == "approval_response":
-                slot = pending.get(msg.get("id"))
+                with pending_lock:
+                    slot = pending.get(msg.get("id"))
                 if slot:
                     slot[1] = bool(msg.get("approved"))
                     slot[0].set()
@@ -464,7 +470,9 @@ async def run_agent(ws: WebSocket, agent_id: str):
                 if run_task and not run_task.done():
                     run_task.cancel()
                 # 대기 중인 승인은 전부 거부로 풀어준다 — 안 그러면 스레드가 매달린다
-                for slot in pending.values():
+                with pending_lock:
+                    slots = list(pending.values())
+                for slot in slots:
                     slot[1] = False
                     slot[0].set()
 
@@ -479,7 +487,9 @@ async def run_agent(ws: WebSocket, agent_id: str):
         cancel_event.set()   # 연결이 끊기면 워커도 멈춰야 한다
         if run_task and not run_task.done():
             run_task.cancel()
-        for slot in pending.values():   # 매달린 워커 스레드를 풀어준다
+        with pending_lock:
+            slots = list(pending.values())
+        for slot in slots:   # 매달린 워커 스레드를 풀어준다
             slot[1] = False
             slot[0].set()
 

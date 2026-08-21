@@ -159,7 +159,6 @@ export default function App() {
   const running = useStore((s) => s.running)
   const runFn = useStore((s) => s.run)
   const cancel = useStore((s) => s.cancel)
-  const approval = useStore((s) => s.approval)
   const sidebarTab = useStore((s) => s.sidebarTab)
   const setSidebarTab = useStore((s) => s.setSidebarTab)
 
