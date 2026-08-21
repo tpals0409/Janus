@@ -85,7 +85,7 @@ interface State {
   refreshTree(): void
   openFile(rel: string): Promise<void>
   closeFile(): void
-  openAgent(id: string): Promise<void>
+  openAgent(id: string, options?: { discardDirty?: boolean }): Promise<void>
   createAgent(name: string): Promise<void>
   deleteAgent(id: string): Promise<void>
 
@@ -156,6 +156,12 @@ function uniqueId(spec: Spec, base: string): string {
   let i = 2
   while (spec.nodes.some((n) => n.id === `${base}_${i}`)) i++
   return `${base}_${i}`
+}
+
+function confirmDiscardChanges(nextName: string): boolean {
+  return window.confirm(
+    `저장되지 않은 변경이 있습니다. 변경을 버리고 ${nextName}(으)로 전환할까요?`
+  )
 }
 
 /** 새 노드는 검증을 통과하는 최소 형태로 만든다 — 만들자마자 빨간 줄이 뜨면 안 된다. */
@@ -271,7 +277,7 @@ export const useStore = create<State>((set, get) => ({
         // 백엔드 재시작이 로컬 미저장 편집을 날리면 복구가 또 다른 손실이 된다.
         if (!get().dirty) await get().openAgent(currentAgentId)
         else get().loadRuns()
-      } else if (agents[0]) {
+      } else if (agents[0] && !get().dirty) {
         await get().openAgent(agents[0].id)
       }
     } catch {
@@ -348,7 +354,13 @@ export const useStore = create<State>((set, get) => ({
     set({ openedFile: null, view: 'graph' })
   },
 
-  async openAgent(id) {
+  async openAgent(id, options) {
+    const current = get().agentId
+    if (id === current) return
+    if (get().dirty && !options?.discardDirty) {
+      const name = get().agents.find((agent) => agent.id === id)?.name ?? id
+      if (!confirmDiscardChanges(name)) return
+    }
     const sequence = ++openAgentSequence
     const active = get().ws
     if (active) {
@@ -381,6 +393,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async createAgent(name) {
+    if (get().dirty && !confirmDiscardChanges(`새 에이전트 “${name}”`)) return
     const r = await apiFetch(`${BASE}/agents`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -388,7 +401,7 @@ export const useStore = create<State>((set, get) => ({
     }).then((x) => x.json())
     const agents = await apiFetch(`${BASE}/agents`).then((x) => x.json())
     set({ agents })
-    await get().openAgent(r.id)
+    await get().openAgent(r.id, { discardDirty: true })
   },
 
   async deleteAgent(id) {
@@ -396,8 +409,8 @@ export const useStore = create<State>((set, get) => ({
     const agents = await apiFetch(`${BASE}/agents`).then((x) => x.json())
     set({ agents })
     if (get().agentId === id) {
-      if (agents[0]) await get().openAgent(agents[0].id)
-      else set({ agentId: null, spec: null, yaml: '', errors: [] })
+      if (agents[0]) await get().openAgent(agents[0].id, { discardDirty: true })
+      else set({ agentId: null, spec: null, yaml: '', errors: [], dirty: false })
     }
   },
 
