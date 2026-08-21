@@ -132,6 +132,59 @@ class TraceStatusTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({"prompt_tokens": 20, "completion_tokens": 2}, spans["llm_b"]["usage"])
         self.assertEqual({"prompt_tokens": 10, "completion_tokens": 1}, spans["llm_a"]["usage"])
 
+    async def test_repeated_node_runs_keep_sessions_and_usage_separate(self):
+        class RepeatedAgentGraph:
+            async def astream_events(self, *_args, **kwargs):
+                sink = kwargs["config"]["configurable"]["event_sink"]
+                for n in (1, 2):
+                    run_id = f"agent-run-{n}"
+                    yield {
+                        "name": "worker",
+                        "event": "on_chain_start",
+                        "run_id": run_id,
+                        "data": {"input": {"outputs": {}}},
+                    }
+                    sink("worker", "assistant", {"content": f"answer-{n}"})
+                    sink(
+                        "worker",
+                        "usage",
+                        {"prompt_tokens": n * 10, "completion_tokens": n},
+                    )
+                    yield {
+                        "name": "worker",
+                        "event": "on_chain_end",
+                        "run_id": run_id,
+                        "data": {"output": {"outputs": {"worker": {"result": n}}}},
+                    }
+
+        events = [
+            event
+            async for event in trace.run(
+                RepeatedAgentGraph(), {}, {"worker": "agent"}
+            )
+        ]
+        spans = [
+            event["span"]
+            for event in events
+            if event["type"] == "span_end" and event["span"]["node_id"] == "worker"
+        ]
+
+        self.assertEqual(2, len(spans))
+        self.assertEqual(
+            [["answer-1"], ["answer-2"]],
+            [
+                [e["content"] for e in span["events"] if e["kind"] == "assistant"]
+                for span in spans
+            ],
+        )
+        self.assertEqual(
+            [
+                {"prompt_tokens": 10, "completion_tokens": 1},
+                {"prompt_tokens": 20, "completion_tokens": 2},
+            ],
+            [span["usage"] for span in spans],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
