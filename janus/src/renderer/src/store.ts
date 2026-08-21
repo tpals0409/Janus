@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type {
-  AgentEvent, AgentSummary, ApprovalRequest, NodeType, RunSummary, Span, Spec, SpecNode,
+  AgentEvent, AgentSummary, ApprovalRequest, BackendStatus, NodeType, RunSummary, Span, Spec, SpecNode,
   ToolInfo, TreeEntry
 } from './types'
 
@@ -13,9 +13,24 @@ function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Res
   return fetch(input, { ...init, headers })
 }
 
+async function apiJson(input: RequestInfo | URL, init: RequestInit = {}) {
+  const response = await apiFetch(input, init)
+  if (!response.ok) throw new Error(`Janus API ${response.status}`)
+  return response.json()
+}
+
+async function readBackendStatus(): Promise<BackendStatus | null> {
+  try {
+    return (await window.janus?.backendStatus()) ?? null
+  } catch {
+    return null
+  }
+}
+
 interface State {
   serverUp: boolean | null
   mlxUp: boolean | null
+  backendStatus: BackendStatus | null
   workspace: string | null
   agents: AgentSummary[]
   tools: ToolInfo[]
@@ -180,6 +195,7 @@ function blankNode(spec: Spec, type: NodeType, models: { name: string }[], tools
 export const useStore = create<State>((set, get) => ({
   serverUp: null,
   mlxUp: null,
+  backendStatus: null,
   workspace: null,
   agents: [],
   tools: [],
@@ -209,29 +225,47 @@ export const useStore = create<State>((set, get) => ({
   viewingRunId: null,
 
   async boot() {
+    const currentAgentId = get().agentId
     try {
-      const [health, agents, tools, models, ws] = await Promise.all([
-        apiFetch(`${BASE}/health`).then((r) => r.json()),
-        apiFetch(`${BASE}/agents`).then((r) => r.json()),
-        apiFetch(`${BASE}/tools`).then((r) => r.json()),
-        apiFetch(`${BASE}/models`).then((r) => r.json()),
-        apiFetch(`${BASE}/workspace`).then((r) => r.json())
+      const [health, agents, tools, models, ws, backendStatus] = await Promise.all([
+        apiJson(`${BASE}/health`),
+        apiJson(`${BASE}/agents`),
+        apiJson(`${BASE}/tools`),
+        apiJson(`${BASE}/models`),
+        apiJson(`${BASE}/workspace`),
+        readBackendStatus()
       ])
-      set({ serverUp: true, mlxUp: Boolean(health.mlx), agents, tools, models, workspace: ws.path })
+      set({
+        serverUp: true,
+        mlxUp: Boolean(health.mlx),
+        backendStatus,
+        agents,
+        tools,
+        models,
+        workspace: ws.path
+      })
       get().loadDir('')
-      if (agents[0]) await get().openAgent(agents[0].id)
+      const currentStillExists = currentAgentId && agents.some((a: AgentSummary) => a.id === currentAgentId)
+      if (currentStillExists) {
+        // 백엔드 재시작이 로컬 미저장 편집을 날리면 복구가 또 다른 손실이 된다.
+        if (!get().dirty) await get().openAgent(currentAgentId)
+        else get().loadRuns()
+      } else if (agents[0]) {
+        await get().openAgent(agents[0].id)
+      }
     } catch {
-      set({ serverUp: false })
+      set({ serverUp: false, mlxUp: null, backendStatus: await readBackendStatus() })
     }
   },
 
   /** 가벼운 상태 갱신 — 모델 서버가 늦게 뜨는 걸 상태바가 따라잡는다. */
   async pollHealth() {
+    const status = readBackendStatus()
     try {
-      const h = await apiFetch(`${BASE}/health`).then((r) => r.json())
-      set({ serverUp: true, mlxUp: Boolean(h.mlx) })
+      const h = await apiJson(`${BASE}/health`)
+      set({ serverUp: true, mlxUp: Boolean(h.mlx), backendStatus: await status })
     } catch {
-      set({ serverUp: false, mlxUp: null })
+      set({ serverUp: false, mlxUp: null, backendStatus: await status })
     }
   },
 

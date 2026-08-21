@@ -149,6 +149,7 @@ function RunBar() {
 export default function App() {
   const boot = useStore((s) => s.boot)
   const serverUp = useStore((s) => s.serverUp)
+  const backendStatus = useStore((s) => s.backendStatus)
   const spec = useStore((s) => s.spec)
   const view = useStore((s) => s.view)
   const setView = useStore((s) => s.setView)
@@ -185,22 +186,35 @@ export default function App() {
   }, [serverUp, boot, pollHealth])
 
   if (serverUp === false) {
+    const service = backendStatus?.server
+    const retrySeconds = Math.max(1, Math.ceil((service?.retryInMs ?? 0) / 1000))
+    const title =
+      service?.phase === 'external'
+        ? ':8765 포트를 다른 프로세스가 사용 중입니다'
+        : service?.phase === 'failed'
+          ? `백엔드가 반복 종료됐습니다 · ${retrySeconds}초 후 재시도`
+          : service?.phase === 'restarting'
+            ? '백엔드를 재시작하는 중…'
+            : '백엔드를 시작하는 중…'
+    const detail =
+      service?.phase === 'external'
+        ? '현재 앱의 인증 토큰과 맞지 않는 이전 서버일 수 있습니다. 해당 프로세스를 종료하거나 같은 토큰으로 앱을 실행하세요.'
+        : service?.lastError
+          ? `최근 종료 원인: ${service.lastError}`
+          : 'janus-server와 MLX 모델 서버를 앱이 직접 관리합니다.'
+
     return (
       <div className="grid h-full place-items-center px-8 text-center">
         <div>
           <Loader2 size={28} className="mx-auto mb-3 animate-spin text-accent-fg" />
-          <p className="mb-2 text-[14px]">백엔드를 시작하는 중…</p>
-          <p className="text-[11px] text-faint">
-            janus-server와 MLX 모델 서버를 앱이 직접 띄웁니다.
-            <br />
-            모델 로드는 수십 초 걸릴 수 있습니다. 자동으로 다시 연결합니다.
-          </p>
+          <p className="mb-2 text-[14px]">{title}</p>
+          <p className="max-w-[560px] text-[11px] text-faint">{detail}</p>
           <details className="mt-4 text-left">
             <summary className="cursor-pointer text-[11px] text-faint">
-              계속 안 되면 — 수동 실행 명령
+              진단 로그
             </summary>
             <pre className="mt-2 rounded-md border border-border-strong bg-panel-2 px-3 py-2 font-mono text-[10.5px] text-muted">
-              {'cd janus_server && uv run python -m janus_server.server\n# 로그: /tmp/janus-server.log, /tmp/janus-mlx.log'}
+              {'/tmp/janus-server.log\n/tmp/janus-mlx.log'}
             </pre>
           </details>
         </div>

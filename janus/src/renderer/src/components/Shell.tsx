@@ -196,10 +196,20 @@ export function AgentList() {
 export function StatusBar() {
   const serverUp = useStore((s) => s.serverUp)
   const mlxUp = useStore((s) => s.mlxUp)
+  const backendStatus = useStore((s) => s.backendStatus)
   const workspace = useStore((s) => s.workspace)
   const pickWorkspace = useStore((s) => s.pickWorkspace)
   const dirty = useStore((s) => s.dirty)
   const errors = useStore((s) => s.errors)
+  const serverExternal = backendStatus?.server.phase === 'external'
+  const mlxPhase = backendStatus?.mlx.phase
+  const mlxText = mlxUp
+    ? `model :8080${mlxPhase === 'external' ? ' (external)' : ''}`
+    : mlxPhase === 'failed'
+      ? `모델 재시작 실패 (${backendStatus?.mlx.attempts}회) · 재시도 예정`
+      : mlxPhase === 'restarting'
+        ? '모델 재시작 중…'
+        : '모델 로딩 중…'
 
   return (
     <footer className="flex h-[26px] shrink-0 items-center gap-4 border-t border-border bg-panel px-3 text-[11px] text-muted">
@@ -208,14 +218,21 @@ export function StatusBar() {
           className="h-1.5 w-1.5 rounded-full"
           style={{ background: serverUp ? 'var(--color-ok)' : 'var(--color-danger)' }}
         />
-        {serverUp ? 'janus-server :8765' : '서버 연결 안 됨'}
+        {serverUp ? `janus-server :8765${serverExternal ? ' (external)' : ''}` : '서버 연결 안 됨'}
       </span>
       <span className="flex items-center gap-1.5" title="LLM 노드가 쓰는 모델 서버 (:8080)">
         <span
           className="h-1.5 w-1.5 rounded-full"
-          style={{ background: mlxUp ? 'var(--color-ok)' : 'var(--color-warn)' }}
+          style={{
+            background:
+              mlxPhase === 'failed'
+                ? 'var(--color-danger)'
+                : mlxUp
+                  ? 'var(--color-ok)'
+                  : 'var(--color-warn)'
+          }}
         />
-        {mlxUp ? 'model :8080' : '모델 로딩 중…'}
+        {mlxText}
       </span>
       <button
         onClick={pickWorkspace}

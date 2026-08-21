@@ -100,8 +100,19 @@ export interface ToolInfo {
   params: string[]
 }
 
+export type ServicePhase = 'starting' | 'up' | 'restarting' | 'failed' | 'external' | 'stopped'
+
+export interface BackendStatus {
+  server: { phase: ServicePhase; attempts: number; retryInMs: number; lastError: string | null }
+  mlx: { phase: ServicePhase; attempts: number; retryInMs: number; lastError: string | null }
+}
+
 declare global {
   interface Window {
-    janus?: { pickFolder(): Promise<string | null>; authToken: string }
+    janus?: {
+      pickFolder(): Promise<string | null>
+      backendStatus(): Promise<BackendStatus>
+      authToken: string
+    }
   }
 }

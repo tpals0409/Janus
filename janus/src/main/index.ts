@@ -29,46 +29,171 @@ const env = {
   JANUS_ALLOWED_ORIGINS: allowedOrigins
 }
 
-const children: ChildProcess[] = []
+type ServiceLabel = 'server' | 'mlx'
+type ServicePhase = 'starting' | 'up' | 'restarting' | 'failed' | 'external' | 'stopped'
+
+interface ServiceRuntime {
+  process: ChildProcess | null
+  phase: ServicePhase
+  attempts: number
+  nextRetryAt: number
+  startedAt: number | null
+  lastError: string | null
+}
+
+const serviceSpecs: Record<ServiceLabel, { port: number; command: string; cwd: string }> = {
+  server: {
+    port: 8765,
+    command: 'uv run python -m janus_server.server',
+    cwd: join(repoRoot, 'janus_server')
+  },
+  mlx: {
+    port: 8080,
+    command:
+      'uv run mlx_vlm.server --model "$(ls -d ~/.cache/huggingface/hub/' +
+      'models--orcarouter--Qwen3.8-27B-Uncensored-MLX/snapshots/*/4-bit)" --port 8080',
+    cwd: join(repoRoot, 'qwen3.8mlx')
+  }
+}
+
+const services: Record<ServiceLabel, ServiceRuntime> = {
+  server: { process: null, phase: 'starting', attempts: 0, nextRetryAt: 0, startedAt: null, lastError: null },
+  mlx: { process: null, phase: 'starting', attempts: 0, nextRetryAt: 0, startedAt: null, lastError: null }
+}
+
+let quitting = false
+let supervising = false
+let supervisorTimer: ReturnType<typeof setInterval> | null = null
 
 function portInUse(port: number): Promise<boolean> {
   return new Promise((res) => {
     const s = net.connect({ port, host: '127.0.0.1' })
-    s.once('connect', () => {
+    let settled = false
+    const finish = (used: boolean): void => {
+      if (settled) return
+      settled = true
       s.destroy()
-      res(true)
+      res(used)
+    }
+    s.once('connect', () => {
+      finish(true)
     })
-    s.once('error', () => res(false))
+    s.once('error', () => finish(false))
+    s.setTimeout(500, () => finish(false))
   })
 }
 
-function spawnLogged(label: string, cmd: string, cwd: string): void {
-  const log = createWriteStream(`/tmp/janus-${label}.log`, { flags: 'a' })
-  // detached: 프로세스 그룹을 따로 만들어 uv가 낳는 python 자식까지 한 번에 죽인다
-  const p = spawn('/bin/zsh', ['-c', cmd], { cwd, env, detached: true })
-  p.stdout?.pipe(log)
-  p.stderr?.pipe(log)
-  p.on('exit', (code) => log.write(`\n[janus] ${label} exited: ${code}\n`))
-  children.push(p)
+function processAlive(p: ChildProcess | null): p is ChildProcess {
+  return Boolean(p && p.exitCode === null && p.signalCode === null)
 }
 
-async function spawnBackend(): Promise<void> {
-  if (!(await portInUse(8765))) {
-    spawnLogged('server', 'uv run python -m janus_server.server', join(repoRoot, 'janus_server'))
+function retryDelay(attempt: number): number {
+  return Math.min(30_000, 1000 * 2 ** Math.min(Math.max(attempt - 1, 0), 5))
+}
+
+function scheduleRestart(label: ServiceLabel, reason: string): void {
+  const service = services[label]
+  service.process = null
+  service.startedAt = null
+  service.attempts += 1
+  service.nextRetryAt = Date.now() + retryDelay(service.attempts)
+  service.lastError = reason
+  service.phase = service.attempts >= 3 ? 'failed' : 'restarting'
+}
+
+function spawnLogged(label: ServiceLabel): void {
+  const spec = serviceSpecs[label]
+  const service = services[label]
+  if (quitting || processAlive(service.process)) return
+
+  const log = createWriteStream(`/tmp/janus-${label}.log`, { flags: 'a' })
+  let p: ChildProcess
+  try {
+    // detached: 프로세스 그룹을 따로 만들어 uv가 낳는 python 자식까지 한 번에 죽인다.
+    p = spawn('/bin/zsh', ['-c', spec.command], { cwd: spec.cwd, env, detached: true })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    log.end(`\n[janus] ${label} spawn failed: ${message}\n`)
+    scheduleRestart(label, `spawn failed: ${message}`)
+    return
   }
-  if (!(await portInUse(8080))) {
-    spawnLogged(
-      'mlx',
-      'uv run mlx_vlm.server --model "$(ls -d ~/.cache/huggingface/hub/' +
-        'models--orcarouter--Qwen3.8-27B-Uncensored-MLX/snapshots/*/4-bit)" --port 8080',
-      join(repoRoot, 'qwen3.8mlx')
-    )
+
+  service.process = p
+  service.startedAt = Date.now()
+  service.phase = service.attempts ? 'restarting' : 'starting'
+  service.nextRetryAt = 0
+  p.stdout?.pipe(log)
+  p.stderr?.pipe(log)
+  let handled = false
+  const stopped = (reason: string): void => {
+    if (handled) return
+    handled = true
+    log.end(`\n[janus] ${label} stopped: ${reason}\n`)
+    if (!quitting) scheduleRestart(label, reason)
   }
+  p.once('error', (error) => stopped(`spawn error: ${error.message}`))
+  p.once('exit', (code, signal) => stopped(`exit=${code ?? '—'} signal=${signal ?? '—'}`))
+}
+
+async function ensureService(label: ServiceLabel): Promise<void> {
+  const service = services[label]
+  const portUp = await portInUse(serviceSpecs[label].port)
+
+  if (portUp) {
+    if (processAlive(service.process)) {
+      service.phase = 'up'
+      // 30초 이상 안정적으로 살아야 이전 크래시 카운트를 지운다.
+      if (service.startedAt && Date.now() - service.startedAt >= 30_000) {
+        service.attempts = 0
+        service.lastError = null
+      }
+    } else {
+      // 수동으로 띄운 서버는 종료/재시작 대상이 아니다.
+      service.phase = 'external'
+      service.nextRetryAt = 0
+    }
+    return
+  }
+
+  if (processAlive(service.process)) return // 시작/모델 로딩 중
+  if (Date.now() < service.nextRetryAt) return
+  spawnLogged(label)
+}
+
+async function superviseBackend(): Promise<void> {
+  if (quitting || supervising) return
+  supervising = true
+  try {
+    await Promise.all([ensureService('server'), ensureService('mlx')])
+  } finally {
+    supervising = false
+  }
+}
+
+function startBackendSupervisor(): void {
+  void superviseBackend()
+  supervisorTimer = setInterval(() => void superviseBackend(), 2000)
+}
+
+function backendStatus() {
+  const now = Date.now()
+  const publicState = (service: ServiceRuntime) => ({
+    phase: service.phase,
+    attempts: service.attempts,
+    retryInMs: Math.max(0, service.nextRetryAt - now),
+    lastError: service.lastError
+  })
+  return { server: publicState(services.server), mlx: publicState(services.mlx) }
 }
 
 function killBackend(): void {
-  for (const p of children) {
-    if (p.pid == null || p.exitCode !== null) continue
+  quitting = true
+  if (supervisorTimer) clearInterval(supervisorTimer)
+  supervisorTimer = null
+  for (const service of Object.values(services)) {
+    const p = service.process
+    service.phase = 'stopped'
+    if (!processAlive(p) || p.pid == null) continue
     try {
       process.kill(-p.pid, 'SIGTERM') // 프로세스 그룹 전체
     } catch {
@@ -110,9 +235,10 @@ ipcMain.handle('pick-folder', async () => {
   const r = await dialog.showOpenDialog({ properties: ['openDirectory'] })
   return r.canceled ? null : r.filePaths[0]
 })
+ipcMain.handle('backend-status', () => backendStatus())
 
 app.whenReady().then(() => {
-  spawnBackend() // 창보다 먼저 시작 — 모델 로드가 제일 오래 걸린다
+  startBackendSupervisor() // 창보다 먼저 시작 — 모델 로드가 제일 오래 걸린다
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
