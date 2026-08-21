@@ -22,7 +22,7 @@ process.env.JANUS_AUTH_TOKEN = authToken
 process.env.JANUS_ALLOWED_ORIGINS = allowedOrigins
 
 // GUI로 실행되면 PATH에 uv(~/.local/bin)와 homebrew가 없을 수 있다.
-const env = {
+const env: NodeJS.ProcessEnv = {
   ...process.env,
   PATH: `${process.env.HOME}/.local/bin:/opt/homebrew/bin:${process.env.PATH ?? ''}`,
   JANUS_AUTH_TOKEN: authToken,
@@ -238,6 +238,8 @@ ipcMain.handle('pick-folder', async () => {
 ipcMain.handle('backend-status', () => backendStatus())
 
 app.whenReady().then(() => {
+  env.JANUS_STATE_FILE =
+    process.env.JANUS_STATE_FILE ?? join(app.getPath('userData'), 'state.json')
   startBackendSupervisor() // 창보다 먼저 시작 — 모델 로드가 제일 오래 걸린다
   createWindow()
   app.on('activate', () => {

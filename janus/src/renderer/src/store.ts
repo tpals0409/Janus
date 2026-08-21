@@ -226,6 +226,7 @@ export const useStore = create<State>((set, get) => ({
 
   async boot() {
     const currentAgentId = get().agentId
+    const previousWorkspace = get().workspace
     try {
       const [health, agents, tools, models, ws, backendStatus] = await Promise.all([
         apiJson(`${BASE}/health`),
@@ -235,6 +236,7 @@ export const useStore = create<State>((set, get) => ({
         apiJson(`${BASE}/workspace`),
         readBackendStatus()
       ])
+      const workspaceChanged = previousWorkspace !== null && previousWorkspace !== ws.path
       set({
         serverUp: true,
         mlxUp: Boolean(health.mlx),
@@ -242,7 +244,14 @@ export const useStore = create<State>((set, get) => ({
         agents,
         tools,
         models,
-        workspace: ws.path
+        workspace: ws.path,
+        ...(workspaceChanged
+          ? {
+              tree: {},
+              openedFile: null,
+              view: get().view === 'file' ? ('graph' as const) : get().view
+            }
+          : {})
       })
       get().loadDir('')
       const currentStillExists = currentAgentId && agents.some((a: AgentSummary) => a.id === currentAgentId)

@@ -9,6 +9,9 @@ from pathlib import Path
 
 os.environ["JANUS_AUTH_TOKEN"] = "test-token"
 os.environ["JANUS_ALLOWED_ORIGINS"] = "http://localhost:5173"
+os.environ["JANUS_STATE_FILE"] = str(
+    Path(tempfile.gettempdir()) / f"janus-test-state-{os.getpid()}.json"
+)
 
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect

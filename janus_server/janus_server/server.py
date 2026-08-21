@@ -12,6 +12,7 @@ import os
 import re
 import secrets
 import sys
+import tempfile
 import threading
 import uuid
 from datetime import datetime
@@ -29,6 +30,10 @@ from . import trace
 
 AGENTS_DIR = Path(__file__).parent / "agents"
 RUNS_DIR = Path(__file__).parent / "runs"    # 실행 기록. 앱을 닫아도 남는다.
+STATE_FILE = Path(
+    os.environ.get("JANUS_STATE_FILE", str(Path.home() / ".janus" / "state.json"))
+).expanduser()
+_STATE_LOCK = threading.Lock()
 
 # Electron main이 기동마다 만든 토큰을 서버/렌더러에만 나눠준다.
 # 수동 기동도 무인증으로 열리지 않도록, env가 없으면 서버가 자체적으로
@@ -55,6 +60,59 @@ def _origin_allowed(origin: str | None) -> bool:
 
 def _token_valid(candidate: str | None) -> bool:
     return candidate is not None and hmac.compare_digest(candidate, AUTH_TOKEN)
+
+
+def _read_state() -> dict:
+    if not STATE_FILE.is_file():
+        return {}
+    try:
+        value = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"[janus] state read failed: {type(e).__name__}: {e}", file=sys.stderr)
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _persist_workspace(path: Path) -> None:
+    """워크스페이스를 원자적으로 저장한다.
+
+    동시 인스턴스가 써도 완성된 JSON 하나가 replace되므로 반쪽 파일이
+    남지 않는다. 마지막 성공 쓰기가 승리한다.
+    """
+    with _STATE_LOCK:
+        state = _read_state()
+        state["workspace"] = str(path)
+        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=f".{STATE_FILE.name}.", suffix=".tmp", dir=STATE_FILE.parent
+        )
+        tmp = Path(tmp_name)
+        try:
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(state, f, ensure_ascii=False, indent=2)
+                f.write("\n")
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, STATE_FILE)
+        finally:
+            tmp.unlink(missing_ok=True)
+
+
+def _restore_workspace() -> bool:
+    saved = _read_state().get("workspace")
+    if not isinstance(saved, str) or not saved:
+        return False
+    try:
+        T.set_workspace(saved)
+    except ValueError as e:
+        # 삭제된 폴더나 접근 불가 경로는 기본 workspace로 안전하게 돌아간다.
+        print(f"[janus] saved workspace ignored: {e}", file=sys.stderr)
+        return False
+    return True
+
+
+_restore_workspace()
 
 
 def _save_run(agent_id: str, inputs: dict, spans: list, cancelled: bool) -> None:
@@ -245,10 +303,17 @@ def set_workspace(body: dict):
     path = body.get("path")
     if not path:
         raise HTTPException(400, "path가 필요합니다")
+    previous = T.get_workspace()
     try:
         p = T.set_workspace(path)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    try:
+        _persist_workspace(p)
+    except OSError as e:
+        # UI는 저장 실패를 받고 이전 경로를 계속 표시해야 하므로 메모리도 롤백한다.
+        T.set_workspace(str(previous))
+        raise HTTPException(500, f"워크스페이스 설정 저장 실패: {e}")
     return {"path": str(p)}
 
 
