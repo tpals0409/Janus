@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from typing import Callable
 
 from openai import OpenAI
@@ -65,12 +66,21 @@ def build_system_prompt(base: str, tool_names: list[str]) -> str:
     )
 
 
-def _assemble(stream, emit) -> tuple[str, list[dict]]:
-    """스트리밍 청크를 (텍스트, tool_calls)로 조립."""
+def _assemble(stream, emit, cancel=None) -> tuple[str, list[dict]]:
+    """스트리밍 청크를 (텍스트, tool_calls)로 조립.
+
+    cancel이 켜지면 스트림을 닫고 즉시 나온다 — 생성 도중에도 멈출 수 있어야 한다.
+    """
     parts: list[str] = []
     calls: dict[int, dict] = {}
 
     for chunk in stream:
+        if cancel is not None and cancel.is_set():
+            try:
+                stream.close()
+            except Exception:
+                pass
+            break
         if not chunk.choices:
             continue
         delta = chunk.choices[0].delta
@@ -101,6 +111,7 @@ def run(
     approve: Callable[[str, dict], bool],
     emit: Callable[..., None],
     max_steps: int = DEFAULT_MAX_STEPS,
+    cancel: threading.Event | None = None,
 ) -> tuple[str, list[dict]]:
     """에이전트를 한 번 돌린다.
 
@@ -119,11 +130,24 @@ def run(
     last_text = ""
 
     for step in range(max_steps):
+        if cancel is not None and cancel.is_set():
+            emit("done", reason="cancelled")
+            return last_text, session.events
+
         emit("step", n=step + 1)
-        kwargs = {"model": model, "messages": session.derive_messages(), "stream": True}
+        msgs = session.derive_messages()
+        # 실제 전송분을 트레이스에. 매 step 전체를 실으면 스팬이 비대해지므로
+        # 첫 step만 전체, 이후엔 직전 assistant/tool 응답 이후의 증분(마지막 2개)만.
+        emit("llm_call", messages=msgs if step == 0 else msgs[-2:],
+             total_messages=len(msgs))
+        kwargs = {"model": model, "messages": msgs, "stream": True}
         if schemas:
             kwargs["tools"] = schemas
-        text, calls = _assemble(client.chat.completions.create(**kwargs), emit)
+        text, calls = _assemble(client.chat.completions.create(**kwargs), emit, cancel)
+
+        if cancel is not None and cancel.is_set():
+            emit("done", reason="cancelled")
+            return last_text, session.events
 
         session.append("assistant", content=text, tool_calls=calls or None)
         if text:

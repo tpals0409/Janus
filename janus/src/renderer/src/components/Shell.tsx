@@ -195,6 +195,8 @@ export function AgentList() {
 
 export function StatusBar() {
   const serverUp = useStore((s) => s.serverUp)
+  const workspace = useStore((s) => s.workspace)
+  const pickWorkspace = useStore((s) => s.pickWorkspace)
   const dirty = useStore((s) => s.dirty)
   const errors = useStore((s) => s.errors)
 
@@ -207,6 +209,13 @@ export function StatusBar() {
         />
         {serverUp ? 'janus-server :8765' : '서버 연결 안 됨'}
       </span>
+      <button
+        onClick={pickWorkspace}
+        title="에이전트 파일 도구가 갇히는 폴더. 클릭해서 변경"
+        className="max-w-[340px] truncate font-mono text-[10.5px] text-faint hover:text-fg"
+      >
+        ws: {workspace ?? '—'}
+      </button>
       {errors.length > 0 && <span className="text-danger">스펙 오류 {errors.length}건</span>}
       {dirty && <span className="text-warn">저장되지 않은 변경</span>}
       <span className="ml-auto text-faint">Janus v0.1.0</span>

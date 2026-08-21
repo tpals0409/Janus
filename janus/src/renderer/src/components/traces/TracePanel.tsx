@@ -22,6 +22,7 @@ export default function TracePanel() {
   const selectSpan = useStore((s) => s.selectSpan)
   const running = useStore((s) => s.running)
   const runError = useStore((s) => s.runError)
+  const cancelled = useStore((s) => s.cancelled)
   const [io, setIo] = useState<'input' | 'output'>('output')
 
   const liveEvents = useStore((s) => s.liveEvents)
@@ -55,8 +56,8 @@ export default function TracePanel() {
       {/* 스팬 목록 */}
       <div className="w-[300px] shrink-0 overflow-y-auto border-r border-border">
         <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-[11px] text-muted">
-          <span className={running ? 'text-accent-fg' : 'text-ok'}>
-            {running ? '● Running' : '● Success'}
+          <span className={running ? 'text-accent-fg' : cancelled ? 'text-warn' : 'text-ok'}>
+            {running ? '● Running' : cancelled ? '● 중단됨' : '● Success'}
           </span>
           <span className="ml-auto font-mono">{(total / 1000).toFixed(2)}s</span>
         </div>

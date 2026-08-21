@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronRight, User, Wrench } from 'lucide-react'
+import { ChevronRight, MessageSquareText, User, Wrench } from 'lucide-react'
 import type { AgentEvent } from '../../types'
 
 /** tool_start와 뒤따르는 tool_result를 한 줄로 짝지은 것 */
@@ -13,6 +13,7 @@ interface ToolRun {
 type Row =
   | { kind: 'user' | 'assistant'; text: string }
   | { kind: 'tools'; runs: ToolRun[] }
+  | { kind: 'llm_call'; messages: { role: string; content: string }[]; total: number }
 
 /** 이벤트 스트림을 화면 줄로 접는다. 연속된 툴 호출은 한 묶음으로 모은다. */
 function toRows(events: AgentEvent[]): Row[] {
@@ -22,6 +23,8 @@ function toRows(events: AgentEvent[]): Row[] {
       rows.push({ kind: 'user', text: e.content ?? '' })
     } else if (e.kind === 'assistant' && e.content) {
       rows.push({ kind: 'assistant', text: e.content })
+    } else if (e.kind === 'llm_call') {
+      rows.push({ kind: 'llm_call', messages: e.messages ?? [], total: e.total_messages ?? (e.messages?.length ?? 0) })
     } else if (e.kind === 'tool_start') {
       const last = rows[rows.length - 1]
       const run: ToolRun = { name: e.name ?? '?', args: e.args, pending: true }
@@ -93,6 +96,41 @@ function ToolLine({ run }: { run: ToolRun }) {
   )
 }
 
+/** 모델에 실제로 보낸 메시지 — 템플릿 치환이 끝난 전문. 접힌 채로는 한 줄이다. */
+function PromptLine({ messages, total }: { messages: { role: string; content: string }[]; total: number }) {
+  const [open, setOpen] = useState(false)
+  const chars = messages.reduce((a, m) => a + (m.content?.length ?? 0), 0)
+  return (
+    <div>
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center gap-1.5 py-0.5 text-left font-mono text-[11px] text-faint hover:text-muted"
+      >
+        <ChevronRight size={11} className="shrink-0 transition-transform"
+          style={{ transform: open ? 'rotate(90deg)' : 'none', opacity: open ? 1 : 0.35 }} />
+        <MessageSquareText size={10} className="shrink-0 text-accent-fg" />
+        <span>prompt</span>
+        <span className="truncate">
+          {messages.map((m) => m.role).join('+')} · {chars}자
+          {total > messages.length ? ` (증분, 전체 ${total}개)` : ''}
+        </span>
+      </button>
+      {open && (
+        <div className="ml-4 space-y-1.5 border-l border-border pl-2.5">
+          {messages.map((m, i) => (
+            <div key={i}>
+              <div className="text-[9.5px] uppercase tracking-wider text-faint">{m.role}</div>
+              <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[10.5px] text-muted">
+                {m.content}
+              </pre>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function SessionView({
   events,
   live
@@ -118,7 +156,9 @@ export default function SessionView({
       </div>
 
       {rows.map((row, i) =>
-        row.kind === 'tools' ? (
+        row.kind === 'llm_call' ? (
+          <PromptLine key={i} messages={row.messages} total={row.total} />
+        ) : row.kind === 'tools' ? (
           <div key={i} className="space-y-0.5">
             {row.runs.map((r, j) => (
               <ToolLine key={j} run={r} />

@@ -7,8 +7,8 @@ handler는 **구조화된 dict**를 반환하고 render()가 모델용 텍스트
 로그에 원본 dict가 남아야 UI가 diff 같은 걸 그릴 수 있다 — render 결과만 자르고
 원본은 자르지 않는다.
 
-주의: 파일 도구는 서버 프로세스의 cwd 기준으로 경로를 해석한다. 워크스페이스 격리는
-아직 없다 — 승인 프롬프트가 경로를 그대로 보여주는 것이 현재의 유일한 방어선이다.
+파일 도구는 WORKSPACE 안에 갇힌다(_resolve가 jail 검사). run_bash는 cwd만 WORKSPACE로
+잡을 뿐 cd로 어디든 갈 수 있다 — 그래서 승인 게이트가 bash의 방어선이다.
 """
 
 from __future__ import annotations
@@ -24,6 +24,38 @@ from pathlib import Path
 MAX_RENDER_CHARS = 4000
 BASH_TIMEOUT = 120
 
+# 파일 도구가 갇히는 디렉토리. 서버 cwd가 아니라 명시적 워크스페이스다.
+WORKSPACE = (Path(__file__).parent / "workspace").resolve()
+
+
+def set_workspace(path: str) -> Path:
+    global WORKSPACE
+    p = Path(path).expanduser().resolve()
+    if not p.is_dir():
+        raise ValueError(f"디렉토리가 아닙니다: {path}")
+    WORKSPACE = p
+    return p
+
+
+def get_workspace() -> Path:
+    WORKSPACE.mkdir(parents=True, exist_ok=True)
+    return WORKSPACE
+
+
+def _resolve(path: str) -> Path:
+    """상대경로는 WORKSPACE 기준으로 해석하고, 밖으로 나가면 거부한다.
+
+    ValueError는 dispatch()가 {"error": ...}로 바꿔 모델에게 돌려준다.
+    """
+    ws = get_workspace()
+    p = Path(path).expanduser()
+    if not p.is_absolute():
+        p = ws / p
+    rp = p.resolve()
+    if not rp.is_relative_to(ws):
+        raise ValueError(f"워크스페이스({ws}) 밖 경로: {path}")
+    return rp
+
 
 def _clip(text: str) -> str:
     if len(text) <= MAX_RENDER_CHARS:
@@ -38,21 +70,25 @@ def _clip(text: str) -> str:
 
 
 def _read_file(path: str, **_):
-    p = Path(path).expanduser()
+    p = _resolve(path)
     if not p.is_file():
         return {"error": f"파일 없음: {path}"}
     return {"path": str(p), "content": p.read_text(encoding="utf-8", errors="replace")}
 
 
 def _glob(pattern: str, **_):
-    matches = sorted(str(p) for p in Path.cwd().glob(pattern) if p.is_file())
+    ws = get_workspace()
+    # 패턴에 ..가 있어도 결과를 jail로 거른다
+    matches = sorted(str(p) for p in ws.glob(pattern)
+                     if p.is_file() and p.resolve().is_relative_to(ws))
     return {"pattern": pattern, "matches": matches}
 
 
 def _grep(pattern: str, path: str = ".", **_):
+    root = _resolve(path)
     if shutil.which("rg"):
         r = subprocess.run(
-            ["rg", "--line-number", "--no-heading", "--color=never", pattern, path],
+            ["rg", "--line-number", "--no-heading", "--color=never", pattern, str(root)],
             capture_output=True, text=True, timeout=60,
         )
         # rg는 매치 없음에 exit 1을 쓴다. 그건 에러가 아니다.
@@ -62,7 +98,7 @@ def _grep(pattern: str, path: str = ".", **_):
     else:
         rx = re.compile(pattern)
         lines = []
-        for f in Path(path).rglob("*"):
+        for f in root.rglob("*"):
             if not f.is_file():
                 continue
             try:
@@ -75,7 +111,7 @@ def _grep(pattern: str, path: str = ".", **_):
 
 
 def _write_file(path: str, content: str, **_):
-    p = Path(path).expanduser()
+    p = _resolve(path)
     existed = p.is_file()
     old = p.read_text(encoding="utf-8", errors="replace") if existed else None
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -84,7 +120,7 @@ def _write_file(path: str, content: str, **_):
 
 
 def _edit_file(path: str, old_string: str, new_string: str, **_):
-    p = Path(path).expanduser()
+    p = _resolve(path)
     if not p.is_file():
         return {"error": f"파일 없음: {path}"}
     text = p.read_text(encoding="utf-8", errors="replace")
@@ -102,7 +138,7 @@ def _edit_file(path: str, old_string: str, new_string: str, **_):
 def _run_bash(command: str, **_):
     try:
         r = subprocess.run(command, shell=True, capture_output=True, text=True,
-                           timeout=BASH_TIMEOUT, cwd=os.getcwd())
+                           timeout=BASH_TIMEOUT, cwd=get_workspace())
     except subprocess.TimeoutExpired:
         return {"command": command, "error": f"{BASH_TIMEOUT}초 타임아웃"}
     return {"command": command, "exit_code": r.returncode,
@@ -318,9 +354,10 @@ def listing() -> list[dict]:
 def demo():
     import tempfile
 
-    cwd = os.getcwd()
+    global WORKSPACE
+    prev_ws = WORKSPACE
     with tempfile.TemporaryDirectory() as d:
-        os.chdir(d)
+        set_workspace(d)
         try:
             v = dispatch("write_file", {"path": "hi.py", "content": "x = 1\ny = 2\n"})
             assert v["created"] and v["old"] is None, v
@@ -350,8 +387,25 @@ def demo():
             dispatch("write_file", {"path": "big.txt", "content": "z" * 20000})
             assert len(render("read_file", dispatch("read_file", {"path": "big.txt"}))) \
                 < MAX_RENDER_CHARS + 100
+            # ── jail: 워크스페이스 밖은 어떤 경로 표기로도 못 나간다 ──
+            for esc in ("../escape.txt", "/etc/hosts", "a/../../escape.txt", "~/escape.txt"):
+                v = dispatch("read_file", {"path": esc})
+                assert "error" in v and "밖 경로" in v["error"], (esc, v)
+                v = dispatch("write_file", {"path": esc, "content": "x"})
+                assert "error" in v and "밖 경로" in v["error"], (esc, v)
+            v = dispatch("grep", {"pattern": "x", "path": ".."})
+            assert "error" in v and "밖 경로" in v["error"], v
+            # 절대경로여도 워크스페이스 안이면 된다
+            v = dispatch("read_file", {"path": str(get_workspace() / "hi.py")})
+            assert "content" in v, v
+            # 패턴으로 탈출 시도해도 결과가 걸러진다
+            v = dispatch("glob", {"pattern": "../*"})
+            assert v["matches"] == [], v
+            # run_bash는 워크스페이스에서 시작한다
+            v = dispatch("run_bash", {"command": "pwd"})
+            assert v["stdout"].strip() == str(get_workspace()), v
         finally:
-            os.chdir(cwd)
+            WORKSPACE = prev_ws
 
     # 범용 도구
     assert dispatch("echo", {"text": "hi"})["text"] == "hi"

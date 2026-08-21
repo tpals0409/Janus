@@ -20,7 +20,7 @@ export interface SpecNode {
 /** agent 노드가 도는 동안 흘러나오는 세션 이벤트 */
 export interface AgentEvent {
   node_id: string
-  kind: 'user' | 'assistant' | 'step' | 'text_delta' | 'tool_start' | 'tool_result' | 'done'
+  kind: 'user' | 'assistant' | 'step' | 'text_delta' | 'tool_start' | 'tool_result' | 'llm_call' | 'done'
   at_ms: number
   content?: string
   text?: string
@@ -29,6 +29,8 @@ export interface AgentEvent {
   args?: Record<string, unknown>
   value?: Record<string, unknown>
   reason?: string
+  messages?: { role: string; content: string }[]
+  total_messages?: number
 }
 
 export interface ApprovalRequest {

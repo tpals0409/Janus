@@ -129,6 +129,23 @@ def put_agent(agent_id: str, body: dict):
     return {"saved": True, "errors": [], "yaml": S.dumps(new_spec)}
 
 
+@app.get("/workspace")
+def get_workspace():
+    return {"path": str(T.get_workspace())}
+
+
+@app.post("/workspace")
+def set_workspace(body: dict):
+    path = body.get("path")
+    if not path:
+        raise HTTPException(400, "path가 필요합니다")
+    try:
+        p = T.set_workspace(path)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"path": str(p)}
+
+
 @app.get("/tools")
 def list_tools():
     return T.listing()
@@ -153,6 +170,7 @@ async def run_agent(ws: WebSocket, agent_id: str):
     loop = asyncio.get_running_loop()
     pending: dict[str, list] = {}   # req_id -> [threading.Event, approved]
     run_task: asyncio.Task | None = None
+    cancel_event = threading.Event()
 
     def approver(node_id: str, tool: str, args: dict) -> bool:
         """agent 워커 스레드에서 **블로킹**으로 호출된다."""
@@ -184,9 +202,13 @@ async def run_agent(ws: WebSocket, agent_id: str):
         node_ids = {n["id"] for n in spec["nodes"]}
         state = C.initial_state(spec, inputs)
         await ws.send_json({"type": "run_start", "agent_id": agent_id})
-        async for ev in trace.run(graph, state, node_ids, C.RECURSION_LIMIT,
-                                  approver=approver):
-            await ws.send_json(ev)
+        try:
+            async for ev in trace.run(graph, state, node_ids, C.RECURSION_LIMIT,
+                                      approver=approver, cancel_event=cancel_event):
+                await ws.send_json(ev)
+        except asyncio.CancelledError:
+            # task.cancel() 백스톱으로 끊긴 경우 — UI가 '실행 중'에 갇히면 안 된다
+            await ws.send_json({"type": "run_end", "cancelled": True})
 
     try:
         while True:
@@ -196,6 +218,7 @@ async def run_agent(ws: WebSocket, agent_id: str):
             if t == "run":
                 if run_task and not run_task.done():
                     continue          # 이미 돌고 있으면 무시
+                cancel_event.clear()
                 run_task = asyncio.create_task(do_run(msg.get("inputs") or {}))
 
             elif t == "approval_response":
@@ -205,6 +228,9 @@ async def run_agent(ws: WebSocket, agent_id: str):
                     slot[0].set()
 
             elif t == "cancel":
+                # ① 에이전트 워커 스레드에 취소 신호 — 생성 중에도 스트림을 닫고 나온다
+                cancel_event.set()
+                # ② asyncio 쪽 백스톱
                 if run_task and not run_task.done():
                     run_task.cancel()
                 # 대기 중인 승인은 전부 거부로 풀어준다 — 안 그러면 스레드가 매달린다
@@ -220,6 +246,7 @@ async def run_agent(ws: WebSocket, agent_id: str):
         except Exception:
             pass
     finally:
+        cancel_event.set()   # 연결이 끊기면 워커도 멈춰야 한다
         if run_task and not run_task.done():
             run_task.cancel()
         for slot in pending.values():   # 매달린 워커 스레드를 풀어준다

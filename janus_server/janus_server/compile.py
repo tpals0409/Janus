@@ -121,7 +121,7 @@ def _make_llm(node: dict):
     system = node.get("system_prompt")
     prompt_tpl = node.get("prompt")
 
-    async def run(state: State) -> dict:
+    async def run(state: State, config: RunnableConfig = None) -> dict:
         values = _resolve_inputs(node, state)
         if prompt_tpl:
             user = spec_mod.resolve(prompt_tpl, state.get("outputs", {}))
@@ -129,6 +129,13 @@ def _make_llm(node: dict):
             # prompt가 없으면 inputs를 그대로 보여준다
             user = "\n".join(f"{k}: {v}" for k, v in values.items() if v is not None)
         msgs = ([("system", system)] if system else []) + [("user", user or "")]
+
+        # 실제로 보낸 프롬프트를 트레이스에 남긴다 — 템플릿 치환이 끝난 텍스트다.
+        # "왜 이렇게 답했지?"는 이걸 봐야 추측 없이 답할 수 있다.
+        sink = ((config or {}).get("configurable", {}) or {}).get("event_sink")
+        if sink:
+            sink(nid, "llm_call", {"messages": [{"role": r, "content": c} for r, c in msgs]})
+
         resp = await llm.ainvoke(msgs)
         return {"outputs": {nid: {out_field: resp.content}}}
 
@@ -187,6 +194,7 @@ def _make_agent(node: dict):
         cfg = (config or {}).get("configurable", {}) or {}
         sink = cfg.get("event_sink")        # (node_id, kind, data) -> None, 스레드 안전
         approver = cfg.get("approver")      # (node_id, tool, args) -> bool, 블로킹
+        cancel_event = cfg.get("cancel_event")  # threading.Event — Stop 버튼
 
         def emit(kind, **d):
             if sink:
@@ -208,6 +216,7 @@ def _make_agent(node: dict):
             client=client, model=conf["model"], system_prompt=system,
             task=task or "(no input)", tool_names=tool_names,
             approve=approve, emit=emit, max_steps=max_steps,
+            cancel=cancel_event,
         )
         return {"outputs": {nid: {out_field: text}}}
 

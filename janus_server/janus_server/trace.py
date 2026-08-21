@@ -35,6 +35,7 @@ async def run(
     node_ids: set[str],
     recursion_limit: int = 50,
     approver: Callable[[str, str, dict], bool] | None = None,
+    cancel_event=None,
 ) -> AsyncIterator[dict]:
     """그래프를 돌리며 이벤트를 낸다.
 
@@ -64,7 +65,8 @@ async def run(
             async for ev in graph.astream_events(
                 state, version="v2",
                 config={"recursion_limit": recursion_limit,
-                        "configurable": {"event_sink": sink, "approver": approver}},
+                        "configurable": {"event_sink": sink, "approver": approver,
+                                         "cancel_event": cancel_event}},
             ):
                 name, kind, run_id = ev.get("name"), ev.get("event"), ev.get("run_id")
 
@@ -100,6 +102,14 @@ async def run(
                     if text and node not in sessions:
                         await q.put({"type": "token", "node_id": node, "text": text})
 
+        except asyncio.CancelledError:
+            # Stop — 에러가 아니다. 열린 스팬을 cancelled로 닫는다.
+            for span in open_spans.values():
+                span.update(status="error", duration_ms=ms() - span["started_ms"],
+                            output={"error": "사용자가 실행을 중단함"},
+                            events=sessions.get(span["node_id"], []))
+                await q.put({"type": "span_end", "span": span})
+            await q.put({"type": "run_end", "duration_ms": ms(), "cancelled": True})
         except Exception as e:
             for span in open_spans.values():
                 span.update(status="error", duration_ms=ms() - span["started_ms"],

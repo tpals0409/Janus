@@ -7,6 +7,7 @@ const BASE = 'http://localhost:8765'
 
 interface State {
   serverUp: boolean | null
+  workspace: string | null
   agents: AgentSummary[]
   tools: ToolInfo[]
   models: { name: string; provider: string }[]
@@ -34,8 +35,10 @@ interface State {
   ws: WebSocket | null
   selectedSpanId: string | null
   runError: string | null
+  cancelled: boolean
 
   boot(): Promise<void>
+  pickWorkspace(): Promise<void>
   openAgent(id: string): Promise<void>
   createAgent(name: string): Promise<void>
   deleteAgent(id: string): Promise<void>
@@ -149,6 +152,7 @@ function blankNode(spec: Spec, type: NodeType, models: { name: string }[], tools
 
 export const useStore = create<State>((set, get) => ({
   serverUp: null,
+  workspace: null,
   agents: [],
   tools: [],
   models: [],
@@ -168,19 +172,33 @@ export const useStore = create<State>((set, get) => ({
   ws: null,
   selectedSpanId: null,
   runError: null,
+  cancelled: false,
 
   async boot() {
     try {
-      const [agents, tools, models] = await Promise.all([
+      const [agents, tools, models, ws] = await Promise.all([
         fetch(`${BASE}/agents`).then((r) => r.json()),
         fetch(`${BASE}/tools`).then((r) => r.json()),
-        fetch(`${BASE}/models`).then((r) => r.json())
+        fetch(`${BASE}/models`).then((r) => r.json()),
+        fetch(`${BASE}/workspace`).then((r) => r.json())
       ])
-      set({ serverUp: true, agents, tools, models })
+      set({ serverUp: true, agents, tools, models, workspace: ws.path })
       if (agents[0]) await get().openAgent(agents[0].id)
     } catch {
       set({ serverUp: false })
     }
+  },
+
+  async pickWorkspace() {
+    // Electron 밖(브라우저)에서 열렸으면 다이얼로그가 없다 — 조용히 무시
+    const picked = await window.janus?.pickFolder()
+    if (!picked) return
+    const r = await fetch(`${BASE}/workspace`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: picked })
+    })
+    if (r.ok) set({ workspace: (await r.json()).path })
   },
 
   async openAgent(id) {
@@ -354,7 +372,7 @@ export const useStore = create<State>((set, get) => ({
     const { agentId, running } = get()
     if (!agentId || running) return
     set({ running: true, spans: [], liveEvents: {}, approval: null,
-          selectedSpanId: null, runError: null })
+          selectedSpanId: null, runError: null, cancelled: false })
 
     const ws = new WebSocket(`ws://localhost:8765/run/${agentId}`)
     set({ ws })
@@ -382,7 +400,7 @@ export const useStore = create<State>((set, get) => ({
         set({ runError: ev.error, running: false, approval: null })
         ws.close()
       } else if (ev.type === 'run_end') {
-        set({ running: false, approval: null })
+        set({ running: false, approval: null, cancelled: Boolean(ev.cancelled) })
         ws.close()
       }
     }
