@@ -54,6 +54,24 @@ async def run(
     def ms() -> int:
         return round((time.perf_counter() - t0) * 1000)
 
+    def event_node(ev: dict) -> str | None:
+        """LangGraph v2 이벤트를 실제 부모 노드에 귀속시킨다.
+
+        병렬 노드가 두 개 이상 열려 있을 때 임의의 첫 스팬을 고르지 않는다.
+        metadata를 우선하고, 없으면 parent_ids의 가장 가까운 열린 노드를 찾는다.
+        """
+        metadata = ev.get("metadata") or {}
+        node = metadata.get("langgraph_node")
+        if node in node_types:
+            return node
+        for parent_id in reversed(ev.get("parent_ids") or []):
+            span = open_spans.get(parent_id)
+            if span is not None:
+                return span["node_id"]
+        if len(open_spans) == 1:  # 순차 그래프의 예전 이벤트 형식 호환
+            return next(iter(open_spans.values()))["node_id"]
+        return None
+
     def sink(node_id: str, kind: str, data: dict) -> None:
         """agent 워커 스레드에서 호출된다 — 반드시 스레드 안전해야 한다."""
         if kind == "usage":
@@ -108,7 +126,7 @@ async def run(
                     await q.put({"type": "span_end", "span": span})
 
                 elif kind == "on_chat_model_end":
-                    node = next((sp["node_id"] for sp in open_spans.values()), None)
+                    node = event_node(ev)
                     out = (ev.get("data") or {}).get("output")
                     um = getattr(out, "usage_metadata", None)
                     if node and um:
@@ -122,9 +140,9 @@ async def run(
                     # 단, agent 노드가 자기 sink로 text_delta를 넣었다면 그건 스킵(중복 방지).
                     chunk = (ev.get("data") or {}).get("chunk")
                     text = getattr(chunk, "content", "") or ""
-                    node = next((s["node_id"] for s in open_spans.values()), None)
+                    node = event_node(ev)
                     has_own = any(e["kind"] == "text_delta" for e in sessions.get(node, []))
-                    if text and not has_own:
+                    if node and text and not has_own:
                         await q.put({"type": "token", "node_id": node, "text": text})
 
         except asyncio.CancelledError:

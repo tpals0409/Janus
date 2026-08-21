@@ -68,7 +68,9 @@
 - **H3 수정 완료:** 모든 message/error/close 콜백이 자기 소켓이 현재 소켓인지 검증해
   이전 `onclose` 이벤트가 새 실행 상태를 지우지 못한다.
 - **H5** 강제 종료 시 27B가 RAM에 고아로 남고, 다음 실행이 **옛 코드 백엔드에 조용히 붙음**
-- **M5** 병렬 노드에서 토큰이 엉뚱한 노드에 귀속(`trace.py:104` 임의 open span)
+- **M5 수정 완료:** chat token/usage를 LangGraph `metadata.langgraph_node`와 `parent_ids` 계보로
+  실제 부모 스팬에 귀속시킨다. 병렬 노드가 둘 이상인데 계보가 없으면 임의로
+  고르지 않는다. 두 병렬 LLM의 token/usage 분리 회귀 테스트를 추가했다.
 - **M6** 순환 그래프가 트랜스크립트·토큰 이중 계산(span_start에서 sessions 리셋 안 함)
 
 ### 5. 나머지
