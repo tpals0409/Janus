@@ -1,5 +1,14 @@
 import { useState } from 'react'
-import { CheckCircle2, CircleDashed, Clock, Loader2, XCircle } from 'lucide-react'
+import {
+  CheckCircle2,
+  CircleDashed,
+  Clock,
+  Columns2,
+  Loader2,
+  RefreshCw,
+  X,
+  XCircle
+} from 'lucide-react'
 import { useStore } from '../../store'
 import SessionView from './SessionView'
 import type { Span } from '../../types'
@@ -25,6 +34,78 @@ function StatusIcon({ s }: { s: Span['status'] }) {
   return <CheckCircle2 size={13} className="text-ok" />
 }
 
+function shortAt(at: string): string {
+  return /^\d{8}-\d{6}/.test(at) ? `${at.slice(4, 8)} ${at.slice(9, 15)}` : at
+}
+
+function ComparisonColumn({
+  label,
+  at,
+  span,
+  inputs,
+  events = [],
+  live = false
+}: {
+  label: 'A' | 'B'
+  at: string
+  span?: Span
+  inputs: Record<string, string>
+  events?: NonNullable<Span['events']>
+  live?: boolean
+}) {
+  return (
+    <div className="min-w-0 flex-1 overflow-y-auto px-4 py-3">
+      <div className="mb-3 flex items-center gap-2 border-b border-border pb-2">
+        <span
+          className="rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold"
+          style={{
+            color: label === 'A' ? 'var(--color-accent-fg)' : 'var(--color-warn)',
+            background: label === 'A' ? 'var(--color-accent-soft)' : '#fbbf2418'
+          }}
+        >
+          {label}
+        </span>
+        <span className="text-[11px] text-muted">{shortAt(at)}</span>
+        {span && (
+          <span className="ml-auto font-mono text-[10px] text-faint">
+            {(span.duration_ms ?? 0) / 1000}s
+          </span>
+        )}
+      </div>
+
+      <details className="mb-3 rounded-md border border-border bg-panel-2 p-2">
+        <summary className="cursor-pointer text-[10px] tracking-wider text-faint">RUN INPUTS</summary>
+        <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-[11px] text-muted">
+          {pretty(inputs)}
+        </pre>
+      </details>
+
+      {span ? (
+        <>
+          <div className="mb-2 flex items-center gap-2">
+            <StatusIcon s={span.status} />
+            <span className="truncate text-[12px] font-medium">{span.node_id}</span>
+          </div>
+          {perfLine(span) && (
+            <div className="mb-2 font-mono text-[10.5px] text-faint">{perfLine(span)}</div>
+          )}
+          <div className="mb-3 rounded-md border border-border bg-panel-2 p-2">
+            <div className="mb-1 text-[10px] tracking-wider text-faint">OUTPUT</div>
+            <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-fg">
+              {pretty(span.output)}
+            </pre>
+          </div>
+          {events.length > 0 && <SessionView events={events} live={live} />}
+        </>
+      ) : (
+        <div className="rounded-md border border-dashed border-border p-3 text-[11px] text-faint">
+          A에서 선택한 노드와 같은 노드가 이 실행에는 없습니다.
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function TracePanel() {
   const spans = useStore((s) => s.spans)
   const selectedSpanId = useStore((s) => s.selectedSpanId)
@@ -35,6 +116,13 @@ export default function TracePanel() {
   const pastRuns = useStore((s) => s.pastRuns)
   const viewingRunId = useStore((s) => s.viewingRunId)
   const loadRun = useStore((s) => s.loadRun)
+  const comparisonRun = useStore((s) => s.comparisonRun)
+  const loadComparison = useStore((s) => s.loadComparison)
+  const clearComparison = useStore((s) => s.clearComparison)
+  const rerun = useStore((s) => s.rerun)
+  const rerunRun = useStore((s) => s.rerunRun)
+  const runInputs = useStore((s) => s.runInputs)
+  const lastRunInputs = useStore((s) => s.lastRunInputs)
   const [showHistory, setShowHistory] = useState(false)
   const [io, setIo] = useState<'input' | 'output'>('output')
 
@@ -43,6 +131,12 @@ export default function TracePanel() {
   const total = spans.reduce((a, s) => Math.max(a, (s.started_ms ?? 0) + (s.duration_ms ?? 0)), 0)
   const failed = Boolean(runError || spans.some((s) => s.status === 'error'))
   const runState = running ? 'running' : cancelled ? 'cancelled' : failed ? 'error' : 'success'
+  const comparisonSpan = comparisonRun?.spans.find((s) => s.node_id === span?.node_id)
+  const primaryAt = viewingRunId
+    ? (pastRuns.find((r) => r.id === viewingRunId)?.at ?? viewingRunId)
+    : running
+      ? '실행 중'
+      : '현재 실행'
 
   // 아직 안 끝난 agent 노드는 스팬에 events가 없다 — live에서 가져온다
   const events = span ? (span.events ?? liveEvents[span.node_id] ?? []) : []
@@ -60,22 +154,42 @@ export default function TracePanel() {
         {showHistory && (
           <div className="max-h-40 overflow-y-auto pb-1">
             {pastRuns.map((r) => (
-              <button
+              <div
                 key={r.id}
-                onClick={() => {
-                  loadRun(r.id)
-                  setShowHistory(false)
-                }}
-                className="flex w-full items-center gap-2 border-l-2 px-3 py-1 text-left hover:bg-panel-2"
+                className="flex items-center border-l-2 hover:bg-panel-2"
                 style={{ borderLeftColor: r.id === viewingRunId ? 'var(--color-accent)' : 'transparent' }}
               >
-                <span className="font-mono text-[10.5px] text-faint">{r.at.slice(9)}</span>
-                {r.cancelled && <span className="text-[9.5px] text-warn">중단</span>}
-                <span className="truncate text-[11px] text-muted">{r.summary || '—'}</span>
-                <span className="ml-auto shrink-0 font-mono text-[10px] text-faint">
-                  {(r.duration_ms / 1000).toFixed(1)}s
-                </span>
-              </button>
+                <button
+                  disabled={running}
+                  onClick={() => {
+                    loadRun(r.id)
+                    setShowHistory(false)
+                  }}
+                  className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-left disabled:opacity-40"
+                >
+                  <span className="font-mono text-[10px] text-faint">{shortAt(r.at)}</span>
+                  {r.cancelled && <span className="text-[9.5px] text-warn">중단</span>}
+                  <span className="truncate text-[11px] text-muted">{r.summary || '—'}</span>
+                  <span className="ml-auto shrink-0 font-mono text-[10px] text-faint">
+                    {(r.duration_ms / 1000).toFixed(1)}s
+                  </span>
+                </button>
+                <button
+                  onClick={() => loadComparison(r.id)}
+                  title={comparisonRun?.id === r.id ? '비교 해제' : 'B로 비교'}
+                  className="p-1.5 text-faint hover:text-accent-fg"
+                >
+                  <Columns2 size={11} />
+                </button>
+                <button
+                  disabled={running}
+                  onClick={() => rerunRun(r.id)}
+                  title="이 입력으로 재실행하고 이전 결과와 비교"
+                  className="p-1.5 text-faint hover:text-fg disabled:opacity-30"
+                >
+                  <RefreshCw size={11} />
+                </button>
+              </div>
             ))}
           </div>
         )}
@@ -129,7 +243,24 @@ export default function TracePanel() {
                   : '● Success'}
           </span>
           {viewingRunId && <span className="text-[10px] text-accent-fg">과거 실행 보기</span>}
-          <span className="ml-auto font-mono">{(total / 1000).toFixed(2)}s</span>
+          <button
+            disabled={running}
+            onClick={rerun}
+            title="현재 입력으로 재실행하고 이 결과를 B에 고정"
+            className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-faint hover:bg-raised hover:text-fg disabled:opacity-30"
+          >
+            <RefreshCw size={10} /> 재실행
+          </button>
+          {comparisonRun && (
+            <button
+              onClick={clearComparison}
+              title="비교 닫기"
+              className="rounded p-0.5 text-warn hover:bg-raised"
+            >
+              <X size={11} />
+            </button>
+          )}
+          <span className="font-mono">{(total / 1000).toFixed(2)}s</span>
         </div>
         {runError && (
           <div className="border-b border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger">
@@ -166,6 +297,26 @@ export default function TracePanel() {
         </div>
       </div>
 
+      {comparisonRun ? (
+        <div className="flex min-w-0 flex-1 divide-x divide-border">
+          <ComparisonColumn
+            label="A"
+            at={primaryAt}
+            span={span}
+            inputs={lastRunInputs ?? runInputs}
+            events={events}
+            live={isLive}
+          />
+          <ComparisonColumn
+            label="B"
+            at={comparisonRun.at}
+            span={comparisonSpan}
+            inputs={comparisonRun.inputs}
+            events={comparisonSpan?.events ?? []}
+          />
+        </div>
+      ) : (
+        <>
       {/* 선택 스팬 상세 */}
       <div className="min-w-0 flex-1 overflow-y-auto px-4 py-3">
         {span ? (
@@ -217,6 +368,8 @@ export default function TracePanel() {
           {span ? pretty(io === 'input' ? span.input : span.output) : '—'}
         </pre>
       </div>
+        </>
+      )}
     </div>
   )
 }

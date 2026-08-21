@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type {
-  AgentEvent, AgentSummary, ApprovalRequest, BackendStatus, NodeType, RunSummary, Span, Spec, SpecNode,
+  AgentEvent, AgentSummary, ApprovalRequest, BackendStatus, NodeType, RunDetail, RunSummary, Span,
+  Spec, SpecNode,
   ToolInfo, TreeEntry
 } from './types'
 
@@ -69,6 +70,10 @@ interface State {
   /** 지난 실행 기록 (C). viewingRunId가 있으면 spans는 과거 실행을 보는 중이다. */
   pastRuns: RunSummary[]
   viewingRunId: string | null
+  /** A를 덮어쓰지 않고 오른쪽에 나란히 보여줄 B 실행. */
+  comparisonRun: RunDetail | null
+  /** 현재 A 스팬을 만든 실제 입력. 입력 폼이 후에 바뀌어도 기준은 보존한다. */
+  lastRunInputs: Record<string, string> | null
 
   boot(): Promise<void>
   pollHealth(): Promise<void>
@@ -102,6 +107,10 @@ interface State {
   respondApproval(approved: boolean): void
   loadRuns(): Promise<void>
   loadRun(runId: string): Promise<void>
+  loadComparison(runId: string): Promise<void>
+  clearComparison(): void
+  rerun(): void
+  rerunRun(runId: string): Promise<void>
   selectSpan(id: string): void
 }
 
@@ -223,6 +232,8 @@ export const useStore = create<State>((set, get) => ({
   cancelled: false,
   pastRuns: [],
   viewingRunId: null,
+  comparisonRun: null,
+  lastRunInputs: null,
 
   async boot() {
     const currentAgentId = get().agentId
@@ -353,7 +364,9 @@ export const useStore = create<State>((set, get) => ({
       selectedSpanId: null,
       runError: null,
       pastRuns: [],
-      viewingRunId: null
+      viewingRunId: null,
+      comparisonRun: null,
+      lastRunInputs: null
     })
     get().loadRuns()
   },
@@ -511,7 +524,8 @@ export const useStore = create<State>((set, get) => ({
     const { agentId, running } = get()
     if (!agentId || running) return
     set({ running: true, spans: [], liveEvents: {}, approval: null,
-          selectedSpanId: null, runError: null, cancelled: false, viewingRunId: null })
+          selectedSpanId: null, runError: null, cancelled: false, viewingRunId: null,
+          lastRunInputs: { ...inputs } })
 
     const ws = new WebSocket(`ws://localhost:8765/run/${agentId}`, ['janus', TOKEN])
     set({ ws })
@@ -520,7 +534,11 @@ export const useStore = create<State>((set, get) => ({
     ws.onmessage = (m) => {
       const ev = JSON.parse(m.data)
       if (ev.type === 'span_start') {
-        set({ spans: [...get().spans, ev.span] })
+        set({
+          spans: [...get().spans, ev.span],
+          // 재실행 A가 시작하자마자 B의 같은 노드와 대응해 볼 수 있게 한다.
+          selectedSpanId: get().selectedSpanId ?? ev.span.id
+        })
       } else if (ev.type === 'span_end') {
         set({
           spans: get().spans.map((s) => (s.id === ev.span.id ? ev.span : s)),
@@ -581,15 +599,69 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async loadRun(runId) {
-    const { agentId } = get()
-    if (!agentId) return
-    const r = await apiFetch(`${BASE}/runs/${agentId}/${runId}`).then((x) => x.json())
+    const { agentId, running } = get()
+    if (!agentId || running) return
+    const r = (await apiJson(`${BASE}/runs/${agentId}/${runId}`)) as RunDetail
     // 과거 실행을 스팬 뷰에 로드한다. running/live와 섞이지 않게 플래그를 세운다.
     set({
       spans: r.spans, liveEvents: {}, running: false, approval: null,
       cancelled: Boolean(r.cancelled), viewingRunId: runId,
-      selectedSpanId: r.spans[0]?.id ?? null, runError: null
+      selectedSpanId: r.spans[0]?.id ?? null, runError: null,
+      runInputs: { ...r.inputs }, lastRunInputs: { ...r.inputs }
     })
+  },
+
+  async loadComparison(runId) {
+    const { agentId, comparisonRun } = get()
+    if (!agentId) return
+    if (comparisonRun?.id === runId) {
+      set({ comparisonRun: null })
+      return
+    }
+    const run = (await apiJson(`${BASE}/runs/${agentId}/${runId}`)) as RunDetail
+    set({ comparisonRun: run })
+  },
+
+  clearComparison() {
+    set({ comparisonRun: null })
+  },
+
+  rerun() {
+    const state = get()
+    if (state.running || !state.agentId) return
+    const source = state.pastRuns.find((r) => r.id === state.viewingRunId)
+    const baselineInputs = state.lastRunInputs ?? state.runInputs
+    if (state.spans.length) {
+      const duration = state.spans.reduce(
+        (max, span) => Math.max(max, span.started_ms + (span.duration_ms ?? 0)),
+        0
+      )
+      set({
+        comparisonRun: {
+          id: state.viewingRunId ?? 'previous',
+          at: source?.at ?? '방금 전',
+          cancelled: state.cancelled,
+          duration_ms: duration,
+          node_count: state.spans.length,
+          summary: source?.summary ?? '',
+          inputs: { ...baselineInputs },
+          spans: state.spans
+        }
+      })
+    }
+    state.run({ ...state.runInputs })
+  },
+
+  async rerunRun(runId) {
+    const { agentId, running } = get()
+    if (!agentId || running) return
+    const run = (await apiJson(`${BASE}/runs/${agentId}/${runId}`)) as RunDetail
+    set({
+      comparisonRun: run,
+      runInputs: { ...run.inputs },
+      lastRunInputs: { ...run.inputs }
+    })
+    get().run({ ...run.inputs })
   },
 
   selectSpan(id) {

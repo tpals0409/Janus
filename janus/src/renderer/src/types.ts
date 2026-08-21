@@ -52,6 +52,11 @@ export interface RunSummary {
   inputs: Record<string, string>
 }
 
+export interface RunDetail extends RunSummary {
+  agent_id?: string
+  spans: Span[]
+}
+
 export interface ApprovalRequest {
   id: string
   node_id: string
