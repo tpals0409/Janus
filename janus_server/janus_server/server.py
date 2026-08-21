@@ -355,13 +355,13 @@ async def run_agent(ws: WebSocket, agent_id: str):
             await ws.send_json({"type": "run_error", "error": str(e)})
             return
 
-        node_ids = {n["id"] for n in spec["nodes"]}
+        node_types = {n["id"]: n["type"] for n in spec["nodes"]}
         state = C.initial_state(spec, inputs)
         await ws.send_json({"type": "run_start", "agent_id": agent_id})
         run_spans: list = []
         cancelled = False
         try:
-            async for ev in trace.run(graph, state, node_ids, C.RECURSION_LIMIT,
+            async for ev in trace.run(graph, state, node_types, C.RECURSION_LIMIT,
                                       approver=approver, cancel_event=cancel_event):
                 if ev["type"] == "span_end":
                     run_spans.append(ev["span"])

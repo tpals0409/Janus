@@ -32,7 +32,7 @@ def _clip(v):
 async def run(
     graph,
     state: dict,
-    node_ids: set[str],
+    node_types: dict[str, str],
     recursion_limit: int = 50,
     approver: Callable[[str, str, dict], bool] | None = None,
     cancel_event=None,
@@ -76,7 +76,7 @@ async def run(
                 name, kind, run_id = ev.get("name"), ev.get("event"), ev.get("run_id")
 
                 # 우리가 정의한 노드만 스팬으로 만든다 (LangGraph 내부 러너블 제외)
-                if name in node_ids and kind == "on_chain_start":
+                if name in node_types and kind == "on_chain_start":
                     span = {
                         "id": uuid.uuid4().hex[:12],
                         "node_id": name,
@@ -87,13 +87,20 @@ async def run(
                     open_spans[run_id] = span
                     await q.put({"type": "span_start", "span": span})
 
-                elif name in node_ids and kind == "on_chain_end":
+                elif name in node_types and kind == "on_chain_end":
                     span = open_spans.pop(run_id, None)
                     if span is None:
                         continue
                     out = (ev.get("data") or {}).get("output") or {}
                     own = (out.get("outputs") or {}).get(name, {})
-                    span.update(status="success",
+                    # tool handler는 실패를 예외 대신 {"error": ...}로 돌려준다.
+                    # LangGraph 자체는 정상 종료로 보므로 여기서 tool 스팬만
+                    # 명시적으로 실패로 바꾸어야 UI가 거짓 성공을 표시하지 않는다.
+                    tool_failed = node_types.get(name) == "tool" and any(
+                        isinstance(value, dict) and bool(value.get("error"))
+                        for value in own.values()
+                    )
+                    span.update(status="error" if tool_failed else "success",
                                 duration_ms=ms() - span["started_ms"],
                                 output=_clip(own),
                                 events=sessions.get(name, []),

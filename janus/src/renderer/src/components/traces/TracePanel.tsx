@@ -41,6 +41,8 @@ export default function TracePanel() {
   const liveEvents = useStore((s) => s.liveEvents)
   const span = spans.find((s) => s.id === selectedSpanId)
   const total = spans.reduce((a, s) => Math.max(a, (s.started_ms ?? 0) + (s.duration_ms ?? 0)), 0)
+  const failed = Boolean(runError || spans.some((s) => s.status === 'error'))
+  const runState = running ? 'running' : cancelled ? 'cancelled' : failed ? 'error' : 'success'
 
   // 아직 안 끝난 agent 노드는 스팬에 events가 없다 — live에서 가져온다
   const events = span ? (span.events ?? liveEvents[span.node_id] ?? []) : []
@@ -107,12 +109,33 @@ export default function TracePanel() {
       <div className="flex w-[300px] shrink-0 flex-col border-r border-border">
         <History />
         <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-[11px] text-muted">
-          <span className={running ? 'text-accent-fg' : cancelled ? 'text-warn' : 'text-ok'}>
-            {running ? '● Running' : cancelled ? '● 중단됨' : '● Success'}
+          <span
+            className={
+              runState === 'running'
+                ? 'text-accent-fg'
+                : runState === 'cancelled'
+                  ? 'text-warn'
+                  : runState === 'error'
+                    ? 'text-danger'
+                    : 'text-ok'
+            }
+          >
+            {runState === 'running'
+              ? '● Running'
+              : runState === 'cancelled'
+                ? '● 중단됨'
+                : runState === 'error'
+                  ? '● 실패'
+                  : '● Success'}
           </span>
           {viewingRunId && <span className="text-[10px] text-accent-fg">과거 실행 보기</span>}
           <span className="ml-auto font-mono">{(total / 1000).toFixed(2)}s</span>
         </div>
+        {runError && (
+          <div className="border-b border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger">
+            {runError}
+          </div>
+        )}
         <div className="min-h-0 flex-1 overflow-y-auto">
         {spans.map((s) => (
           <button
