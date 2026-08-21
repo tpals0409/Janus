@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type {
-  AgentEvent, AgentSummary, ApprovalRequest, NodeType, Span, Spec, SpecNode, ToolInfo
+  AgentEvent, AgentSummary, ApprovalRequest, NodeType, RunSummary, Span, Spec, SpecNode, ToolInfo
 } from './types'
 
 const BASE = 'http://localhost:8765'
@@ -36,6 +36,9 @@ interface State {
   selectedSpanId: string | null
   runError: string | null
   cancelled: boolean
+  /** 지난 실행 기록 (C). viewingRunId가 있으면 spans는 과거 실행을 보는 중이다. */
+  pastRuns: RunSummary[]
+  viewingRunId: string | null
 
   boot(): Promise<void>
   pickWorkspace(): Promise<void>
@@ -60,6 +63,8 @@ interface State {
   run(inputs: Record<string, string>): void
   cancel(): void
   respondApproval(approved: boolean): void
+  loadRuns(): Promise<void>
+  loadRun(runId: string): Promise<void>
   selectSpan(id: string): void
 }
 
@@ -173,6 +178,8 @@ export const useStore = create<State>((set, get) => ({
   selectedSpanId: null,
   runError: null,
   cancelled: false,
+  pastRuns: [],
+  viewingRunId: null,
 
   async boot() {
     try {
@@ -216,8 +223,11 @@ export const useStore = create<State>((set, get) => ({
       liveEvents: {},
       approval: null,
       selectedSpanId: null,
-      runError: null
+      runError: null,
+      pastRuns: [],
+      viewingRunId: null
     })
+    get().loadRuns()
   },
 
   async createAgent(name) {
@@ -372,7 +382,7 @@ export const useStore = create<State>((set, get) => ({
     const { agentId, running } = get()
     if (!agentId || running) return
     set({ running: true, spans: [], liveEvents: {}, approval: null,
-          selectedSpanId: null, runError: null, cancelled: false })
+          selectedSpanId: null, runError: null, cancelled: false, viewingRunId: null })
 
     const ws = new WebSocket(`ws://localhost:8765/run/${agentId}`)
     set({ ws })
@@ -394,6 +404,15 @@ export const useStore = create<State>((set, get) => ({
       } else if (ev.type === 'agent_event') {
         const cur = get().liveEvents[ev.node_id] ?? []
         set({ liveEvents: { ...get().liveEvents, [ev.node_id]: [...cur, ev] } })
+      } else if (ev.type === 'token' && ev.node_id) {
+        // llm 노드의 토큰 — agent 노드처럼 세션에 흘려 실시간 표시되게 한다
+        const cur = get().liveEvents[ev.node_id] ?? []
+        set({
+          liveEvents: {
+            ...get().liveEvents,
+            [ev.node_id]: [...cur, { node_id: ev.node_id, kind: 'text_delta', text: ev.text, at_ms: 0 }]
+          }
+        })
       } else if (ev.type === 'approval_request') {
         set({ approval: ev })
       } else if (ev.type === 'run_error') {
@@ -401,6 +420,7 @@ export const useStore = create<State>((set, get) => ({
         ws.close()
       } else if (ev.type === 'run_end') {
         set({ running: false, approval: null, cancelled: Boolean(ev.cancelled) })
+        get().loadRuns()   // 방금 실행이 기록됐다 — 히스토리 갱신
         ws.close()
       }
     }
@@ -417,6 +437,29 @@ export const useStore = create<State>((set, get) => ({
     if (!approval || !ws) return
     ws.send(JSON.stringify({ type: 'approval_response', id: approval.id, approved }))
     set({ approval: null })
+  },
+
+  async loadRuns() {
+    const { agentId } = get()
+    if (!agentId) return
+    try {
+      const runs = await fetch(`${BASE}/runs/${agentId}`).then((r) => r.json())
+      set({ pastRuns: runs })
+    } catch {
+      /* 히스토리는 있으면 좋은 것 — 실패해도 조용히 */
+    }
+  },
+
+  async loadRun(runId) {
+    const { agentId } = get()
+    if (!agentId) return
+    const r = await fetch(`${BASE}/runs/${agentId}/${runId}`).then((x) => x.json())
+    // 과거 실행을 스팬 뷰에 로드한다. running/live와 섞이지 않게 플래그를 세운다.
+    set({
+      spans: r.spans, liveEvents: {}, running: false, approval: null,
+      cancelled: Boolean(r.cancelled), viewingRunId: runId,
+      selectedSpanId: r.spans[0]?.id ?? null, runError: null
+    })
   },
 
   selectSpan(id) {

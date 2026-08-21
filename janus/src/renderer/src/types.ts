@@ -33,6 +33,16 @@ export interface AgentEvent {
   total_messages?: number
 }
 
+export interface RunSummary {
+  id: string
+  at: string
+  cancelled: boolean
+  duration_ms: number
+  node_count: number
+  summary: string
+  inputs: Record<string, string>
+}
+
 export interface ApprovalRequest {
   id: string
   node_id: string

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CheckCircle2, CircleDashed, Loader2, XCircle } from 'lucide-react'
+import { CheckCircle2, CircleDashed, Clock, Loader2, XCircle } from 'lucide-react'
 import { useStore } from '../../store'
 import SessionView from './SessionView'
 import type { Span } from '../../types'
@@ -23,6 +23,10 @@ export default function TracePanel() {
   const running = useStore((s) => s.running)
   const runError = useStore((s) => s.runError)
   const cancelled = useStore((s) => s.cancelled)
+  const pastRuns = useStore((s) => s.pastRuns)
+  const viewingRunId = useStore((s) => s.viewingRunId)
+  const loadRun = useStore((s) => s.loadRun)
+  const [showHistory, setShowHistory] = useState(false)
   const [io, setIo] = useState<'input' | 'output'>('output')
 
   const liveEvents = useStore((s) => s.liveEvents)
@@ -33,20 +37,57 @@ export default function TracePanel() {
   const events = span ? (span.events ?? liveEvents[span.node_id] ?? []) : []
   const isLive = Boolean(span && span.status === 'running' && liveEvents[span.node_id])
 
+  const History = () =>
+    pastRuns.length ? (
+      <div className="border-b border-border">
+        <button
+          onClick={() => setShowHistory((v) => !v)}
+          className="flex w-full items-center gap-1.5 px-3 py-1.5 text-[11px] text-muted hover:text-fg"
+        >
+          <Clock size={11} /> 지난 실행 {pastRuns.length}
+        </button>
+        {showHistory && (
+          <div className="max-h-40 overflow-y-auto pb-1">
+            {pastRuns.map((r) => (
+              <button
+                key={r.id}
+                onClick={() => {
+                  loadRun(r.id)
+                  setShowHistory(false)
+                }}
+                className="flex w-full items-center gap-2 border-l-2 px-3 py-1 text-left hover:bg-panel-2"
+                style={{ borderLeftColor: r.id === viewingRunId ? 'var(--color-accent)' : 'transparent' }}
+              >
+                <span className="font-mono text-[10.5px] text-faint">{r.at.slice(9)}</span>
+                {r.cancelled && <span className="text-[9.5px] text-warn">중단</span>}
+                <span className="truncate text-[11px] text-muted">{r.summary || '—'}</span>
+                <span className="ml-auto shrink-0 font-mono text-[10px] text-faint">
+                  {(r.duration_ms / 1000).toFixed(1)}s
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    ) : null
+
   if (!spans.length) {
     return (
-      <div className="grid h-full place-items-center text-[12px] text-faint">
-        {runError ? (
-          <span className="text-danger">{runError}</span>
-        ) : running ? (
-          <span className="flex items-center gap-2">
-            <Loader2 size={13} className="animate-spin" /> 실행 중…
-          </span>
-        ) : (
-          <span className="flex items-center gap-2">
-            <CircleDashed size={13} /> Run을 눌러 그래프를 실행하세요
-          </span>
-        )}
+      <div className="flex h-full flex-col">
+        <History />
+        <div className="grid flex-1 place-items-center text-[12px] text-faint">
+          {runError ? (
+            <span className="text-danger">{runError}</span>
+          ) : running ? (
+            <span className="flex items-center gap-2">
+              <Loader2 size={13} className="animate-spin" /> 실행 중…
+            </span>
+          ) : (
+            <span className="flex items-center gap-2">
+              <CircleDashed size={13} /> Run을 눌러 그래프를 실행하세요
+            </span>
+          )}
+        </div>
       </div>
     )
   }
@@ -54,13 +95,16 @@ export default function TracePanel() {
   return (
     <div className="flex h-full">
       {/* 스팬 목록 */}
-      <div className="w-[300px] shrink-0 overflow-y-auto border-r border-border">
+      <div className="flex w-[300px] shrink-0 flex-col border-r border-border">
+        <History />
         <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-[11px] text-muted">
           <span className={running ? 'text-accent-fg' : cancelled ? 'text-warn' : 'text-ok'}>
             {running ? '● Running' : cancelled ? '● 중단됨' : '● Success'}
           </span>
+          {viewingRunId && <span className="text-[10px] text-accent-fg">과거 실행 보기</span>}
           <span className="ml-auto font-mono">{(total / 1000).toFixed(2)}s</span>
         </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">
         {spans.map((s) => (
           <button
             key={s.id}
@@ -83,6 +127,7 @@ export default function TracePanel() {
             </span>
           </button>
         ))}
+        </div>
       </div>
 
       {/* 선택 스팬 상세 */}

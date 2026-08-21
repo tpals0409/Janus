@@ -11,7 +11,8 @@ interface ToolRun {
 }
 
 type Row =
-  | { kind: 'user' | 'assistant'; text: string }
+  | { kind: 'user'; text: string }
+  | { kind: 'assistant'; text: string; streaming?: boolean }
   | { kind: 'tools'; runs: ToolRun[] }
   | { kind: 'llm_call'; messages: { role: string; content: string }[]; total: number }
 
@@ -21,8 +22,21 @@ function toRows(events: AgentEvent[]): Row[] {
   for (const e of events) {
     if (e.kind === 'user') {
       rows.push({ kind: 'user', text: e.content ?? '' })
+    } else if (e.kind === 'text_delta') {
+      // 토큰이 도착하는 대로 마지막 streaming 행에 붙인다 — 로컬 모델이 느려서
+      // 완성본을 기다리면 몇 초간 빈 화면이 된다.
+      const last = rows[rows.length - 1]
+      if (last && last.kind === 'assistant' && last.streaming) last.text += e.text ?? ''
+      else rows.push({ kind: 'assistant', text: e.text ?? '', streaming: true })
     } else if (e.kind === 'assistant' && e.content) {
-      rows.push({ kind: 'assistant', text: e.content })
+      // 완성된 응답 — 방금까지 쌓던 streaming 행을 확정한다 (중복 방지)
+      const last = rows[rows.length - 1]
+      if (last && last.kind === 'assistant' && last.streaming) {
+        last.text = e.content
+        last.streaming = false
+      } else {
+        rows.push({ kind: 'assistant', text: e.content })
+      }
     } else if (e.kind === 'llm_call') {
       rows.push({ kind: 'llm_call', messages: e.messages ?? [], total: e.total_messages ?? (e.messages?.length ?? 0) })
     } else if (e.kind === 'tool_start') {
@@ -179,6 +193,9 @@ export default function SessionView({
             className="whitespace-pre-wrap break-words text-[12px] leading-relaxed text-fg"
           >
             {row.text}
+            {row.streaming && (
+              <span className="ml-0.5 inline-block h-3.5 w-[2px] animate-pulse bg-accent-fg align-middle" />
+            )}
           </div>
         )
       )}

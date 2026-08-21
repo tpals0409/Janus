@@ -6,9 +6,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import threading
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -21,6 +23,27 @@ from . import tools as T
 from . import trace
 
 AGENTS_DIR = Path(__file__).parent / "agents"
+RUNS_DIR = Path(__file__).parent / "runs"    # 실행 기록. 앱을 닫아도 남는다.
+
+
+def _save_run(agent_id: str, inputs: dict, spans: list, cancelled: bool) -> None:
+    """한 번의 실행을 JSONL 아닌 단일 JSON 파일로 남긴다. 이벤트 로그가 직렬화
+    가능하므로 스팬을 그대로 떨구면 나중에 그대로 다시 그릴 수 있다."""
+    if not spans:
+        return
+    d = RUNS_DIR / agent_id
+    d.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    run_id = f"{stamp}-{uuid.uuid4().hex[:4]}"
+    total = max((s.get("started_ms", 0) + (s.get("duration_ms") or 0)) for s in spans)
+    last = spans[-1].get("output") or {}
+    summary = next((str(v) for v in last.values() if v), "")
+    (d / f"{run_id}.json").write_text(json.dumps({
+        "id": run_id, "agent_id": agent_id, "at": stamp,
+        "inputs": inputs, "cancelled": cancelled,
+        "duration_ms": total, "node_count": len(spans),
+        "summary": summary[:120], "spans": spans,
+    }, ensure_ascii=False), encoding="utf-8")
 
 app = FastAPI(title="Janus", version="0.1.0")
 # Vite 개발 서버(다른 포트)에서 부르므로 필요하다. 로컬 단일 사용자 도구다.
@@ -129,6 +152,32 @@ def put_agent(agent_id: str, body: dict):
     return {"saved": True, "errors": [], "yaml": S.dumps(new_spec)}
 
 
+@app.get("/runs/{agent_id}")
+def list_runs(agent_id: str):
+    d = RUNS_DIR / agent_id
+    if not d.is_dir():
+        return []
+    out = []
+    for f in sorted(d.glob("*.json"), reverse=True)[:50]:
+        try:
+            r = json.loads(f.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        out.append({k: r.get(k) for k in
+                    ("id", "at", "cancelled", "duration_ms", "node_count", "summary", "inputs")})
+    return out
+
+
+@app.get("/runs/{agent_id}/{run_id}")
+def get_run(agent_id: str, run_id: str):
+    if "/" in run_id or ".." in run_id:
+        raise HTTPException(400, "잘못된 run id")
+    f = RUNS_DIR / agent_id / f"{run_id}.json"
+    if not f.is_file():
+        raise HTTPException(404, f"없는 실행: {run_id}")
+    return json.loads(f.read_text(encoding="utf-8"))
+
+
 @app.get("/workspace")
 def get_workspace():
     return {"path": str(T.get_workspace())}
@@ -202,13 +251,22 @@ async def run_agent(ws: WebSocket, agent_id: str):
         node_ids = {n["id"] for n in spec["nodes"]}
         state = C.initial_state(spec, inputs)
         await ws.send_json({"type": "run_start", "agent_id": agent_id})
+        run_spans: list = []
+        cancelled = False
         try:
             async for ev in trace.run(graph, state, node_ids, C.RECURSION_LIMIT,
                                       approver=approver, cancel_event=cancel_event):
+                if ev["type"] == "span_end":
+                    run_spans.append(ev["span"])
+                elif ev["type"] == "run_end":
+                    cancelled = bool(ev.get("cancelled"))
                 await ws.send_json(ev)
         except asyncio.CancelledError:
             # task.cancel() 백스톱으로 끊긴 경우 — UI가 '실행 중'에 갇히면 안 된다
+            cancelled = True
             await ws.send_json({"type": "run_end", "cancelled": True})
+        finally:
+            _save_run(agent_id, inputs, run_spans, cancelled)
 
     try:
         while True:

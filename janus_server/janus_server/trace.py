@@ -95,11 +95,14 @@ async def run(
                     await q.put({"type": "span_end", "span": span})
 
                 elif kind == "on_chat_model_stream":
-                    # llm 노드의 토큰. agent 노드는 자기 sink로 따로 보낸다.
+                    # llm 노드의 토큰. astream_events는 langchain Runnable(=llm 노드)만
+                    # 본다 — agent 노드는 raw openai 클라이언트라 여기 안 잡힌다.
+                    # 단, agent 노드가 자기 sink로 text_delta를 넣었다면 그건 스킵(중복 방지).
                     chunk = (ev.get("data") or {}).get("chunk")
                     text = getattr(chunk, "content", "") or ""
                     node = next((s["node_id"] for s in open_spans.values()), None)
-                    if text and node not in sessions:
+                    has_own = any(e["kind"] == "text_delta" for e in sessions.get(node, []))
+                    if text and not has_own:
                         await q.put({"type": "token", "node_id": node, "text": text})
 
         except asyncio.CancelledError:
