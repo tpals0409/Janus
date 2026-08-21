@@ -102,6 +102,6 @@ export interface ToolInfo {
 
 declare global {
   interface Window {
-    janus?: { pickFolder(): Promise<string | null> }
+    janus?: { pickFolder(): Promise<string | null>; authToken: string }
   }
 }

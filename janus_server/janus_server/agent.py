@@ -185,11 +185,9 @@ def run(
 
             emit("tool_start", name=name, args=args)
 
-            spec = T.REGISTRY.get(name)
-            if spec and spec["needs_approval"] and not approve(name, args):
-                value = {"error": "사용자가 이 도구 실행을 거부함"}
-            else:
-                value = T.dispatch(name, args)
+            # 승인 강제는 tool/agent 노드가 공유하는 dispatch의 책임이다.
+            # 여기서 미리 검사하면 다른 호출 경로가 또 뚫린다.
+            value = T.dispatch(name, args, approve=approve)
 
             session.append("tool_result", tool_call_id=call["id"], name=name, value=value)
             emit("tool_result", name=name, value=value)

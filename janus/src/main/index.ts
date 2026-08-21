@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
+import { randomBytes } from 'crypto'
 import { createWriteStream } from 'fs'
 import net from 'net'
 import { join, resolve } from 'path'
@@ -11,11 +12,21 @@ import { join, resolve } from 'path'
 
 // dev에선 app.getAppPath() == janus/ 이므로 리포 루트는 한 단계 위다.
 const repoRoot = resolve(app.getAppPath(), '..')
+const devUrl = process.env['ELECTRON_RENDERER_URL']
+const authToken = process.env.JANUS_AUTH_TOKEN ?? randomBytes(32).toString('hex')
+const allowedOrigins =
+  process.env.JANUS_ALLOWED_ORIGINS ?? (devUrl ? new URL(devUrl).origin : 'file://,null')
+
+// preload 렌더러와 Python 자식 프로세스가 같은 기동별 비밀값을 받는다.
+process.env.JANUS_AUTH_TOKEN = authToken
+process.env.JANUS_ALLOWED_ORIGINS = allowedOrigins
 
 // GUI로 실행되면 PATH에 uv(~/.local/bin)와 homebrew가 없을 수 있다.
 const env = {
   ...process.env,
-  PATH: `${process.env.HOME}/.local/bin:/opt/homebrew/bin:${process.env.PATH ?? ''}`
+  PATH: `${process.env.HOME}/.local/bin:/opt/homebrew/bin:${process.env.PATH ?? ''}`,
+  JANUS_AUTH_TOKEN: authToken,
+  JANUS_ALLOWED_ORIGINS: allowedOrigins
 }
 
 const children: ChildProcess[] = []
@@ -90,7 +101,6 @@ function createWindow(): void {
     return { action: 'deny' }
   })
 
-  const devUrl = process.env['ELECTRON_RENDERER_URL']
   if (devUrl) win.loadURL(devUrl)
   else win.loadFile(join(__dirname, '../renderer/index.html'))
 }

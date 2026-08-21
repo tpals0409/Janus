@@ -6,16 +6,21 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
+import os
 import re
+import secrets
+import sys
 import threading
 import uuid
 from datetime import datetime
 from pathlib import Path
 
 import yaml
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from . import compile as C
 from . import spec as S
@@ -24,6 +29,32 @@ from . import trace
 
 AGENTS_DIR = Path(__file__).parent / "agents"
 RUNS_DIR = Path(__file__).parent / "runs"    # 실행 기록. 앱을 닫아도 남는다.
+
+# Electron main이 기동마다 만든 토큰을 서버/렌더러에만 나눠준다.
+# 수동 기동도 무인증으로 열리지 않도록, env가 없으면 서버가 자체적으로
+# 일회용 토큰을 만들고 콘솔에만 알린다.
+AUTH_TOKEN = os.environ.get("JANUS_AUTH_TOKEN") or secrets.token_hex(32)
+if "JANUS_AUTH_TOKEN" not in os.environ:
+    print(f"[janus] generated auth token: {AUTH_TOKEN}", file=sys.stderr)
+
+_DEFAULT_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173,file://,null"
+ALLOWED_ORIGINS = frozenset(
+    origin.strip()
+    for origin in os.environ.get("JANUS_ALLOWED_ORIGINS", _DEFAULT_ORIGINS).split(",")
+    if origin.strip()
+)
+
+
+def _origin_allowed(origin: str | None) -> bool:
+    """브라우저가 보낸 요청은 신뢰하는 Janus 렌더러에서만 받는다.
+
+    Origin이 없는 curl/네이티브 클라이언트는 토큰 검증을 그대로 거친다.
+    """
+    return origin is None or origin in ALLOWED_ORIGINS
+
+
+def _token_valid(candidate: str | None) -> bool:
+    return candidate is not None and hmac.compare_digest(candidate, AUTH_TOKEN)
 
 
 def _save_run(agent_id: str, inputs: dict, spans: list, cancelled: bool) -> None:
@@ -46,9 +77,25 @@ def _save_run(agent_id: str, inputs: dict, spans: list, cancelled: bool) -> None
     }, ensure_ascii=False), encoding="utf-8")
 
 app = FastAPI(title="Janus", version="0.1.0")
-# Vite 개발 서버(다른 포트)에서 부르므로 필요하다. 로컬 단일 사용자 도구다.
-app.add_middleware(CORSMiddleware, allow_origins=["*"],
-                   allow_methods=["*"], allow_headers=["*"])
+# Vite 개발 서버(다른 포트)에서 부르되, 그 기동에 선택된 origin만 허용한다.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=sorted(ALLOWED_ORIGINS),
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Janus-Token"],
+)
+
+
+@app.middleware("http")
+async def authenticate_http(request: Request, call_next):
+    # CORS preflight는 CORSMiddleware가 origin/메서드/헤더를 검증한다.
+    if request.method == "OPTIONS":
+        return await call_next(request)
+    if not _origin_allowed(request.headers.get("origin")):
+        return JSONResponse({"detail": "허용되지 않은 Origin"}, status_code=403)
+    if not _token_valid(request.headers.get("x-janus-token")):
+        return JSONResponse({"detail": "Janus 인증 토큰이 필요합니다"}, status_code=401)
+    return await call_next(request)
 
 
 def _path(agent_id: str) -> Path:
@@ -265,7 +312,17 @@ async def run_agent(ws: WebSocket, agent_id: str):
     승인은 왕복이다 — 에이전트 워커 스레드가 응답을 기다리는 동안에도 WS는 계속
     메시지를 받을 수 있어야 한다. 그래서 실행은 태스크로 띄우고 이 루프는 수신만 한다.
     """
-    await ws.accept()
+    origin = ws.headers.get("origin")
+    protocols = {
+        p.strip() for p in ws.headers.get("sec-websocket-protocol", "").split(",") if p.strip()
+    }
+    if not _origin_allowed(origin) or "janus" not in protocols or not any(
+        _token_valid(p) for p in protocols if p != "janus"
+    ):
+        # accept 전 close는 HTTP 403으로 핸드쉐이크를 거부한다.
+        await ws.close(code=1008)
+        return
+    await ws.accept(subprotocol="janus")
     loop = asyncio.get_running_loop()
     pending: dict[str, list] = {}   # req_id -> [threading.Event, approved]
     run_task: asyncio.Task | None = None

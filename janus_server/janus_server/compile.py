@@ -152,12 +152,15 @@ def _make_tool(node: dict):
         )
     out_field = (node.get("output") or {}).get("name") or "result"
 
-    def run(state: State) -> dict:
+    def run(state: State, config: RunnableConfig = None) -> dict:
         args = {k: v for k, v in _resolve_inputs(node, state).items() if v is not None}
-        try:
-            value = tool_mod.dispatch(name, args)
-        except Exception as e:  # 도구 실패로 그래프 전체를 죽이지 않는다
-            value = f"ERROR: {type(e).__name__}: {e}"
+        cfg = (config or {}).get("configurable", {}) or {}
+        approver = cfg.get("approver")
+
+        def approve(tool: str, tool_args: dict) -> bool:
+            return bool(approver and approver(nid, tool, tool_args))
+
+        value = tool_mod.dispatch(name, args, approve=approve)
         return {"outputs": {nid: {out_field: value}}}
 
     return run

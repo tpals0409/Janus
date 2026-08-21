@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import urllib.request
 from pathlib import Path
+from typing import Callable
 
 MAX_RENDER_CHARS = 4000
 BASH_TIMEOUT = 120
@@ -307,11 +308,27 @@ READ_ONLY = {t["name"] for t in TOOLS if not t["needs_approval"]}
 DANGEROUS = {t["name"] for t in TOOLS if t["needs_approval"]}
 
 
-def dispatch(name: str, args: dict) -> dict:
-    """도구 실행. 반환값은 구조화된 dict (이벤트 로그에 그대로 저장)."""
+def dispatch(
+    name: str,
+    args: dict,
+    *,
+    approve: Callable[[str, dict], bool] | None = None,
+) -> dict:
+    """도구 실행. 위험 도구는 dispatch 계층에서 승인을 강제한다.
+
+    호출자가 승인 UI를 빼먹어도 쉘/쓰기가 실행되지 않도록 승인 콜백이
+    없으면 기본 거부한다. 반환값은 구조화된 dict로 이벤트 로그에 그대로 저장된다.
+    """
     tool = REGISTRY.get(name)
     if tool is None:
         return {"error": f"알 수 없는 도구: {name} (가능: {sorted(REGISTRY)})"}
+    if tool["needs_approval"]:
+        try:
+            approved = approve is not None and bool(approve(name, args))
+        except Exception as e:
+            return {"error": f"승인 처리 실패: {type(e).__name__}: {e}"}
+        if not approved:
+            return {"error": "사용자가 이 도구 실행을 승인하지 않음"}
     try:
         return tool["handler"](**args)
     except TypeError as e:
@@ -358,40 +375,54 @@ def demo():
     prev_ws = WORKSPACE
     with tempfile.TemporaryDirectory() as d:
         set_workspace(d)
+        approved = lambda *_: True
         try:
-            v = dispatch("write_file", {"path": "hi.py", "content": "x = 1\ny = 2\n"})
+            # dispatch가 위험 도구를 기본 거부한다 — 모든 노드의 마지막 방어선.
+            assert "승인하지 않음" in dispatch(
+                "run_bash", {"command": "echo should-not-run"})["error"]
+            assert "승인하지 않음" in dispatch(
+                "write_file", {"path": "denied", "content": "x"},
+                approve=lambda *_: False)["error"]
+            assert not (Path(d) / "denied").exists()
+
+            v = dispatch("write_file", {"path": "hi.py", "content": "x = 1\ny = 2\n"},
+                         approve=approved)
             assert v["created"] and v["old"] is None, v
             v = dispatch("read_file", {"path": "hi.py"})
             assert v["content"] == "x = 1\ny = 2\n", v
 
             v = dispatch("edit_file",
-                         {"path": "hi.py", "old_string": "x = 1", "new_string": "x = 99"})
+                         {"path": "hi.py", "old_string": "x = 1", "new_string": "x = 99"},
+                         approve=approved)
             # UI diff에 필요한 old/new가 둘 다 남아야 한다
             assert v["old"] == "x = 1\ny = 2\n" and v["new"] == "x = 99\ny = 2\n", v
 
             assert "error" in dispatch("edit_file", {"path": "hi.py",
-                                                     "old_string": "없음", "new_string": "z"})
-            dispatch("write_file", {"path": "dup.py", "content": "a\na\n"})
-            v = dispatch("edit_file", {"path": "dup.py", "old_string": "a", "new_string": "b"})
+                                                     "old_string": "없음", "new_string": "z"},
+                                       approve=approved)
+            dispatch("write_file", {"path": "dup.py", "content": "a\na\n"}, approve=approved)
+            v = dispatch("edit_file", {"path": "dup.py", "old_string": "a", "new_string": "b"},
+                         approve=approved)
             assert "2번" in v["error"], v
 
             assert len(dispatch("glob", {"pattern": "*.py"})["matches"]) == 2
             assert dispatch("grep", {"pattern": "x = 99"})["count"] == 1
             assert dispatch("grep", {"pattern": "절대없는패턴xyzzy"})["count"] == 0
 
-            v = dispatch("run_bash", {"command": "echo hello"})
+            v = dispatch("run_bash", {"command": "echo hello"}, approve=approved)
             assert v["exit_code"] == 0 and render("run_bash", v) == "hello\n[exit code: 0]"
-            assert dispatch("run_bash", {"command": "exit 3"})["exit_code"] == 3
+            assert dispatch("run_bash", {"command": "exit 3"}, approve=approved)["exit_code"] == 3
 
             assert render("read_file", dispatch("read_file", {"path": "없음"})).startswith("ERROR:")
-            dispatch("write_file", {"path": "big.txt", "content": "z" * 20000})
+            dispatch("write_file", {"path": "big.txt", "content": "z" * 20000},
+                     approve=approved)
             assert len(render("read_file", dispatch("read_file", {"path": "big.txt"}))) \
                 < MAX_RENDER_CHARS + 100
             # ── jail: 워크스페이스 밖은 어떤 경로 표기로도 못 나간다 ──
             for esc in ("../escape.txt", "/etc/hosts", "a/../../escape.txt", "~/escape.txt"):
                 v = dispatch("read_file", {"path": esc})
                 assert "error" in v and "밖 경로" in v["error"], (esc, v)
-                v = dispatch("write_file", {"path": esc, "content": "x"})
+                v = dispatch("write_file", {"path": esc, "content": "x"}, approve=approved)
                 assert "error" in v and "밖 경로" in v["error"], (esc, v)
             v = dispatch("grep", {"pattern": "x", "path": ".."})
             assert "error" in v and "밖 경로" in v["error"], v
@@ -402,7 +433,7 @@ def demo():
             v = dispatch("glob", {"pattern": "../*"})
             assert v["matches"] == [], v
             # run_bash는 워크스페이스에서 시작한다
-            v = dispatch("run_bash", {"command": "pwd"})
+            v = dispatch("run_bash", {"command": "pwd"}, approve=approved)
             assert v["stdout"].strip() == str(get_workspace()), v
         finally:
             WORKSPACE = prev_ws

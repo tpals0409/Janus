@@ -5,6 +5,13 @@ import type {
 } from './types'
 
 const BASE = 'http://localhost:8765'
+const TOKEN = window.janus?.authToken ?? ''
+
+function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers)
+  headers.set('X-Janus-Token', TOKEN)
+  return fetch(input, { ...init, headers })
+}
 
 interface State {
   serverUp: boolean | null
@@ -204,11 +211,11 @@ export const useStore = create<State>((set, get) => ({
   async boot() {
     try {
       const [health, agents, tools, models, ws] = await Promise.all([
-        fetch(`${BASE}/health`).then((r) => r.json()),
-        fetch(`${BASE}/agents`).then((r) => r.json()),
-        fetch(`${BASE}/tools`).then((r) => r.json()),
-        fetch(`${BASE}/models`).then((r) => r.json()),
-        fetch(`${BASE}/workspace`).then((r) => r.json())
+        apiFetch(`${BASE}/health`).then((r) => r.json()),
+        apiFetch(`${BASE}/agents`).then((r) => r.json()),
+        apiFetch(`${BASE}/tools`).then((r) => r.json()),
+        apiFetch(`${BASE}/models`).then((r) => r.json()),
+        apiFetch(`${BASE}/workspace`).then((r) => r.json())
       ])
       set({ serverUp: true, mlxUp: Boolean(health.mlx), agents, tools, models, workspace: ws.path })
       get().loadDir('')
@@ -221,7 +228,7 @@ export const useStore = create<State>((set, get) => ({
   /** 가벼운 상태 갱신 — 모델 서버가 늦게 뜨는 걸 상태바가 따라잡는다. */
   async pollHealth() {
     try {
-      const h = await fetch(`${BASE}/health`).then((r) => r.json())
+      const h = await apiFetch(`${BASE}/health`).then((r) => r.json())
       set({ serverUp: true, mlxUp: Boolean(h.mlx) })
     } catch {
       set({ serverUp: false, mlxUp: null })
@@ -235,7 +242,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async setWorkspaceTo(path) {
-    const r = await fetch(`${BASE}/workspace`, {
+    const r = await apiFetch(`${BASE}/workspace`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path })
@@ -256,7 +263,7 @@ export const useStore = create<State>((set, get) => ({
 
   async loadDir(rel) {
     try {
-      const r = await fetch(`${BASE}/workspace/tree?path=${encodeURIComponent(rel)}`)
+      const r = await apiFetch(`${BASE}/workspace/tree?path=${encodeURIComponent(rel)}`)
       if (!r.ok) return
       const d = await r.json()
       set({ tree: { ...get().tree, [rel]: d.entries } })
@@ -272,7 +279,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async openFile(rel) {
-    const r = await fetch(`${BASE}/workspace/file?path=${encodeURIComponent(rel)}`)
+    const r = await apiFetch(`${BASE}/workspace/file?path=${encodeURIComponent(rel)}`)
     if (!r.ok) return
     const d = await r.json()
     if (d.error) {
@@ -287,7 +294,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async openAgent(id) {
-    const r = await fetch(`${BASE}/agents/${id}`).then((x) => x.json())
+    const r = await apiFetch(`${BASE}/agents/${id}`).then((x) => x.json())
     set({
       agentId: id,
       spec: r.spec,
@@ -309,19 +316,19 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async createAgent(name) {
-    const r = await fetch(`${BASE}/agents`, {
+    const r = await apiFetch(`${BASE}/agents`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name })
     }).then((x) => x.json())
-    const agents = await fetch(`${BASE}/agents`).then((x) => x.json())
+    const agents = await apiFetch(`${BASE}/agents`).then((x) => x.json())
     set({ agents })
     await get().openAgent(r.id)
   },
 
   async deleteAgent(id) {
-    await fetch(`${BASE}/agents/${id}`, { method: 'DELETE' })
-    const agents = await fetch(`${BASE}/agents`).then((x) => x.json())
+    await apiFetch(`${BASE}/agents/${id}`, { method: 'DELETE' })
+    const agents = await apiFetch(`${BASE}/agents`).then((x) => x.json())
     set({ agents })
     if (get().agentId === id) {
       if (agents[0]) await get().openAgent(agents[0].id)
@@ -421,7 +428,7 @@ export const useStore = create<State>((set, get) => ({
   async save() {
     const { agentId, spec } = get()
     if (!agentId || !spec) return
-    const r = await fetch(`${BASE}/agents/${agentId}`, {
+    const r = await apiFetch(`${BASE}/agents/${agentId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ spec })
@@ -429,7 +436,7 @@ export const useStore = create<State>((set, get) => ({
     // 저장 실패해도 편집 내용은 유지한다 — 고쳐야 하니까
     set({ errors: r.errors ?? [], dirty: !r.saved, yaml: r.yaml ?? get().yaml })
     if (r.saved) {
-      set({ agents: await fetch(`${BASE}/agents`).then((x) => x.json()) })
+      set({ agents: await apiFetch(`${BASE}/agents`).then((x) => x.json()) })
     }
   },
 
@@ -463,7 +470,7 @@ export const useStore = create<State>((set, get) => ({
     set({ running: true, spans: [], liveEvents: {}, approval: null,
           selectedSpanId: null, runError: null, cancelled: false, viewingRunId: null })
 
-    const ws = new WebSocket(`ws://localhost:8765/run/${agentId}`)
+    const ws = new WebSocket(`ws://localhost:8765/run/${agentId}`, ['janus', TOKEN])
     set({ ws })
     ws.onopen = () => ws.send(JSON.stringify({ type: 'run', inputs }))
 
@@ -523,7 +530,7 @@ export const useStore = create<State>((set, get) => ({
     const { agentId } = get()
     if (!agentId) return
     try {
-      const runs = await fetch(`${BASE}/runs/${agentId}`).then((r) => r.json())
+      const runs = await apiFetch(`${BASE}/runs/${agentId}`).then((r) => r.json())
       set({ pastRuns: runs })
     } catch {
       /* 히스토리는 있으면 좋은 것 — 실패해도 조용히 */
@@ -533,7 +540,7 @@ export const useStore = create<State>((set, get) => ({
   async loadRun(runId) {
     const { agentId } = get()
     if (!agentId) return
-    const r = await fetch(`${BASE}/runs/${agentId}/${runId}`).then((x) => x.json())
+    const r = await apiFetch(`${BASE}/runs/${agentId}/${runId}`).then((x) => x.json())
     // 과거 실행을 스팬 뷰에 로드한다. running/live와 섞이지 않게 플래그를 세운다.
     set({
       spans: r.spans, liveEvents: {}, running: false, approval: null,

@@ -1,4 +1,4 @@
-# Janus 상태 (커밋 c8c4c5a 시점)
+# Janus 상태 (커밋 c8c4c5a 이후)
 
 로컬 우선 Agent Development Environment. Electron 앱 + FastAPI/LangGraph 서버 +
 로컬 MLX 모델(Qwen3.8-27B 4bit).
@@ -11,7 +11,17 @@
 
 ## 다음에 할 일 (우선순위 순)
 
-### 1. 안전 구멍 2개 — 가장 급함
+### 1. 안전 구멍 2개 — 수정 완료
+
+**2026-08-22 수정 상태**
+
+- C1: 위험 도구 승인을 `tools.dispatch` 계층으로 중앙화했다. 승인 콜백이 없거나
+  거부하면 기본 거부하며, `agent`/`tool` 노드가 같은 게이트를 쓴다.
+- C2: Electron이 기동별 256-bit 토큰과 허용 Origin을 서버/렌더러에 전달한다.
+  HTTP는 `X-Janus-Token` + Origin, WebSocket은 서브프로토콜 토큰 + Origin을 모두 검증한다.
+- 회귀 검증: 보안 테스트 8개, 도구/spec 자체 검사, Electron 프로덕션 빌드.
+
+**수정 전 발견 내용**
 
 **C1. `tool` 노드가 승인 없이 `run_bash`를 실행한다.**
 승인 게이트가 `agent.py:189` 한 곳뿐이고, 위험 도구 검사(`spec.py:225`)는 `_check_agent`
