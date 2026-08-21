@@ -1,0 +1,108 @@
+@import 'tailwindcss';
+@import '@xyflow/react/dist/style.css';
+
+/* 목업의 다크 + 보라 액센트. 색은 전부 여기서만 정의한다. */
+@theme {
+  --color-bg: #0b0b10;
+  --color-panel: #111117;
+  --color-panel-2: #16161f;
+  --color-raised: #1c1c27;
+  --color-border: #26263340;
+  --color-border-strong: #33334a;
+
+  --color-fg: #e6e6f0;
+  --color-muted: #8b8ba3;
+  --color-faint: #5a5a70;
+
+  --color-accent: #7c5cff;
+  --color-accent-soft: #7c5cff26;
+  --color-accent-fg: #b9a8ff;
+
+  --color-ok: #34d399;
+  --color-warn: #fbbf24;
+  --color-danger: #f87171;
+
+  /* 노드 타입별 색 — 캔버스에서 한눈에 구분되게 */
+  --color-node-start: #34d399;
+  --color-node-llm: #7c5cff;
+  --color-node-tool: #38bdf8;
+  --color-node-agent: #f0a35e;
+  --color-node-end: #34d399;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family:
+    'Inter', -apple-system, BlinkMacSystemFont, 'Pretendard', 'Apple SD Gothic Neo', sans-serif;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* 조용한 스크롤바 — 목업처럼 UI가 뒤로 물러나야 한다 */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-thumb {
+  background: #ffffff14;
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #ffffff26;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* React Flow를 우리 팔레트에 맞춘다 */
+.react-flow {
+  --xy-background-color: var(--color-bg);
+  --xy-edge-stroke: #4a4a63;
+  --xy-edge-stroke-selected: var(--color-accent);
+  --xy-controls-button-background-color: var(--color-raised);
+  --xy-controls-button-color: var(--color-muted);
+  --xy-controls-button-border-color: var(--color-border-strong);
+  --xy-minimap-background-color: var(--color-panel);
+}
+.react-flow__handle {
+  width: 7px;
+  height: 7px;
+  background: #55556e;
+  border: none;
+}
+.react-flow__attribution {
+  display: none;
+}
+/* MiniMap은 svg에 width=200 height=150을 속성으로 박는다. CSS가 속성을 이긴다. */
+.react-flow__minimap svg {
+  width: 168px;
+  height: 108px;
+  display: block;
+}
+
+/* 드래그로 크기 바꾸는 구분선 */
+.divider-v {
+  cursor: col-resize;
+  width: 4px;
+  flex: none;
+  background: transparent;
+}
+.divider-v:hover,
+.divider-h:hover {
+  background: var(--color-accent-soft);
+}
+.divider-h {
+  cursor: row-resize;
+  height: 4px;
+  flex: none;
+  background: transparent;
+}

@@ -1,0 +1,78 @@
+name: Customer Support Agent
+description: Handle customer inquiries and route order questions to a lookup.
+version: 2
+nodes:
+- id: start
+  type: start
+  outputs:
+  - user_message
+  - order_id
+  position:
+    x: 40
+    y: 160
+- id: classify
+  type: llm
+  model:
+    provider: local
+    name: qwen3.8-27b
+    temperature: 0
+    max_tokens: 8
+  system_prompt: 'Classify the user''s intent. Answer with exactly one of these words and nothing else:
+    order_status, refund, general'
+  prompt: '{{ start.user_message }}'
+  output:
+    name: intent
+    type: string
+  position:
+    x: 260
+    y: 160
+- id: lookup
+  type: tool
+  tool: mock_order_lookup
+  inputs:
+    order_id: '{{ start.order_id }}'
+  output:
+    name: order
+    type: string
+  position:
+    x: 500
+    y: 60
+- id: reply
+  type: llm
+  model:
+    provider: local
+    name: qwen3.8-27b
+    temperature: 0.3
+    max_tokens: 200
+  system_prompt: You are a helpful customer support agent. Answer clearly and concisely. Be friendly and
+    empathetic. If order data is provided, use it.
+  inputs:
+    user_message: '{{ start.user_message }}'
+    intent: '{{ classify.intent }}'
+    context: '{{ lookup.order }}'
+  output:
+    name: reply
+    type: string
+  position:
+    x: 740
+    y: 160
+- id: end
+  type: end
+  inputs:
+    reply: '{{ reply.reply }}'
+  position:
+    x: 980
+    y: 160
+edges:
+- from: start
+  to: classify
+- from: classify
+  to: lookup
+  when: intent == 'order_status'
+- from: classify
+  to: reply
+  when: default
+- from: lookup
+  to: reply
+- from: reply
+  to: end

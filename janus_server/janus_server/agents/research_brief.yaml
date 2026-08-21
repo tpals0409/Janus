@@ -1,0 +1,47 @@
+name: Research Brief
+description: One agent researches a topic, another writes it up. Hand-off between agents.
+version: 1
+
+nodes:
+  - id: start
+    type: start
+    outputs: [topic]
+    position: { x: 60, y: 200 }
+
+  - id: researcher
+    type: agent
+    model: { provider: local, name: qwen3.8-27b, temperature: 0.0, max_tokens: 400 }
+    system_prompt: >-
+      You research a topic. Use search_docs to look it up, then report what you found
+      in 2-3 sentences. Do not invent facts that are not in the search results.
+    tools: [search_docs]
+    approval: auto
+    max_steps: 6
+    inputs: { topic: "{{ start.topic }}" }
+    output: { name: findings, type: string }
+    position: { x: 320, y: 200 }
+
+  - id: writer
+    type: agent
+    model: { provider: local, name: qwen3.8-27b, temperature: 0.4, max_tokens: 300 }
+    system_prompt: >-
+      You turn research findings into a short brief for a busy reader.
+      Two short paragraphs. No preamble.
+    tools: []
+    approval: auto
+    max_steps: 2
+    inputs:
+      topic: "{{ start.topic }}"
+      findings: "{{ researcher.findings }}"
+    output: { name: brief, type: string }
+    position: { x: 600, y: 200 }
+
+  - id: end
+    type: end
+    inputs: { brief: "{{ writer.brief }}" }
+    position: { x: 880, y: 200 }
+
+edges:
+  - { from: start, to: researcher }
+  - { from: researcher, to: writer }
+  - { from: writer, to: end }
