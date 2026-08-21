@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type {
-  AgentEvent, AgentSummary, ApprovalRequest, NodeType, RunSummary, Span, Spec, SpecNode, ToolInfo
+  AgentEvent, AgentSummary, ApprovalRequest, NodeType, RunSummary, Span, Spec, SpecNode,
+  ToolInfo, TreeEntry
 } from './types'
 
 const BASE = 'http://localhost:8765'
@@ -21,7 +22,13 @@ interface State {
 
   selectedNodeId: string | null
   selectedEdgeIdx: number | null
-  view: 'graph' | 'yaml'
+  view: 'graph' | 'yaml' | 'file'
+
+  /** IDE성 상태 — 워크스페이스 파일 트리와 열어본 파일 */
+  sidebarTab: 'node' | 'files'
+  tree: Record<string, TreeEntry[]>
+  openedFile: { path: string; content: string } | null
+  recentFolders: string[]
 
   runInputs: Record<string, string>
   setRunInput(key: string, value: string): void
@@ -44,6 +51,12 @@ interface State {
   boot(): Promise<void>
   pollHealth(): Promise<void>
   pickWorkspace(): Promise<void>
+  setWorkspaceTo(path: string): Promise<void>
+  setSidebarTab(t: 'node' | 'files'): void
+  loadDir(rel: string): Promise<void>
+  refreshTree(): void
+  openFile(rel: string): Promise<void>
+  closeFile(): void
   openAgent(id: string): Promise<void>
   createAgent(name: string): Promise<void>
   deleteAgent(id: string): Promise<void>
@@ -61,7 +74,7 @@ interface State {
   save(): Promise<void>
   selectNode(id: string | null): void
   selectEdge(idx: number | null): void
-  setView(v: 'graph' | 'yaml'): void
+  setView(v: 'graph' | 'yaml' | 'file'): void
   run(inputs: Record<string, string>): void
   cancel(): void
   respondApproval(approved: boolean): void
@@ -172,6 +185,10 @@ export const useStore = create<State>((set, get) => ({
   selectedNodeId: null,
   selectedEdgeIdx: null,
   view: 'graph',
+  sidebarTab: 'node',
+  tree: {},
+  openedFile: null,
+  recentFolders: JSON.parse(localStorage.getItem('janus.recentFolders') ?? '[]'),
   runInputs: {},
   running: false,
   spans: [],
@@ -194,6 +211,7 @@ export const useStore = create<State>((set, get) => ({
         fetch(`${BASE}/workspace`).then((r) => r.json())
       ])
       set({ serverUp: true, mlxUp: Boolean(health.mlx), agents, tools, models, workspace: ws.path })
+      get().loadDir('')
       if (agents[0]) await get().openAgent(agents[0].id)
     } catch {
       set({ serverUp: false })
@@ -213,13 +231,59 @@ export const useStore = create<State>((set, get) => ({
   async pickWorkspace() {
     // Electron 밖(브라우저)에서 열렸으면 다이얼로그가 없다 — 조용히 무시
     const picked = await window.janus?.pickFolder()
-    if (!picked) return
+    if (picked) await get().setWorkspaceTo(picked)
+  },
+
+  async setWorkspaceTo(path) {
     const r = await fetch(`${BASE}/workspace`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: picked })
+      body: JSON.stringify({ path })
     })
-    if (r.ok) set({ workspace: (await r.json()).path })
+    if (!r.ok) return
+    const real = (await r.json()).path
+    const recents = [real, ...get().recentFolders.filter((f) => f !== real)].slice(0, 6)
+    localStorage.setItem('janus.recentFolders', JSON.stringify(recents))
+    // 워크스페이스가 바뀌면 이전 트리·열린 파일은 전부 무효다
+    set({ workspace: real, recentFolders: recents, tree: {}, openedFile: null })
+    if (get().view === 'file') set({ view: 'graph' })
+    get().loadDir('')
+  },
+
+  setSidebarTab(t) {
+    set({ sidebarTab: t })
+  },
+
+  async loadDir(rel) {
+    try {
+      const r = await fetch(`${BASE}/workspace/tree?path=${encodeURIComponent(rel)}`)
+      if (!r.ok) return
+      const d = await r.json()
+      set({ tree: { ...get().tree, [rel]: d.entries } })
+    } catch {
+      /* 트리는 보조 기능 — 실패해도 조용히 */
+    }
+  },
+
+  /** 로드했던 디렉토리를 전부 다시 읽는다 — 에이전트가 파일을 만든 뒤 호출. */
+  refreshTree() {
+    const keys = Object.keys(get().tree)
+    for (const k of keys.length ? keys : ['']) get().loadDir(k)
+  },
+
+  async openFile(rel) {
+    const r = await fetch(`${BASE}/workspace/file?path=${encodeURIComponent(rel)}`)
+    if (!r.ok) return
+    const d = await r.json()
+    if (d.error) {
+      set({ openedFile: { path: rel, content: `(${d.error})` }, view: 'file' })
+      return
+    }
+    set({ openedFile: { path: rel, content: d.content }, view: 'file' })
+  },
+
+  closeFile() {
+    set({ openedFile: null, view: 'graph' })
   },
 
   async openAgent(id) {
@@ -382,6 +446,7 @@ export const useStore = create<State>((set, get) => ({
 
   selectNode(id) {
     set({ selectedNodeId: id, selectedEdgeIdx: id ? null : get().selectedEdgeIdx })
+    if (id) set({ sidebarTab: 'node' })
   },
 
   selectEdge(idx) {
@@ -435,6 +500,7 @@ export const useStore = create<State>((set, get) => ({
       } else if (ev.type === 'run_end') {
         set({ running: false, approval: null, cancelled: Boolean(ev.cancelled) })
         get().loadRuns()   // 방금 실행이 기록됐다 — 히스토리 갱신
+        get().refreshTree() // 에이전트가 파일을 만들었을 수 있다
         ws.close()
       }
     }

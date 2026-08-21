@@ -1,15 +1,17 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { ReactFlowProvider } from '@xyflow/react'
-import { AlertTriangle, Loader2, Play, Rocket, Save, FlaskConical, Square } from 'lucide-react'
+import { ChevronDown, FolderOpen, Loader2, Play, Rocket, Save, FlaskConical, Square } from 'lucide-react'
 import { useStore } from './store'
 import Canvas from './components/Canvas'
 import Inspector from './components/Inspector'
 import TracePanel from './components/traces/TracePanel'
 import ApprovalCard from './components/ApprovalCard'
+import FileTree from './components/FileTree'
 import { AgentList, NavRail, StatusBar } from './components/Shell'
 
 // Monaco는 무겁다 — YAML 뷰를 열기 전엔 로드하지 않는다
 const YamlView = lazy(() => import('./components/YamlView'))
+const FileView = lazy(() => import('./components/FileView'))
 
 const DESIGN_TABS = ['Design', 'Prompt', 'Tools', 'Context', 'Memory', 'Settings'] as const
 const BOTTOM_TABS = ['Run', 'Traces', 'Logs', 'Metrics'] as const
@@ -44,6 +46,64 @@ function useStartFields(): string[] {
   const fields = spec?.nodes.find((n) => n.type === 'start')?.outputs ?? []
   useEffect(() => sync(fields), [fields.join(' ')])
   return fields
+}
+
+/** IDE의 '폴더 열기' — 프로젝트가 1급 시민이 되는 지점. 최근 폴더 포함. */
+function ProjectButton() {
+  const workspace = useStore((s) => s.workspace)
+  const recents = useStore((s) => s.recentFolders)
+  const pickWorkspace = useStore((s) => s.pickWorkspace)
+  const setWorkspaceTo = useStore((s) => s.setWorkspaceTo)
+  const [open, setOpen] = useState(false)
+  const name = workspace?.split('/').filter(Boolean).pop() ?? '폴더 열기'
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title={workspace ?? '작업할 프로젝트 폴더를 선택하세요'}
+        className="flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1.5 text-[12px] hover:border-accent"
+      >
+        <FolderOpen size={13} className="text-accent-fg" />
+        <span className="max-w-[180px] truncate">{name}</span>
+        <ChevronDown size={11} className="text-faint" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 top-full z-20 mt-1 w-[340px] rounded-md border border-border-strong bg-raised py-1 shadow-lg">
+            <button
+              onClick={() => {
+                setOpen(false)
+                pickWorkspace()
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] hover:bg-panel-2"
+            >
+              <FolderOpen size={12} /> 다른 폴더 열기…
+            </button>
+            {recents.length > 0 && (
+              <div className="mt-1 border-t border-border pt-1">
+                <div className="px-3 py-0.5 text-[10px] tracking-wider text-faint">최근</div>
+                {recents.map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => {
+                      setOpen(false)
+                      setWorkspaceTo(f)
+                    }}
+                    className="block w-full truncate px-3 py-1 text-left font-mono text-[11px] text-muted hover:bg-panel-2 hover:text-fg"
+                    style={{ color: f === workspace ? 'var(--color-accent-fg)' : undefined }}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
 }
 
 function RunBar() {
@@ -99,6 +159,8 @@ export default function App() {
   const runFn = useStore((s) => s.run)
   const cancel = useStore((s) => s.cancel)
   const approval = useStore((s) => s.approval)
+  const sidebarTab = useStore((s) => s.sidebarTab)
+  const setSidebarTab = useStore((s) => s.setSidebarTab)
 
   const [nav, setNav] = useState('agents')
   const [tab, setTab] = useState<(typeof DESIGN_TABS)[number]>('Design')
@@ -152,6 +214,7 @@ export default function App() {
       <header className="flex h-[52px] shrink-0 items-center gap-3 border-b border-border bg-panel px-4 pl-20">
         <span className="text-[15px] font-semibold tracking-tight">Janus</span>
         <span className="text-[11px] text-faint">Agent Development Environment</span>
+        <ProjectButton />
         <div className="mx-auto flex items-center gap-2">
           <span className="text-[13px] font-medium">{spec?.name ?? '—'}</span>
           <span className="text-[11px]" style={{ color: dirty ? 'var(--color-warn)' : 'var(--color-ok)' }}>
@@ -257,6 +320,16 @@ export default function App() {
                   <div className="grid h-full place-items-center text-[12px] text-faint">
                     {tab} 탭은 아직 구현되지 않았습니다
                   </div>
+                ) : view === 'file' ? (
+                  <Suspense
+                    fallback={
+                      <div className="grid h-full place-items-center text-[12px] text-faint">
+                        파일 로딩 중…
+                      </div>
+                    }
+                  >
+                    <FileView />
+                  </Suspense>
                 ) : view === 'graph' ? (
                   <ReactFlowProvider>
                     <Canvas />
@@ -312,8 +385,30 @@ export default function App() {
               </section>
             </main>
 
-            <aside className="w-[300px] shrink-0 border-l border-border bg-panel">
-              <Inspector />
+            <aside className="flex w-[300px] shrink-0 flex-col border-l border-border bg-panel">
+              <div className="flex shrink-0 gap-1 border-b border-border px-2 py-1.5">
+                {(
+                  [
+                    ['node', 'Node'],
+                    ['files', 'Files']
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    onClick={() => setSidebarTab(id)}
+                    className="rounded px-2.5 py-1 text-[12px]"
+                    style={{
+                      background: sidebarTab === id ? 'var(--color-accent-soft)' : 'transparent',
+                      color: sidebarTab === id ? 'var(--color-accent-fg)' : 'var(--color-muted)'
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="min-h-0 flex-1">
+                {sidebarTab === 'files' ? <FileTree /> : <Inspector />}
+              </div>
             </aside>
           </>
         )}

@@ -36,6 +36,12 @@ export interface AgentEvent {
   step?: number
 }
 
+export interface TreeEntry {
+  name: string
+  type: 'dir' | 'file'
+  size: number | null
+}
+
 export interface RunSummary {
   id: string
   at: string

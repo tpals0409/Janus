@@ -205,6 +205,46 @@ def set_workspace(body: dict):
     return {"path": str(p)}
 
 
+# IDE성 파일 접근 — 전부 tools._resolve의 jail을 통과한다(워크스페이스 밖 거부).
+_IGNORE = {".git", "node_modules", ".venv", "__pycache__", "out", "dist"}
+
+
+@app.get("/workspace/tree")
+def workspace_tree(path: str = ""):
+    """디렉토리 한 층. 재귀 아님 — 큰 프로젝트에서 폭발하지 않게 lazy로 편다."""
+    try:
+        root = T._resolve(path or ".")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not root.is_dir():
+        raise HTTPException(404, f"디렉토리가 아님: {path}")
+    entries = []
+    for p in sorted(root.iterdir(), key=lambda p: (p.is_file(), p.name.lower())):
+        if p.name in _IGNORE or p.name.startswith("."):
+            continue
+        entries.append({"name": p.name, "type": "dir" if p.is_dir() else "file",
+                        "size": p.stat().st_size if p.is_file() else None})
+        if len(entries) >= 500:
+            break
+    return {"path": path, "entries": entries}
+
+
+@app.get("/workspace/file")
+def workspace_file(path: str):
+    try:
+        p = T._resolve(path)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not p.is_file():
+        raise HTTPException(404, f"파일 없음: {path}")
+    if p.stat().st_size > 1_000_000:
+        return {"path": path, "content": None, "error": "1MB 초과 — 뷰어로 열기엔 너무 큼"}
+    raw = p.read_bytes()
+    if b"\x00" in raw[:8192]:
+        return {"path": path, "content": None, "error": "바이너리 파일"}
+    return {"path": path, "content": raw.decode("utf-8", errors="replace"), "error": None}
+
+
 @app.get("/tools")
 def list_tools():
     return T.listing()
