@@ -138,13 +138,22 @@ export function AgentList() {
               background: a.id === agentId ? 'var(--color-accent-soft)' : 'transparent'
             }}
           >
-            <button onClick={() => openAgent(a.id)} className="w-full px-2.5 py-2 text-left">
+            <button
+              onClick={() => openAgent(a.id)}
+              title={a.error}
+              className="w-full px-2.5 py-2 text-left"
+            >
               <div className="flex items-center gap-2">
-                <Layers size={13} className="shrink-0 text-accent-fg" />
+                <Layers
+                  size={13}
+                  className={`shrink-0 ${a.error ? 'text-danger' : 'text-accent-fg'}`}
+                />
                 <span className="truncate text-[12.5px] font-medium">{a.name}</span>
               </div>
-              <div className="mt-0.5 truncate pl-[21px] text-[11px] text-faint">
-                {a.description || `${a.node_count} nodes`}
+              <div
+                className={`mt-0.5 truncate pl-[21px] text-[11px] ${a.error ? 'text-danger' : 'text-faint'}`}
+              >
+                {a.error ? '스펙 오류 · 클릭해 원문 확인' : a.description || `${a.node_count} nodes`}
               </div>
             </button>
             {confirmId === a.id ? (

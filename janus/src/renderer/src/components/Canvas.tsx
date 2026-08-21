@@ -36,6 +36,7 @@ const PALETTE: { type: NodeType; label: string; Icon: typeof Sparkles }[] = [
 
 export default function Canvas() {
   const spec = useStore((s) => s.spec)
+  const errors = useStore((s) => s.errors)
   const selectedNodeId = useStore((s) => s.selectedNodeId)
   const selectedEdgeIdx = useStore((s) => s.selectedEdgeIdx)
   const spans = useStore((s) => s.spans)
@@ -112,8 +113,20 @@ export default function Canvas() {
     [deleteEdge]
   )
 
-  if (!spec)
-    return <div className="grid h-full place-items-center text-faint">에이전트를 선택하세요</div>
+  if (!spec) {
+    return (
+      <div className="grid h-full place-items-center px-8 text-center text-faint">
+        <div>
+          <div>{errors.length ? '스펙을 캔버스에서 열 수 없습니다' : '에이전트를 선택하세요'}</div>
+          {errors.length > 0 && (
+            <pre className="mt-2 max-w-[720px] whitespace-pre-wrap font-mono text-[11px] text-danger">
+              {errors.join('\n')}
+            </pre>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <ReactFlow

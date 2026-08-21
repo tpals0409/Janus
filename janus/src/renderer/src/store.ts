@@ -376,6 +376,7 @@ export const useStore = create<State>((set, get) => ({
       yaml: r.yaml,
       errors: r.errors ?? [],
       dirty: false,
+      view: r.spec ? get().view : 'yaml',
       selectedNodeId: null,
       selectedEdgeIdx: null,
       runInputs: {},
@@ -543,8 +544,8 @@ export const useStore = create<State>((set, get) => ({
   },
 
   run(inputs) {
-    const { agentId, running } = get()
-    if (!agentId || running) return
+    const { agentId, spec, errors, running } = get()
+    if (!agentId || !spec || errors.length > 0 || running) return
     set({ running: true, spans: [], liveEvents: {}, approvals: [],
           selectedSpanId: null, runError: null, cancelled: false, viewingRunId: null,
           lastRunInputs: { ...inputs } })

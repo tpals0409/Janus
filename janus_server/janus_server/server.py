@@ -187,12 +187,24 @@ def list_agents():
         except yaml.YAMLError as e:
             out.append({"id": p.stem, "name": p.stem, "error": str(e)[:200]})
             continue
-        out.append({
+        if not isinstance(raw, dict):
+            out.append({
+                "id": p.stem,
+                "name": p.stem,
+                "error": "스펙 최상위는 매핑이어야 합니다",
+            })
+            continue
+        agent = {
             "id": p.stem,
             "name": raw.get("name", p.stem),
             "description": raw.get("description", ""),
-            "node_count": len(raw.get("nodes") or []),
-        })
+            "node_count": len(raw["nodes"]) if isinstance(raw.get("nodes"), list) else 0,
+        }
+        try:
+            S.validate(raw)
+        except (S.SpecError, yaml.YAMLError, TypeError, AttributeError) as e:
+            agent["error"] = str(e)[:200]
+        out.append(agent)
     return out
 
 
@@ -243,14 +255,34 @@ def get_agent(agent_id: str):
     p = _path(agent_id)
     if not p.is_file():
         raise HTTPException(404, f"없는 에이전트: {agent_id}")
-    raw = yaml.safe_load(p.read_text(encoding="utf-8"))
-    # 유효하지 않아도 돌려준다 — 캔버스에서 고쳐야 하므로
+    source = p.read_text(encoding="utf-8")
+    try:
+        raw = yaml.safe_load(source)
+    except yaml.YAMLError as e:
+        return {
+            "id": agent_id,
+            "spec": None,
+            "yaml": source,
+            "errors": [f"YAML 파싱 실패: {e}"],
+        }
+    # 구조가 캔버스에 안전하면 검증 오류와 함께 돌려줘 Graph에서 고칠 수 있게 한다.
     try:
         S.validate(raw)
         errors = []
-    except S.SpecError as e:
+    except (S.SpecError, yaml.YAMLError, TypeError, AttributeError) as e:
         errors = str(e).splitlines()
-    return {"id": agent_id, "spec": raw, "yaml": S.dumps(raw), "errors": errors}
+    # React 캔버스가 안전하게 순회할 최소 구조가 없으면 YAML 원문과 오류만 보여준다.
+    nodes = raw.get("nodes") if isinstance(raw, dict) else None
+    edges = raw.get("edges", []) if isinstance(raw, dict) else None
+    canvas_safe = (
+        isinstance(raw, dict)
+        and isinstance(nodes, list)
+        and all(isinstance(node, dict) for node in nodes)
+        and isinstance(edges, list)
+        and all(isinstance(edge, dict) for edge in edges)
+    )
+    spec = {**raw, "edges": edges} if canvas_safe else None
+    return {"id": agent_id, "spec": spec, "yaml": source, "errors": errors}
 
 
 @app.put("/agents/{agent_id}")

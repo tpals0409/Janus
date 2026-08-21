@@ -109,6 +109,8 @@ function ProjectButton() {
 function RunBar() {
   const run = useStore((s) => s.run)
   const running = useStore((s) => s.running)
+  const spec = useStore((s) => s.spec)
+  const errors = useStore((s) => s.errors)
   const values = useStore((s) => s.runInputs)
   const setRunInput = useStore((s) => s.setRunInput)
   const fields = useStartFields()
@@ -134,7 +136,7 @@ function RunBar() {
         </label>
       ))}
       <button
-        disabled={running}
+        disabled={running || !spec || errors.length > 0}
         onClick={() => run(values)}
         className="mt-[18px] flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-50"
         style={{ background: 'var(--color-accent)' }}
@@ -242,7 +244,7 @@ export default function App() {
           <Save size={13} /> Save
         </button>
         <button
-          disabled={running}
+          disabled={running || !spec || errors.length > 0}
           onClick={() => {
             setBottom('Traces')
             runFn(useStore.getState().runInputs)
