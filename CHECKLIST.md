@@ -311,12 +311,12 @@
 
 ### 19. Evaluation Lab
 
-- [ ] baseline/candidate 실행
-- [ ] AgentProfile·prompt·budget·worker policy A/B
-- [ ] 성공률과 분산
-- [ ] regression threshold
-- [ ] hardware/model/quantization 조건 포함
-- [ ] 결과 export
+- [x] baseline/candidate 실행
+- [x] AgentProfile·prompt·budget·worker policy A/B
+- [x] 성공률과 분산
+- [x] regression threshold
+- [x] hardware/model/quantization 조건 포함
+- [x] 결과 export
 
 ### 20. Adaptive Orchestration
 

@@ -2,7 +2,8 @@ import { create } from 'zustand'
 import type {
   AgentEvent, AgentProfile, AgentSessionDetail, AgentSummary, ApprovalRequest, ChangeSet,
   BackendStatus, ModelProfile, Project, RunDetail, RunSummary, SessionEvent, Span,
-  ReviewSnapshot, ShipHandoff, Spec, Task, TaskShipment, ToolInfo, TreeEntry,
+  EvaluationComparison, EvaluationExperiment, ReviewSnapshot, ShipHandoff, Spec,
+  Task, TaskShipment, ToolInfo, TreeEntry,
   VerificationCommand, VerificationRun,
   WorkspaceInspection
 } from './types'
@@ -84,6 +85,10 @@ interface State {
   review: ReviewSnapshot | null
   shipments: TaskShipment[]
   shipHandoff: ShipHandoff | null
+  evaluationExperiments: EvaluationExperiment[]
+  evaluationComparisons: EvaluationComparison[]
+  evaluationBusy: boolean
+  evaluationError: string | null
   taskBusy: boolean
   taskActionError: string | null
   taskSession: AgentSessionDetail | null
@@ -168,6 +173,17 @@ interface State {
   commitTask(message: string): Promise<void>
   pushTask(remote?: string): Promise<void>
   loadShipHandoff(): Promise<void>
+  loadEvaluations(): Promise<void>
+  startEvaluation(input: {
+    role: 'baseline' | 'candidate'; label: string; agent_profile_id: string
+    repeats: number; tasks: string[]; turn_timeout_seconds: number
+  }): Promise<void>
+  cancelEvaluation(id: string): Promise<void>
+  importEvaluation(role: 'baseline' | 'candidate', report: Record<string, unknown>): Promise<void>
+  compareEvaluations(input: {
+    baseline_id: string; candidate_id: string; thresholds: Record<string, number>
+  }): Promise<void>
+  exportEvaluation(id: string, format: 'json' | 'csv' | 'markdown'): Promise<void>
   archiveWorkspace(force?: boolean): Promise<void>
   deleteWorkspaceBranch(): Promise<void>
   archiveSelectedTask(): Promise<void>
@@ -243,6 +259,10 @@ export const useStore = create<State>((set, get) => ({
   review: null,
   shipments: [],
   shipHandoff: null,
+  evaluationExperiments: [],
+  evaluationComparisons: [],
+  evaluationBusy: false,
+  evaluationError: null,
   taskBusy: false,
   taskActionError: null,
   taskSession: null,
@@ -722,6 +742,91 @@ export const useStore = create<State>((set, get) => ({
       if (get().taskId === taskId) set({ shipHandoff })
     } catch (error) {
       if (get().taskId === taskId) set({ taskActionError: errorMessage(error) })
+    }
+  },
+
+  async loadEvaluations() {
+    try {
+      const [evaluationExperiments, evaluationComparisons] = await Promise.all([
+        apiJson(`${BASE}/evaluations/experiments`) as Promise<EvaluationExperiment[]>,
+        apiJson(`${BASE}/evaluations/comparisons`) as Promise<EvaluationComparison[]>
+      ])
+      set({ evaluationExperiments, evaluationComparisons, evaluationError: null })
+    } catch (error) {
+      set({ evaluationError: errorMessage(error) })
+    }
+  },
+
+  async startEvaluation(input) {
+    set({ evaluationBusy: true, evaluationError: null })
+    try {
+      await apiJson(`${BASE}/evaluations/experiments/run`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...input, model_startup_timeout_seconds: 240 })
+      })
+      await get().loadEvaluations()
+    } catch (error) {
+      set({ evaluationError: errorMessage(error) })
+    } finally {
+      set({ evaluationBusy: false })
+    }
+  },
+
+  async cancelEvaluation(id) {
+    set({ evaluationBusy: true, evaluationError: null })
+    try {
+      await apiJson(`${BASE}/evaluations/experiments/${id}/cancel`, { method: 'POST' })
+      await get().loadEvaluations()
+    } catch (error) {
+      set({ evaluationError: errorMessage(error) })
+    } finally {
+      set({ evaluationBusy: false })
+    }
+  },
+
+  async importEvaluation(role, report) {
+    set({ evaluationBusy: true, evaluationError: null })
+    try {
+      await apiJson(`${BASE}/evaluations/experiments/import`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role, report })
+      })
+      await get().loadEvaluations()
+    } catch (error) {
+      set({ evaluationError: errorMessage(error) })
+    } finally {
+      set({ evaluationBusy: false })
+    }
+  },
+
+  async compareEvaluations(input) {
+    set({ evaluationBusy: true, evaluationError: null })
+    try {
+      await apiJson(`${BASE}/evaluations/comparisons`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input)
+      })
+      await get().loadEvaluations()
+    } catch (error) {
+      set({ evaluationError: errorMessage(error) })
+    } finally {
+      set({ evaluationBusy: false })
+    }
+  },
+
+  async exportEvaluation(id, format) {
+    try {
+      const response = await apiFetch(`${BASE}/evaluations/comparisons/${id}/export?format=${format}`)
+      if (!response.ok) throw new ApiError(response.status, await response.text())
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `evaluation-${id}.${format === 'markdown' ? 'md' : format}`
+      anchor.click()
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      set({ evaluationError: errorMessage(error) })
     }
   },
 

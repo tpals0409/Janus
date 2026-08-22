@@ -204,7 +204,32 @@ def run_acceptance(
     return result
 
 
-def run_once(task: dict, policy: str, repeat: int, run_dir: Path, timeout: float) -> dict:
+def build_run_spec(task_id: str, policy: str, profile: dict | None) -> tuple[dict, dict | None]:
+    benchmark_prompt = policy_prompt(policy)
+    if profile is None:
+        return ({
+            "name": f"TaskSuite {task_id} {policy}", "model": "qwen3.8-27b",
+            "system_prompt": benchmark_prompt,
+            "tools": ["read_file", "glob", "grep", "write_file", "edit_file"],
+            "worker_policy": policy, "approval": "ask", "max_steps": 10,
+        }, None)
+    return ({
+        "name": str(profile["name"]), "model": str(profile["model_key"]),
+        "system_prompt": (
+            str(profile["system_prompt"]).strip()
+            + "\n\nTaskSuite execution contract:\n" + benchmark_prompt
+        ),
+        "tools": list(profile["tools"]), "worker_policy": policy,
+        "allow_autonomous_workers": policy == "autonomous",
+        "approval": str(profile["approval"]),
+        "max_steps": int(profile["max_steps"]),
+    }, profile["budget"])
+
+
+def run_once(
+    task: dict, policy: str, repeat: int, run_dir: Path, timeout: float,
+    profile: dict | None = None,
+) -> dict:
     fixture = PROJECT_DIR / "tasksuite" / "v0" / "fixtures" / task["id"]
     workspace = run_dir / "workspace"
     shutil.copytree(fixture, workspace)
@@ -225,18 +250,11 @@ def run_once(task: dict, policy: str, repeat: int, run_dir: Path, timeout: float
         })
         return True
 
-    spec = {
-        "name": f"TaskSuite {task['id']} {policy}",
-        "model": "qwen3.8-27b",
-        "system_prompt": policy_prompt(policy),
-        "tools": ["read_file", "glob", "grep", "write_file", "edit_file"],
-        "worker_policy": policy,
-        "approval": "ask",
-        "max_steps": 10,
-    }
+    spec, run_budget = build_run_spec(task["id"], policy, profile)
     events: list[dict] = []
     orch = runtime.Orchestration(
-        spec, send=events.append, approver=approve, workspace_context=context
+        spec, send=events.append, approver=approve, workspace_context=context,
+        budget=run_budget,
     )
     started = time.monotonic()
     turn_error = run_turn(orch, task_prompt(task), timeout)
@@ -267,6 +285,7 @@ def run_once(task: dict, policy: str, repeat: int, run_dir: Path, timeout: float
         "task_id": task["id"],
         "category": task["category"],
         "policy": policy,
+        "agent_profile_id": profile.get("id") if profile else None,
         "repeat": repeat,
         "status": "passed" if acceptance_passed and policy_conformant else "failed",
         "acceptance_passed": acceptance_passed,
@@ -396,6 +415,7 @@ def main() -> int:
     parser.add_argument("--turn-timeout", type=float, default=180)
     parser.add_argument("--model-startup-timeout", type=float, default=240)
     parser.add_argument("--label", default="candidate")
+    parser.add_argument("--profile-json", type=Path)
     parser.add_argument(
         "--output-dir", type=Path,
         default=PROJECT_DIR / "artifacts" / "p0" / "tasksuite" /
@@ -404,6 +424,17 @@ def main() -> int:
     args = parser.parse_args()
     if args.repeats < 1:
         parser.error("--repeats must be >= 1")
+    profile = None
+    if args.profile_json is not None:
+        profile = json.loads(args.profile_json.read_text(encoding="utf-8"))
+        required = {
+            "id", "name", "model_key", "quantization", "system_prompt", "tools",
+            "approval", "worker_policy", "max_steps", "budget",
+        }
+        missing = sorted(required - set(profile))
+        if missing:
+            parser.error(f"--profile-json missing fields: {missing}")
+        args.policies = [str(profile["worker_policy"])]
     tasks = [task for task in manifest["tasks"] if task["id"] in args.tasks]
     if len(tasks) != len(set(args.tasks)):
         parser.error("unknown or duplicate task id")
@@ -420,7 +451,18 @@ def main() -> int:
             **manifest["conditions"],
             "platform": platform.platform(),
             "python": sys.version,
-            "model_path": runtime.resolve_local_model("qwen3.8-27b"),
+            "model": profile["model_key"] if profile else "qwen3.8-27b",
+            "quantization": profile["quantization"] if profile else "4-bit MLX",
+            "model_path": runtime.resolve_local_model(
+                profile["model_key"] if profile else "qwen3.8-27b"
+            ),
+            "agent_profile": profile,
+            "prompt_sha256": hashlib.sha256(
+                (
+                    profile["system_prompt"] if profile else
+                    "\n".join(policy_prompt(item) for item in args.policies)
+                ).encode("utf-8")
+            ).hexdigest(),
             "turn_timeout_seconds": args.turn_timeout,
             "repeats": args.repeats,
             "policies": args.policies,
@@ -452,7 +494,9 @@ def main() -> int:
                     run_dir.mkdir(parents=True, exist_ok=False)
                     print(f"[{index}/{total}] {task['id']} {policy} repeat={repeat}", flush=True)
                     try:
-                        run = run_once(task, policy, repeat, run_dir, args.turn_timeout)
+                        run = run_once(
+                            task, policy, repeat, run_dir, args.turn_timeout, profile
+                        )
                     except Exception as exc:
                         run = {
                             "task_id": task["id"], "policy": policy, "repeat": repeat,

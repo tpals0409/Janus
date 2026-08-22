@@ -22,7 +22,7 @@ const NAV: { id: string; label: string; Icon: typeof Home; wired?: boolean }[] =
   { id: 'agents', label: 'Agents', Icon: Boxes, wired: true },
   { id: 'tools', label: 'Tools', Icon: Wrench },
   { id: 'context', label: 'Context', Icon: BookOpen },
-  { id: 'evals', label: 'Evals', Icon: FlaskConical },
+  { id: 'evals', label: 'Evals', Icon: FlaskConical, wired: true },
   { id: 'deployments', label: 'Deployments', Icon: Rocket },
   { id: 'monitor', label: 'Monitor', Icon: ChartNoAxesColumn }
 ]

@@ -238,6 +238,67 @@ export interface ShipHandoff {
   notice: string
 }
 
+export interface EvaluationExperiment {
+  id: string
+  role: 'baseline' | 'candidate'
+  label: string
+  source: 'import' | 'runner'
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+  agent_profile_id: string | null
+  profile_snapshot: Record<string, unknown>
+  config: Record<string, unknown>
+  conditions: Record<string, unknown>
+  report: Record<string, unknown> | null
+  result_path: string | null
+  error: string | null
+  created_at: string
+  started_at: string | null
+  ended_at: string | null
+}
+
+export interface EvaluationMetrics {
+  runs: number
+  successes: number
+  success_rate: number
+  wall_mean_ms: number
+  wall_stdev_ms: number
+  wall_p95_ms: number
+  tokens_mean: number
+  tokens_stdev: number
+  interventions_mean: number
+  interventions_stdev: number
+  worker_count_mean: number
+  memory_peak_bytes_mean: number
+}
+
+export interface EvaluationComparisonRow {
+  task_id: string
+  baseline: EvaluationMetrics
+  candidate: EvaluationMetrics
+  success_rate_delta_pp: number
+  wall_delta_pct: number | null
+  wall_p95_delta_pct: number | null
+  token_delta_pct: number | null
+  intervention_delta: number
+}
+
+export interface EvaluationComparison {
+  id: string
+  baseline_experiment_id: string
+  candidate_experiment_id: string
+  thresholds: Record<string, number>
+  result: {
+    verdict: 'incomparable_conditions' | 'regression' | 'improved' | 'equivalent'
+    condition_mismatches: Array<{ field: string; baseline: unknown; candidate: unknown }>
+    regressions: Array<{ scope: string; metric: string; delta: number }>
+    improvements: Array<{ scope: string; metric: string; delta: number }>
+    overall: Omit<EvaluationComparisonRow, 'task_id'>
+    rows: EvaluationComparisonRow[]
+    conditions: { baseline: Record<string, unknown>; candidate: Record<string, unknown> }
+  }
+  created_at: string
+}
+
 /** 에이전트 = 오케스트레이터 1개의 평평한 설정. 워커는 런타임에 만들어져 트레이스에만 존재한다. */
 export interface Spec {
   name: string

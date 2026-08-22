@@ -17,7 +17,7 @@ from typing import Any
 
 from .budget import empty_usage, merge_budget, normalize_budget
 
-CURRENT_SCHEMA_VERSION = 6
+CURRENT_SCHEMA_VERSION = 7
 
 TASK_STATUSES = frozenset({"todo", "preparing", "working", "needs_you", "review", "failed"})
 TASK_TRANSITIONS = {
@@ -290,9 +290,41 @@ CREATE TABLE task_shipments (
 CREATE INDEX idx_task_shipments_task ON task_shipments(task_id, created_at);
 """
 
+MIGRATION_7 = """
+CREATE TABLE evaluation_experiments (
+    id TEXT PRIMARY KEY,
+    role TEXT NOT NULL CHECK(role IN ('baseline','candidate')),
+    label TEXT NOT NULL CHECK(length(trim(label)) > 0),
+    source TEXT NOT NULL CHECK(source IN ('import','runner')),
+    status TEXT NOT NULL CHECK(status IN ('queued','running','completed','failed','cancelled')),
+    agent_profile_id TEXT REFERENCES agent_profiles(id) ON DELETE SET NULL,
+    profile_snapshot_json TEXT NOT NULL DEFAULT '{}',
+    config_json TEXT NOT NULL DEFAULT '{}',
+    conditions_json TEXT NOT NULL DEFAULT '{}',
+    report_json TEXT,
+    result_path TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    ended_at TEXT
+);
+
+CREATE TABLE evaluation_comparisons (
+    id TEXT PRIMARY KEY,
+    baseline_experiment_id TEXT NOT NULL REFERENCES evaluation_experiments(id) ON DELETE CASCADE,
+    candidate_experiment_id TEXT NOT NULL REFERENCES evaluation_experiments(id) ON DELETE CASCADE,
+    thresholds_json TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    CHECK(baseline_experiment_id <> candidate_experiment_id)
+);
+CREATE INDEX idx_evaluation_experiments_created ON evaluation_experiments(created_at DESC);
+CREATE INDEX idx_evaluation_comparisons_created ON evaluation_comparisons(created_at DESC);
+"""
+
 MIGRATIONS = {
     1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3, 4: MIGRATION_4,
-    5: MIGRATION_5, 6: MIGRATION_6,
+    5: MIGRATION_5, 6: MIGRATION_6, 7: MIGRATION_7,
 }
 
 
@@ -622,6 +654,124 @@ class DomainStore:
             return [dict(row) for row in connection.execute(
                 "SELECT * FROM task_shipments WHERE task_id=? ORDER BY created_at,id",
                 (task_id,),
+            )]
+
+    def create_evaluation_experiment(
+        self, *, role: str, label: str, source: str,
+        agent_profile_id: str | None = None, profile_snapshot: dict | None = None,
+        config: dict | None = None, conditions: dict | None = None,
+        report: dict | None = None, result_path: str | None = None,
+        status: str = "queued", experiment_id: str | None = None,
+    ) -> dict:
+        experiment_id = experiment_id or _id("evaluation")
+        now = _now()
+        ended_at = now if status in {"completed", "failed", "cancelled"} else None
+        try:
+            with self.transaction(immediate=True) as connection:
+                if agent_profile_id is not None:
+                    self._one(
+                        connection, "SELECT * FROM agent_profiles WHERE id=?",
+                        (agent_profile_id,), "AgentProfile",
+                    )
+                connection.execute(
+                    "INSERT INTO evaluation_experiments(id,role,label,source,status,"
+                    "agent_profile_id,profile_snapshot_json,config_json,conditions_json,"
+                    "report_json,result_path,created_at,ended_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (experiment_id, role, label.strip(), source, status, agent_profile_id,
+                     _json(profile_snapshot or {}), _json(config or {}),
+                     _json(conditions or {}), _json(report) if report is not None else None,
+                     result_path, now, ended_at),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise Conflict(f"Evaluation experiment 생성 충돌: {exc}") from exc
+        return self.get_evaluation_experiment(experiment_id)
+
+    def get_evaluation_experiment(self, experiment_id: str) -> dict:
+        with self._connect() as connection:
+            return self._one(
+                connection, "SELECT * FROM evaluation_experiments WHERE id=?",
+                (experiment_id,), "EvaluationExperiment",
+            )
+
+    def list_evaluation_experiments(self) -> list[dict]:
+        with self._connect() as connection:
+            return [dict(row) for row in connection.execute(
+                "SELECT * FROM evaluation_experiments ORDER BY created_at DESC,id DESC"
+            )]
+
+    def start_evaluation_experiment(self, experiment_id: str) -> dict:
+        with self.transaction(immediate=True) as connection:
+            item = self._one(
+                connection, "SELECT * FROM evaluation_experiments WHERE id=?",
+                (experiment_id,), "EvaluationExperiment",
+            )
+            if item["status"] != "queued":
+                raise Conflict(f"시작할 수 없는 Evaluation 상태: {item['status']}")
+            connection.execute(
+                "UPDATE evaluation_experiments SET status='running',started_at=? WHERE id=?",
+                (_now(), experiment_id),
+            )
+        return self.get_evaluation_experiment(experiment_id)
+
+    def finish_evaluation_experiment(
+        self, experiment_id: str, *, status: str, report: dict | None = None,
+        conditions: dict | None = None, result_path: str | None = None,
+        error: str | None = None,
+    ) -> dict:
+        if status not in {"completed", "failed", "cancelled"}:
+            raise Conflict(f"종료 Evaluation 상태가 아닙니다: {status}")
+        with self.transaction(immediate=True) as connection:
+            item = self._one(
+                connection, "SELECT * FROM evaluation_experiments WHERE id=?",
+                (experiment_id,), "EvaluationExperiment",
+            )
+            if item["status"] not in {"queued", "running"}:
+                raise Conflict(f"종료할 수 없는 Evaluation 상태: {item['status']}")
+            connection.execute(
+                "UPDATE evaluation_experiments SET status=?,report_json=COALESCE(?,report_json),"
+                "conditions_json=COALESCE(?,conditions_json),result_path=COALESCE(?,result_path),"
+                "error=?,ended_at=? WHERE id=?",
+                (status, _json(report) if report is not None else None,
+                 _json(conditions) if conditions is not None else None,
+                 result_path, error, _now(), experiment_id),
+            )
+        return self.get_evaluation_experiment(experiment_id)
+
+    def create_evaluation_comparison(
+        self, *, baseline_experiment_id: str, candidate_experiment_id: str,
+        thresholds: dict, result: dict, comparison_id: str | None = None,
+    ) -> dict:
+        comparison_id = comparison_id or _id("comparison")
+        try:
+            with self.transaction(immediate=True) as connection:
+                for experiment_id in (baseline_experiment_id, candidate_experiment_id):
+                    self._one(
+                        connection, "SELECT * FROM evaluation_experiments WHERE id=?",
+                        (experiment_id,), "EvaluationExperiment",
+                    )
+                connection.execute(
+                    "INSERT INTO evaluation_comparisons(id,baseline_experiment_id,"
+                    "candidate_experiment_id,thresholds_json,result_json,created_at) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (comparison_id, baseline_experiment_id, candidate_experiment_id,
+                     _json(thresholds), _json(result), _now()),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise Conflict(f"Evaluation comparison 생성 충돌: {exc}") from exc
+        return self.get_evaluation_comparison(comparison_id)
+
+    def get_evaluation_comparison(self, comparison_id: str) -> dict:
+        with self._connect() as connection:
+            return self._one(
+                connection, "SELECT * FROM evaluation_comparisons WHERE id=?",
+                (comparison_id,), "EvaluationComparison",
+            )
+
+    def list_evaluation_comparisons(self) -> list[dict]:
+        with self._connect() as connection:
+            return [dict(row) for row in connection.execute(
+                "SELECT * FROM evaluation_comparisons ORDER BY created_at DESC,id DESC"
             )]
 
     def archive_project(self, project_id: str) -> dict:
@@ -1260,9 +1410,14 @@ class DomainStore:
                 "error='server restarted during verification',ended_at=? "
                 "WHERE status IN ('queued','running')", (now,),
             ).rowcount
+            evaluations = connection.execute(
+                "UPDATE evaluation_experiments SET status='failed',"
+                "error='server restarted during evaluation',ended_at=? "
+                "WHERE status IN ('queued','running')", (now,),
+            ).rowcount
         return {
             "sessions": sessions, "dispatches": dispatches, "tasks": tasks,
-            "verifications": verifications,
+            "verifications": verifications, "evaluations": evaluations,
         }
 
     def transition_session(

@@ -11,13 +11,28 @@ from pathlib import Path
 
 from scripts.compare_tasksuite_results import compare
 from scripts.publish_tasksuite_summary import public_report
-from scripts.run_tasksuite_v0 import efficiency_summary
+from scripts.run_tasksuite_v0 import build_run_spec, efficiency_summary
 
 
 SUITE = Path(__file__).parents[1] / "tasksuite" / "v0"
 
 
 class TaskSuiteTests(unittest.TestCase):
+    def test_agent_profile_snapshot_controls_prompt_policy_model_tools_and_budget(self):
+        profile = {
+            "id": "candidate", "name": "Candidate", "model_key": "qwen3.8-27b",
+            "quantization": "4-bit MLX", "system_prompt": "candidate prompt",
+            "tools": ["read_file", "edit_file"], "approval": "ask",
+            "worker_policy": "autonomous", "max_steps": 12,
+            "budget": {"dispatch": {"step_limit": 12}},
+        }
+        spec, budget = build_run_spec("bug", "autonomous", profile)
+        self.assertEqual("qwen3.8-27b", spec["model"])
+        self.assertEqual(["read_file", "edit_file"], spec["tools"])
+        self.assertTrue(spec["allow_autonomous_workers"])
+        self.assertIn("candidate prompt", spec["system_prompt"])
+        self.assertEqual(profile["budget"], budget)
+
     def test_efficiency_summary_keeps_context_and_backpressure_metrics(self):
         summary = efficiency_summary({"events": [
             {"kind": "context_window", "baseline_chars": 100, "sent_chars": 60,

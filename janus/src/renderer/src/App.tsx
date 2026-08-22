@@ -9,6 +9,7 @@ import ApprovalCard from './components/ApprovalCard'
 import FileTree from './components/FileTree'
 import { AgentList, NavRail, StatusBar } from './components/Shell'
 import TaskWorkspace from './components/tasks/TaskWorkspace'
+import EvaluationLab from './components/evaluations/EvaluationLab'
 
 // Monaco는 무겁다 — YAML 뷰를 열기 전엔 로드하지 않는다
 const YamlView = lazy(() => import('./components/YamlView'))
@@ -221,6 +222,7 @@ export default function App() {
           <span className="max-w-[420px] truncate text-[13px] font-medium">
             {nav === 'tasks'
               ? task?.title ?? projects.find((project) => project.id === projectId)?.name ?? 'Tasks'
+              : nav === 'evals' ? 'Evaluation Lab'
               : spec?.name ?? '—'}
           </span>
           {nav === 'agents' && (
@@ -251,25 +253,27 @@ export default function App() {
             <Square size={11} /> Stop
           </button>
         )}
-        {[
-          ['Eval', FlaskConical],
-          ['Deploy', Rocket]
-        ].map(([label, Icon]: any) => (
-          <button
-            key={label}
-            disabled
-            title={`${label} — 아직 구현되지 않음`}
-            className="flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1.5 text-[12px] text-muted opacity-40"
-          >
-            <Icon size={13} /> {label}
-          </button>
-        ))}
+        <button
+          onClick={() => setNav('evals')}
+          className="flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1.5 text-[12px] text-muted"
+          style={{ color: nav === 'evals' ? 'var(--color-accent-fg)' : undefined }}
+        >
+          <FlaskConical size={13} /> Eval
+        </button>
+        <button
+          disabled title="Deploy — 아직 구현되지 않음"
+          className="flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1.5 text-[12px] text-muted opacity-40"
+        >
+          <Rocket size={13} /> Deploy
+        </button>
       </header>
 
       <div className="flex min-h-0 flex-1">
         <NavRail active={nav} onSelect={setNav} />
         {nav === 'tasks' ? (
           <TaskWorkspace />
+        ) : nav === 'evals' ? (
+          <EvaluationLab />
         ) : (
           <>
             <AgentList />

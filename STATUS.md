@@ -87,7 +87,7 @@ P4 Evaluation Lab과 Adaptive Orchestration이다.
 
 2026-08-22 현재 체크아웃에서 직접 확인:
 
-- Python 테스트 96개 통과
+- Python 테스트 105개 통과
 - Node lifecycle 테스트 7개 통과(실제 분리 프로세스 그룹 3회 start/stop 포함)
 - 도구 자체 검사 통과
 - 오케스트레이터 spec 검사 통과
@@ -191,6 +191,17 @@ P3 ADE MVP 결과:
   discard를 제공하며 unmerged 변경은 accept/discard하지 않는다.
 - commit/push는 Janus 소유 Task worktree와 `janus/` branch에서만 실행한다. local apply는
   main checkout을 수정하지 않고 사용자가 명시적으로 실행할 cherry-pick 명령을 준다.
+
+P4-19 Evaluation Lab 결과:
+
+- baseline/candidate를 서로 다른 AgentProfile snapshot으로 TaskSuite에서 실행하고 실행
+  중 prompt, worker policy, budget, model, quantization을 변경불가 조건으로 저장한다.
+- 성공률, wall mean/p95/표준편차, token 평균/표준편차, user input+approval 개입 비용을
+  Task별·전체로 비교한다.
+- acceptance 하락은 시간·token 개선으로 상쇄할 수 없고, 임계치를 넘는 시간·token·
+  개입 증가도 regression으로 판정한다.
+- hardware/model/quantization이 다르면 비용 결론을 `incomparable_conditions`로 차단하고,
+  JSON/CSV/Markdown으로 결과를 export한다.
 
 ## 완료한 마일스톤: R1 실제 27B Baseline과 계측
 
