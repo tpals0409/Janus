@@ -369,12 +369,12 @@
 
 ### 25. 배포 품질
 
-- [ ] README와 제품 개념 설명
-- [ ] 설치와 모델 준비 과정
-- [ ] diagnostics와 로그 수집
-- [ ] production packaging
-- [ ] 버전·업데이트 정책
-- [ ] fresh machine 설치 smoke
+- [x] README와 제품 개념 설명
+- [x] 설치와 모델 준비 과정
+- [x] diagnostics와 로그 수집
+- [x] production packaging
+- [x] 버전·업데이트 정책
+- [x] fresh machine 설치 smoke
 
 ---
 

@@ -6,6 +6,7 @@ __pycache__/
 models/
 node_modules/
 out/
+/janus/dist/
 *.log
 # 레퍼런스 클론 — 남의 리포, 커밋하지 않는다
 /deepseek-harness/

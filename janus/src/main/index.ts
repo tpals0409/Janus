@@ -1,9 +1,9 @@
 import { app, BrowserWindow, dialog, ipcMain, session as electronSession, shell } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
 import { randomBytes } from 'crypto'
-import { createWriteStream } from 'fs'
+import { createWriteStream, mkdirSync } from 'fs'
 import net from 'net'
-import { join, resolve } from 'path'
+import { join } from 'path'
 import {
   appendBoundedText,
   classifyServiceFailure,
@@ -21,14 +21,20 @@ import {
   BoundedCapture, normalizePreviewUrl, taskBrowserPartition,
   type CapturedConsole, type CapturedNetwork
 } from './task-browser'
+import { resolveRuntimePaths } from './runtime-paths'
 
 // ─────────────────────────── 백엔드 소유 ───────────────────────────
 // "하나의 앱": Janus를 켜면 janus-server와 MLX 모델 서버가 함께 뜨고, 끄면 함께
 // 내려간다. 이미 떠 있는 서버(포트 사용 중)는 우리가 띄운 게 아니므로 건드리지
 // 않는다 — 터미널에서 수동으로 돌리는 개발 워크플로가 그대로 살아 있다.
 
-// dev에선 app.getAppPath() == janus/ 이므로 리포 루트는 한 단계 위다.
-const repoRoot = resolve(app.getAppPath(), '..')
+const runtimePaths = resolveRuntimePaths({
+  isPackaged: app.isPackaged,
+  appPath: app.getAppPath(),
+  resourcesPath: process.resourcesPath,
+  userDataPath: app.getPath('userData')
+})
+mkdirSync(runtimePaths.logRoot, { recursive: true })
 const devUrl = process.env['ELECTRON_RENDERER_URL']
 const authToken = process.env.JANUS_AUTH_TOKEN ?? randomBytes(32).toString('hex')
 const allowedOrigins =
@@ -43,23 +49,30 @@ const env: NodeJS.ProcessEnv = {
   ...process.env,
   PATH: `${process.env.HOME}/.local/bin:/opt/homebrew/bin:${process.env.PATH ?? ''}`,
   JANUS_AUTH_TOKEN: authToken,
-  JANUS_ALLOWED_ORIGINS: allowedOrigins
+  JANUS_ALLOWED_ORIGINS: allowedOrigins,
+  JANUS_LOG_DIR: runtimePaths.logRoot
 }
 
 type ServiceLabel = 'server' | 'mlx'
 
-const serviceSpecs: Record<ServiceLabel, { port: number; command: string; cwd: string }> = {
+const serviceSpecs: Record<ServiceLabel, {
+  port: number; command: string; cwd: string; environment: string; logPath: string
+}> = {
   server: {
     port: 8765,
-    command: 'uv run python -m janus_server.server',
-    cwd: join(repoRoot, 'janus_server')
+    command: 'uv run --frozen python -m janus_server.server',
+    cwd: runtimePaths.backendRoot,
+    environment: runtimePaths.backendEnvironment,
+    logPath: join(runtimePaths.logRoot, 'janus-server.log')
   },
   mlx: {
     port: 8080,
     command:
-      'uv run mlx_vlm.server --model "$(ls -d ~/.cache/huggingface/hub/' +
+      'uv run --frozen mlx_vlm.server --model "$(ls -d ~/.cache/huggingface/hub/' +
       'models--orcarouter--Qwen3.8-27B-Uncensored-MLX/snapshots/*/4-bit)" --port 8080',
-    cwd: join(repoRoot, 'qwen3.8mlx')
+    cwd: runtimePaths.modelRuntimeRoot,
+    environment: runtimePaths.modelEnvironment,
+    logPath: join(runtimePaths.logRoot, 'janus-mlx.log')
   }
 }
 
@@ -207,11 +220,15 @@ function spawnLogged(label: ServiceLabel): void {
   const service = services[label]
   if (quitting || processAlive(service.process)) return
 
-  const log = createWriteStream(`/tmp/janus-${label}.log`, { flags: 'a' })
+  const log = createWriteStream(spec.logPath, { flags: 'a', mode: 0o600 })
   let p: ChildProcess
   try {
     // detached: 프로세스 그룹을 따로 만들어 uv가 낳는 python 자식까지 한 번에 죽인다.
-    p = spawn('/bin/zsh', ['-c', spec.command], { cwd: spec.cwd, env, detached: true })
+    p = spawn('/bin/zsh', ['-c', spec.command], {
+      cwd: spec.cwd,
+      env: { ...env, UV_PROJECT_ENVIRONMENT: spec.environment },
+      detached: true
+    })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     log.end(`\n[janus] ${label} spawn failed: ${message}\n`)
@@ -304,16 +321,17 @@ function startBackendSupervisor(): void {
 
 function backendStatus() {
   const now = Date.now()
-  const publicState = (service: ServiceRuntime) => ({
+  const publicState = (label: ServiceLabel, service: ServiceRuntime) => ({
     phase: service.phase,
     ownership: service.ownership,
     pid: service.pid,
     lastPid: service.lastPid,
     attempts: service.attempts,
     retryInMs: Math.max(0, service.nextRetryAt - now),
-    lastError: service.lastError
+    lastError: service.lastError,
+    logPath: serviceSpecs[label].logPath
   })
-  return { server: publicState(services.server), mlx: publicState(services.mlx) }
+  return { server: publicState('server', services.server), mlx: publicState('mlx', services.mlx) }
 }
 
 async function killBackend(): Promise<void> {

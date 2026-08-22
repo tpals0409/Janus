@@ -204,7 +204,7 @@ export default function App() {
               진단 로그
             </summary>
             <pre className="mt-2 rounded-md border border-border-strong bg-panel-2 px-3 py-2 font-mono text-[10.5px] text-muted">
-              {'/tmp/janus-server.log\n/tmp/janus-mlx.log'}
+              {`${backendStatus?.server.logPath ?? 'Janus user data/logs/janus-server.log'}\n${backendStatus?.mlx.logPath ?? 'Janus user data/logs/janus-mlx.log'}`}
             </pre>
           </details>
         </div>

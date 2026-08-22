@@ -541,11 +541,19 @@ export interface ToolInfo {
   params: string[]
 }
 
-export type ServicePhase = 'starting' | 'up' | 'restarting' | 'failed' | 'external' | 'stopped'
+export type ServicePhase = 'starting' | 'up' | 'restarting' | 'failed' | 'external' | 'blocked' | 'stopped'
+
+export interface BackendServiceStatus {
+  phase: ServicePhase
+  attempts: number
+  retryInMs: number
+  lastError: string | null
+  logPath: string
+}
 
 export interface BackendStatus {
-  server: { phase: ServicePhase; attempts: number; retryInMs: number; lastError: string | null }
-  mlx: { phase: ServicePhase; attempts: number; retryInMs: number; lastError: string | null }
+  server: BackendServiceStatus
+  mlx: BackendServiceStatus
 }
 
 export interface TaskBrowserStatus {

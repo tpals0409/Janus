@@ -378,17 +378,17 @@ Task를 떠나지 않고 파일 편집, terminal, 앱 미리보기와 UI 피드�
 
 ### 출구 조건
 
-- [ ] 제품 개념, 설치, 모델 준비가 README의 한 경로로 연결된다.
-- [ ] diagnostics bundle이 비밀값을 제외하고 로그·환경·무결성을 수집한다.
-- [ ] 서명 전/후 정책이 명시된 production package를 만든다.
-- [ ] version·schema·update 호환 정책이 문서화된다.
-- [ ] 빈 사용자 데이터 디렉터리에서 fresh-machine smoke가 통과한다.
+- [x] 제품 개념, 설치, 모델 준비가 README의 한 경로로 연결된다.
+- [x] diagnostics bundle이 비밀값을 제외하고 로그·환경·무결성을 수집한다.
+- [x] 서명 전/후 정책이 명시된 production package를 만든다.
+- [x] version·schema·update 호환 정책이 문서화된다.
+- [x] 빈 사용자 데이터 디렉터리에서 fresh-machine smoke가 통과한다.
 
 ---
 
 ## 현재 우선순위
 
-### 지금 — R9 배포 품질
+### 완료 — R9 배포 품질
 
 1. README에서 제품 개념, 설치, 로컬 모델 준비, 첫 실행을 한 흐름으로 만든다.
 2. 인증 토큰 등 비밀값을 제거한 diagnostics bundle과 로그 수집을 구현한다.

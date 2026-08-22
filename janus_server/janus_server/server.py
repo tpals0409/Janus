@@ -30,6 +30,7 @@ from fastapi.responses import JSONResponse
 from fastapi.responses import Response
 
 from . import adaptive
+from . import diagnostics
 from . import runtime
 from . import scheduler as scheduler_mod
 from . import telemetry as telemetry_mod
@@ -43,6 +44,7 @@ from . import tools as T
 from . import verification
 from . import workspace_service as WS
 from .workspace import WorkspaceContext
+from .version import __version__
 
 AGENTS_DIR = Path(__file__).parent / "agents"
 RUNS_DIR = Path(__file__).parent / "runs"    # 실행 기록. 앱을 닫아도 남는다.
@@ -57,6 +59,9 @@ WORKTREES_DIR = Path(
 ).expanduser()
 BACKUPS_DIR = Path(
     os.environ.get("JANUS_BACKUPS_DIR", str(Path.home() / ".janus" / "backups"))
+).expanduser()
+DIAGNOSTICS_DIR = Path(
+    os.environ.get("JANUS_DIAGNOSTICS_DIR", str(Path.home() / ".janus" / "diagnostics"))
 ).expanduser()
 _STATE_LOCK = threading.Lock()
 _BACKUP_LOCK = threading.Lock()
@@ -314,7 +319,7 @@ async def app_lifespan(_app: FastAPI):
         print("[janus] scheduler shutdown timed out with active leases", file=sys.stderr)
 
 
-app = FastAPI(title="Janus", version="0.1.0", lifespan=app_lifespan)
+app = FastAPI(title="Janus", version=__version__, lifespan=app_lifespan)
 
 
 @app.exception_handler(D.NotFound)
@@ -435,6 +440,26 @@ def create_backup(body: dict | None = None):
     except (OSError, sqlite3.Error, ValueError) as error:
         payload = recovery.classify_failure(error)
         raise D.Conflict(f"database backup 실패 [{payload['kind']}]: {payload['detail']}") from error
+
+
+@app.post("/maintenance/diagnostics", status_code=201)
+def create_diagnostics():
+    database = get_domain_store().path
+    log_dir = Path(
+        os.environ.get("JANUS_LOG_DIR", str(Path.home() / ".janus" / "logs"))
+    ).expanduser()
+    output_dir = Path(
+        os.environ.get("JANUS_DIAGNOSTICS_DIR", str(DIAGNOSTICS_DIR))
+    ).expanduser()
+    try:
+        return diagnostics.create_diagnostic_bundle(
+            database=database, log_dir=log_dir, output_dir=output_dir,
+        )
+    except (OSError, sqlite3.Error) as error:
+        payload = recovery.classify_failure(error)
+        raise D.Conflict(
+            f"diagnostics 생성 실패 [{payload['kind']}]: {payload['detail']}"
+        ) from error
 
 
 # ─────────────────────────── P1 ADE domain API ───────────────────────────
@@ -2791,7 +2816,10 @@ async def run_agent(ws: WebSocket, agent_id: str):
 
 def main():
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8765, log_level="info")
+    uvicorn.run(
+        app, host="127.0.0.1", port=int(os.environ.get("JANUS_PORT", "8765")),
+        log_level="info",
+    )
 
 
 if __name__ == "__main__":

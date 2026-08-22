@@ -22,9 +22,14 @@ class RecoveryApiTests(unittest.TestCase):
         root = Path(self.temp.name)
         self.database = root / "janus.sqlite3"
         self.backups = root / "backups"
+        self.logs = root / "logs"
+        self.diagnostics = root / "diagnostics"
+        self.logs.mkdir()
         self.environment = patch.dict(os.environ, {
             "JANUS_DB_FILE": str(self.database),
             "JANUS_BACKUPS_DIR": str(self.backups),
+            "JANUS_LOG_DIR": str(self.logs),
+            "JANUS_DIAGNOSTICS_DIR": str(self.diagnostics),
         })
         self.environment.start()
         server._DOMAIN_STORE = None
@@ -63,6 +68,15 @@ class RecoveryApiTests(unittest.TestCase):
             )
         self.assertEqual(409, response.status_code, response.text)
         self.assertIn("storage_write", response.json()["detail"])
+
+    def test_diagnostics_api_creates_redacted_bundle(self):
+        (self.logs / "janus-server.log").write_text(
+            "generated auth token: do-not-leak", encoding="utf-8"
+        )
+        response = self.client.post("/maintenance/diagnostics", headers=self.headers)
+        self.assertEqual(201, response.status_code, response.text)
+        self.assertTrue(response.json()["redacted"])
+        self.assertTrue(Path(response.json()["path"]).is_file())
 
 
 if __name__ == "__main__":

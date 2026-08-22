@@ -2,11 +2,13 @@
   "name": "janus",
   "version": "0.1.0",
   "description": "Janus — Agent Development Environment",
+  "author": "Janus contributors",
   "main": "./out/main/index.js",
   "type": "module",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "package:mac": "pnpm build && electron-builder --mac dir --publish never",
     "start": "electron-vite preview",
     "test:main": "node --test src/main/*.test.ts"
   },
@@ -22,6 +24,7 @@
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^5.1.1",
     "electron": "^43.4.1",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "lucide-react": "^0.560.0",
     "monaco-editor": "^0.56.0",
@@ -30,5 +33,44 @@
     "tailwindcss": "^4.2.4",
     "typescript": "^5.9.3",
     "vite": "^7.3.1"
+  },
+  "build": {
+    "appId": "dev.janus.ade",
+    "productName": "Janus",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../janus_server",
+        "to": "janus_server",
+        "filter": [
+          "pyproject.toml",
+          "uv.lock",
+          "janus_server/**/*",
+          "!janus_server/runs/**/*",
+          "!janus_server/workspace/**/*",
+          "!**/__pycache__/**"
+        ]
+      },
+      {
+        "from": "../qwen3.8mlx",
+        "to": "qwen3.8mlx",
+        "filter": [
+          "pyproject.toml",
+          "uv.lock"
+        ]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": ["dir"],
+      "identity": null
+    }
   }
 }

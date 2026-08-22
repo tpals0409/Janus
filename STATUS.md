@@ -13,7 +13,7 @@
 **측정 가능한 로컬 runtime(R1/P0), ADE 작업 경계(R2/P1), 자원 효율 엔진
 (R3/P2), Git-derived ChangeSet·Verification·Review·Ship(R4/P3), Evaluation Lab·
 Adaptive Orchestration·Operations Dashboard(R5/P4), PR·CI와 Task 개발 표면,
-견고성·데이터 복구(R6~R8/P5-24)까지 완료됐다. Janus는
+견고성·데이터 복구와 배포 품질(R6~R9/P5)까지 완료됐다. Janus는
 이제 Task 생성부터 격리 worktree 실행, 독립 검증, revision-aware review, Task branch
 commit/push 또는 명시적 cherry-pick handoff까지 앱 안에서 연결한다.**
 
@@ -94,8 +94,8 @@ Janus memory peak, budget 소진율, generation/tool/verification 흔적을 2초
 
 2026-08-22 현재 체크아웃에서 직접 확인:
 
-- Python 테스트 134개 통과(과거 schema 10개 migration subtest 포함)
-- Node main-process 테스트 13개 통과(실제 분리 프로세스 그룹 3회 start/stop 포함)
+- Python 테스트 138개 통과(과거 schema 10개 migration subtest 포함)
+- Node main-process 테스트 15개 통과(실제 분리 프로세스 그룹 3회 start/stop 포함)
 - 도구 자체 검사 통과
 - 오케스트레이터 spec 검사 통과
 - TypeScript 타입 검사 통과
@@ -256,6 +256,21 @@ P5-24 견고성과 복구 결과:
   고정했다. soak 동일 루프 단축 gate는 3.002초에 281 cycle을 완료했고 transient row 0,
   SQLite `integrity_check=ok`를 확인했다.
 
+P5-25 배포 품질 결과:
+
+- 루트 README가 제품 개념에서 Apple Silicon 전제, locked dependency 설치, 선택적 27B 모델
+  준비, 첫 Task, 검증·패키징·복구까지 한 경로로 연결한다. bootstrap은 model을 암묵적으로
+  받지 않고 `--with-model`에서만 4-bit snapshot을 준비한다.
+- Electron production package는 backend와 model runtime lockfile을 Resources에 포함하고,
+  writable Python environment와 로그는 Janus user-data 아래에 격리한다. `pnpm package:mac`은
+  unsigned `dist/mac-arm64/Janus.app`을 생성했으며 app size는 305MB였다.
+- diagnostics bundle은 database·환경변수 값을 제외하고 platform/version/schema/integrity와
+  최대 1MB의 redacted log tail만 `0600` ZIP으로 만든다. API와 CLI 모두 제공하며 auth token,
+  bearer, password, home path 제거를 테스트한다.
+- app/backend/Python version 일치와 schema/update/backup/signing 정책을 자동 검증한다.
+  clean-source fresh install smoke는 backend·MLX dependency 설치, Node test/build/package,
+  빈 schema v11 health, backup integrity, diagnostics redaction, owned backend 종료를 통과했다.
+
 ## 완료한 마일스톤: R1 실제 27B Baseline과 계측
 
 완료 항목:
@@ -316,5 +331,4 @@ pnpm build
 pnpm dev
 ```
 
-백엔드 로그: `/tmp/janus-server.log`
-MLX 로그: `/tmp/janus-mlx.log`
+백엔드·MLX 로그: Electron backend status가 표시하는 Janus user-data `logs/` 경로
