@@ -10,7 +10,6 @@ import json
 import platform
 import shutil
 import statistics
-import subprocess
 import sys
 import threading
 import time
@@ -24,7 +23,8 @@ if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
 
 from janus_server import runtime  # noqa: E402
-from janus_server import tools as T  # noqa: E402
+from janus_server import verification  # noqa: E402
+from janus_server.workspace import WorkspaceContext  # noqa: E402
 from p0_smoke_27b import ModelServer, SmokeFailure  # noqa: E402
 
 POLICIES = ("none", "fixed_one", "autonomous")
@@ -153,34 +153,16 @@ def last_dispatch_id(orch: runtime.Orchestration) -> str | None:
     )
 
 
-def run_acceptance(orch: runtime.Orchestration, command: str, workspace: Path) -> dict:
+def run_acceptance(
+    orch: runtime.Orchestration, command: str, context: WorkspaceContext
+) -> dict:
     operation_id = uuid.uuid4().hex[:16]
     dispatch_id = last_dispatch_id(orch)
     orch.telemetry.record_event(
         "verification_start", node_id="verifier", dispatch_id=dispatch_id,
         worker_id=None, operation_id=operation_id, command=command,
     )
-    started = time.monotonic()
-    try:
-        completed = subprocess.run(
-            command, cwd=workspace, shell=True, capture_output=True, text=True, timeout=120
-        )
-        result = {
-            "command": command,
-            "exit_code": completed.returncode,
-            "stdout": completed.stdout[-8000:],
-            "stderr": completed.stderr[-8000:],
-            "duration_ms": round((time.monotonic() - started) * 1000, 3),
-        }
-    except subprocess.TimeoutExpired as exc:
-        result = {
-            "command": command,
-            "exit_code": None,
-            "stdout": (exc.stdout or "")[-8000:],
-            "stderr": (exc.stderr or "")[-8000:],
-            "duration_ms": round((time.monotonic() - started) * 1000, 3),
-            "error": "acceptance timeout(120s)",
-        }
+    result = verification.run(command, context, timeout=120)
     orch.telemetry.record_event(
         "verification_end", node_id="verifier", dispatch_id=dispatch_id,
         worker_id=None, operation_id=operation_id,
@@ -195,11 +177,20 @@ def run_once(task: dict, policy: str, repeat: int, run_dir: Path, timeout: float
     workspace = run_dir / "workspace"
     shutil.copytree(fixture, workspace)
     before = file_hashes(workspace)
-    T.set_workspace(str(workspace))
+    context = WorkspaceContext(
+        root=workspace,
+        task_id=f"task_tasksuite_{task['id']}_{policy}_{repeat}",
+        workspace_id=f"workspace_tasksuite_{task['id']}_{policy}_{repeat}",
+    )
     approval_requests: list[dict] = []
 
-    def approve(node_id: str, tool: str, args: dict) -> bool:
-        approval_requests.append({"node_id": node_id, "tool": tool, "args": args})
+    def approve(
+        node_id: str, tool: str, args: dict, approval_context: WorkspaceContext
+    ) -> bool:
+        approval_requests.append({
+            "node_id": node_id, "tool": tool, "args": args,
+            **approval_context.identifiers(),
+        })
         return True
 
     spec = {
@@ -212,12 +203,14 @@ def run_once(task: dict, policy: str, repeat: int, run_dir: Path, timeout: float
         "max_steps": 10,
     }
     events: list[dict] = []
-    orch = runtime.Orchestration(spec, send=events.append, approver=approve)
+    orch = runtime.Orchestration(
+        spec, send=events.append, approver=approve, workspace_context=context
+    )
     started = time.monotonic()
     turn_error = run_turn(orch, task_prompt(task), timeout)
     after_agent = file_hashes(workspace)
     changed = changed_files(before, after_agent)
-    acceptance = run_acceptance(orch, task["acceptance_command"], workspace)
+    acceptance = run_acceptance(orch, task["acceptance_command"], context)
     elapsed_ms = round((time.monotonic() - started) * 1000, 3)
 
     required = set(task["required_changed_files"])
@@ -389,7 +382,6 @@ def main() -> int:
         "runs": [],
         "summary": [],
     }
-    old_workspace = T.get_workspace()
     server = ModelServer(output_dir, args.model_startup_timeout)
     harness_error = None
     try:
@@ -432,7 +424,6 @@ def main() -> int:
         report["error"] = harness_error
         report["traceback"] = traceback.format_exc()
     finally:
-        T.set_workspace(str(old_workspace))
         server.stop()
         report["model_server"]["exit_code"] = (
             server.process.returncode if server.process is not None else None

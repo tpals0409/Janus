@@ -20,12 +20,11 @@ os.environ.setdefault(
 from fastapi.testclient import TestClient
 
 from janus_server import server
-from janus_server import tools as T
 
 
 class WorkspaceStateTests(unittest.TestCase):
     def setUp(self):
-        self.previous_workspace = T.WORKSPACE
+        self.previous_workspace = server._get_legacy_workspace()
         self.previous_state_file = server.STATE_FILE
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
@@ -35,10 +34,10 @@ class WorkspaceStateTests(unittest.TestCase):
         self.project.mkdir()
         self.fallback.mkdir()
         server.STATE_FILE = self.state_file
-        T.set_workspace(str(self.fallback))
+        server._set_legacy_workspace(self.fallback)
 
     def tearDown(self):
-        T.WORKSPACE = self.previous_workspace
+        server._set_legacy_workspace(self.previous_workspace)
         server.STATE_FILE = self.previous_state_file
         self.temp.cleanup()
 
@@ -54,9 +53,9 @@ class WorkspaceStateTests(unittest.TestCase):
         self.assertEqual(0o600, stat.S_IMODE(self.state_file.stat().st_mode))
         self.assertEqual([], list(self.state_file.parent.glob("*.tmp")))
 
-        T.set_workspace(str(self.fallback))
+        server._set_legacy_workspace(self.fallback)
         self.assertTrue(server._restore_workspace())
-        self.assertEqual(self.project.resolve(), T.get_workspace())
+        self.assertEqual(self.project.resolve(), server._get_legacy_workspace())
 
     def test_invalid_saved_workspace_keeps_safe_fallback(self):
         missing = Path(self.temp.name) / "deleted-project"
@@ -66,7 +65,7 @@ class WorkspaceStateTests(unittest.TestCase):
         )
 
         self.assertFalse(server._restore_workspace())
-        self.assertEqual(self.fallback.resolve(), T.get_workspace())
+        self.assertEqual(self.fallback.resolve(), server._get_legacy_workspace())
 
     def test_api_rolls_back_when_state_write_fails(self):
         client = TestClient(server.app)
@@ -78,7 +77,7 @@ class WorkspaceStateTests(unittest.TestCase):
             )
 
         self.assertEqual(500, response.status_code)
-        self.assertEqual(self.fallback.resolve(), T.get_workspace())
+        self.assertEqual(self.fallback.resolve(), server._get_legacy_workspace())
 
 
 if __name__ == "__main__":

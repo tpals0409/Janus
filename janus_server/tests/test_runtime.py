@@ -84,6 +84,15 @@ class RuntimeTests(unittest.TestCase):
             self.assertIn("run_start", kinds)
             self.assertIn("span_start", kinds)
             self.assertIn("agent_event", kinds)
+            task_events = [
+                message for message in seen
+                if message["type"] in {"span_start", "agent_event", "turn_end"}
+            ]
+            for message in task_events:
+                payload = message.get("span", message)
+                self.assertTrue(payload["task_id"])
+                self.assertTrue(payload["workspace_id"])
+                self.assertTrue(payload["dispatch_id"])
 
             r = self.saved_run(runs)  # turn_end는 저장 후에 온다
             self.assertEqual({"task": "hi"}, r["inputs"])
@@ -92,7 +101,7 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual("success", spans[0]["status"])
             self.assertIsNone(spans[0]["parent_id"])
             telemetry = r["telemetry"]
-            self.assertEqual(1, telemetry["schema_version"])
+            self.assertEqual(2, telemetry["schema_version"])
             self.assertEqual("monotonic_ns", telemetry["clock"])
             self.assertEqual(0, telemetry["top_level_unaccounted_ms"])
             self.assertEqual(1, telemetry["tokens"]["prompt"])
@@ -103,6 +112,7 @@ class RuntimeTests(unittest.TestCase):
             self.assertIn("model_generation_start", kinds)
             self.assertIn("model_generation_end", kinds)
             self.assertTrue(telemetry["memory_snapshots"])
+            self.assertEqual(spans[0]["workspace_id"], telemetry["workspace_id"])
 
     def test_multi_turn_keeps_session_and_overwrites_one_file(self):
         fake = FakeClient([{"text": "A"}, {"text": "B"}])

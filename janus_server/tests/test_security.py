@@ -25,23 +25,27 @@ from starlette.websockets import WebSocketDisconnect
 from janus_server import runtime, server
 from janus_server import spec as S
 from janus_server import tools as T
+from janus_server.workspace import WorkspaceContext
 from tests.fakes import FakeClient
 
 
 class DispatchApprovalTests(unittest.TestCase):
     def setUp(self):
-        self.previous_workspace = T.WORKSPACE
         self.temp = tempfile.TemporaryDirectory()
-        T.set_workspace(self.temp.name)
+        self.context = WorkspaceContext(
+            root=Path(self.temp.name), task_id="task_security",
+            workspace_id="workspace_security", dispatch_id="dispatch_security",
+        )
 
     def tearDown(self):
-        T.WORKSPACE = self.previous_workspace
         self.temp.cleanup()
 
     def test_dangerous_dispatch_defaults_to_deny(self):
         marker = Path(self.temp.name) / "should-not-exist"
 
-        result = T.dispatch("run_bash", {"command": f"touch {marker.name}"})
+        result = T.dispatch(
+            "run_bash", {"command": f"touch {marker.name}"}, context=self.context
+        )
 
         self.assertIn("승인하지 않음", result["error"])
         self.assertFalse(marker.exists())
@@ -51,7 +55,10 @@ class DispatchApprovalTests(unittest.TestCase):
         marker = Path(self.temp.name) / "registry-should-not-exist"
         reg = dict(T.REGISTRY)
 
-        result = T.dispatch("run_bash", {"command": f"touch {marker.name}"}, registry=reg)
+        result = T.dispatch(
+            "run_bash", {"command": f"touch {marker.name}"}, registry=reg,
+            context=self.context,
+        )
 
         self.assertIn("승인하지 않음", result["error"])
         self.assertFalse(marker.exists())
@@ -134,7 +141,7 @@ class ServerBoundaryTests(unittest.TestCase):
             {"text": "done"},
         ])
 
-        previous_workspace = T.WORKSPACE
+        previous_workspace = server._get_legacy_workspace()
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             agents = root / "agents"
@@ -143,7 +150,7 @@ class ServerBoundaryTests(unittest.TestCase):
             agents.mkdir()
             workspace.mkdir()
             (agents / "parallel.yaml").write_text(S.dumps(spec), encoding="utf-8")
-            T.set_workspace(str(workspace))
+            server._set_legacy_workspace(workspace)
             try:
                 with (
                     patch.object(server, "AGENTS_DIR", agents),
@@ -167,6 +174,10 @@ class ServerBoundaryTests(unittest.TestCase):
 
                     self.assertEqual(2, len({r["id"] for r in approvals}))
                     self.assertEqual({"write_file"}, {r["tool"] for r in approvals})
+                    self.assertEqual(1, len({r["task_id"] for r in approvals}))
+                    self.assertEqual(1, len({r["workspace_id"] for r in approvals}))
+                    self.assertEqual(1, len({r["dispatch_id"] for r in approvals}))
+                    self.assertTrue(approvals[0]["dispatch_id"].startswith("dispatch_"))
                     for request in approvals:
                         ws.send_json(
                             {"type": "approval_response", "id": request["id"], "approved": True}
@@ -182,7 +193,7 @@ class ServerBoundaryTests(unittest.TestCase):
                 self.assertEqual("A", (workspace / "a.txt").read_text(encoding="utf-8"))
                 self.assertEqual("B", (workspace / "b.txt").read_text(encoding="utf-8"))
             finally:
-                T.WORKSPACE = previous_workspace
+                server._set_legacy_workspace(previous_workspace)
 
 
 if __name__ == "__main__":

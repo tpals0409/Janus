@@ -23,6 +23,7 @@ from . import agent as agent_mod
 from . import spec as spec_mod
 from . import telemetry as telemetry_mod
 from . import tools as T
+from .workspace import WorkspaceContext
 
 # UI의 짧은 이름 -> 로컬에 실제로 존재하는 스냅샷 경로.
 #
@@ -85,11 +86,12 @@ class Orchestration:
     """WS 연결 하나 = 오케스트레이터 대화 하나.
 
     send(dict)                     : 스레드 안전 WS 송신 (서버가 제공)
-    approver(node_id, tool, args)  : 블로킹 승인 브리지 (서버가 제공)
+    approver(node_id, tool, args, context): 블로킹 승인 브리지 (서버가 제공)
     """
 
     def __init__(self, spec: dict, *, send: Callable[[dict], None],
-                 approver: Callable[[str, str, dict], bool] | None,
+                 approver: Callable[[str, str, dict, WorkspaceContext], bool] | None,
+                 workspace_context: WorkspaceContext,
                  task_id: str | None = None, session_id: str | None = None,
                  clock: Callable[[], int] | None = None):
         self.spec = spec
@@ -100,6 +102,10 @@ class Orchestration:
         self.max_steps = spec.get("max_steps", 15)
         self.worker_policy = spec.get("worker_policy", "autonomous")
         self.worker_enabled = self.worker_policy != "none"
+        if task_id is not None and task_id != workspace_context.task_id:
+            raise ValueError("task_id와 WorkspaceContext.task_id가 다릅니다")
+        self.workspace_context = workspace_context
+        self.active_workspace_context: WorkspaceContext | None = None
 
         self.cancel = threading.Event()
         self.worker_cancels: dict[str, threading.Event] = {}
@@ -108,11 +114,16 @@ class Orchestration:
         self.node_usage: dict[str, dict] = {}
         self.spans: list[dict] = []          # [0]=오케스트레이터, 이후 워커 스폰 순
         self.worker_seq = 0
-        telemetry_kwargs = {"task_id": task_id, "session_id": session_id}
+        telemetry_kwargs = {
+            "task_id": workspace_context.task_id,
+            "workspace_id": workspace_context.workspace_id,
+            "session_id": session_id,
+        }
         if clock is not None:
             telemetry_kwargs["clock"] = clock
         self.telemetry = telemetry_mod.ExecutionTelemetry(**telemetry_kwargs)
         self.current_dispatch_id: str | None = None
+        self.last_dispatch_id: str | None = None
         self.first_message: str | None = None
         self.last_text = ""
         self.cancelled_turn = False
@@ -122,11 +133,13 @@ class Orchestration:
         # 위험 도구의 실제 게이트는 tools.dispatch다 — 여기는 정책 선택일 뿐.
         approval = spec.get("approval", "auto")
         if approval == "auto":
-            self._approve_for = lambda nid: (lambda name, args: True)
+            self._approve_for = lambda nid, context: (lambda name, args: True)
         elif approver is not None:
-            self._approve_for = lambda nid: (lambda name, args: approver(nid, name, args))
+            self._approve_for = lambda nid, context: (
+                lambda name, args: approver(nid, name, args, context)
+            )
         else:
-            self._approve_for = lambda nid: (lambda name, args: False)
+            self._approve_for = lambda nid, context: (lambda name, args: False)
 
         self.create_worker = self._make_create_worker()
         registry = dict(T.REGISTRY)
@@ -163,6 +176,7 @@ class Orchestration:
                 "started_ms": self.telemetry.elapsed_ms(), "input": _clip(input),
                 "parent_id": parent_id, "label": label,
                 "task_id": self.telemetry.task_id,
+                "workspace_id": self.telemetry.workspace_id,
                 "session_id": self.telemetry.session_id,
                 "dispatch_id": self.current_dispatch_id,
                 "worker_id": None if node_id == ORCH_ID else node_id}
@@ -187,6 +201,9 @@ class Orchestration:
     def _make_create_worker(self) -> dict:
         def handler(name: str = "", system_prompt: str = "", task: str = "",
                     tools: list | None = None, max_steps: int = 8) -> dict:
+            context = self.active_workspace_context
+            if context is None:
+                return {"error": "active WorkspaceContext가 없습니다"}
             with self.lock:
                 if self.worker_policy == "none":
                     return {"error": "worker policy가 none이라 worker를 만들 수 없습니다"}
@@ -217,7 +234,8 @@ class Orchestration:
                     system_prompt=str(system_prompt) or "You are a focused worker agent.",
                     task=str(task) or "(no task)",
                     tool_names=allowed,
-                    approve=self._approve_for(wid),
+                    workspace_context=context,
+                    approve=self._approve_for(wid, context),
                     emit=lambda kind, **d: self._sink(wid, kind, d),
                     max_steps=steps,
                     cancel=cancel,
@@ -260,6 +278,9 @@ class Orchestration:
         self.turn_failed = False
         dispatch_id = self.telemetry.begin_turn()
         self.current_dispatch_id = dispatch_id
+        self.last_dispatch_id = dispatch_id
+        context = self.workspace_context.for_dispatch(dispatch_id)
+        self.active_workspace_context = context
         if self.first_message is None:
             self.first_message = text
             self._open_span(ORCH_ID, label=self.spec.get("name"), parent_id=None,
@@ -270,7 +291,8 @@ class Orchestration:
                 system_prompt=self.spec.get("system_prompt") or "",  # session이 이미 보유
                 task=text,
                 tool_names=self.tools + (["create_worker"] if self.worker_enabled else []),
-                approve=self._approve_for(ORCH_ID),
+                workspace_context=context,
+                approve=self._approve_for(ORCH_ID, context),
                 emit=lambda kind, **d: self._sink(ORCH_ID, kind, d),
                 max_steps=self.max_steps,
                 cancel=self.cancel,
@@ -289,6 +311,7 @@ class Orchestration:
                       "cancelled" if self.cancelled_turn else "success")
             self.telemetry.end_turn(dispatch_id, status=status)
             self.current_dispatch_id = None
+            self.active_workspace_context = None
         # turn_end는 서버가 저장을 마친 뒤 보낸다 — 여기서 보내면 히스토리 갱신이 빈손
 
     # ── 취소 ──

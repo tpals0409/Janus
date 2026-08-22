@@ -7,14 +7,14 @@ handler는 **구조화된 dict**를 반환하고 render()가 모델용 텍스트
 로그에 원본 dict가 남아야 UI가 diff 같은 걸 그릴 수 있다 — render 결과만 자르고
 원본은 자르지 않는다.
 
-파일 도구는 WORKSPACE 안에 갇힌다(_resolve가 jail 검사). run_bash는 cwd만 WORKSPACE로
-잡을 뿐 cd로 어디든 갈 수 있다 — 그래서 승인 게이트가 bash의 방어선이다.
+파일 도구는 호출자가 넘긴 WorkspaceContext 안에 갇힌다(_resolve가 jail 검사).
+run_bash는 cwd를 같은 컨텍스트에서 받는다. cd로 어디든 갈 수 있으므로 승인
+게이트가 bash의 추가 방어선이다.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -22,33 +22,17 @@ import urllib.request
 from pathlib import Path
 from typing import Callable
 
+from .workspace import WorkspaceContext
+
 MAX_RENDER_CHARS = 4000
 BASH_TIMEOUT = 120
 
-# 파일 도구가 갇히는 디렉토리. 서버 cwd가 아니라 명시적 워크스페이스다.
-WORKSPACE = (Path(__file__).parent / "workspace").resolve()
-
-
-def set_workspace(path: str) -> Path:
-    global WORKSPACE
-    p = Path(path).expanduser().resolve()
-    if not p.is_dir():
-        raise ValueError(f"디렉토리가 아닙니다: {path}")
-    WORKSPACE = p
-    return p
-
-
-def get_workspace() -> Path:
-    WORKSPACE.mkdir(parents=True, exist_ok=True)
-    return WORKSPACE
-
-
-def _resolve(path: str) -> Path:
-    """상대경로는 WORKSPACE 기준으로 해석하고, 밖으로 나가면 거부한다.
+def _resolve(path: str, context: WorkspaceContext) -> Path:
+    """상대경로는 실행 컨텍스트의 root 기준으로 해석하고 밖으로 나가면 거부한다.
 
     ValueError는 dispatch()가 {"error": ...}로 바꿔 모델에게 돌려준다.
     """
-    ws = get_workspace()
+    ws = context.root
     p = Path(path).expanduser()
     if not p.is_absolute():
         p = ws / p
@@ -70,27 +54,27 @@ def _clip(text: str) -> str:
 # handler는 예외를 던지지 않고 {"error": ...}를 반환한다. 모델이 스스로 복구하게 둔다.
 
 
-def _read_file(path: str, **_):
-    p = _resolve(path)
+def _read_file(path: str, *, _context: WorkspaceContext):
+    p = _resolve(path, _context)
     if not p.is_file():
         return {"error": f"파일 없음: {path}"}
     return {"path": str(p), "content": p.read_text(encoding="utf-8", errors="replace")}
 
 
-def _glob(pattern: str, **_):
-    ws = get_workspace()
+def _glob(pattern: str, *, _context: WorkspaceContext):
+    ws = _context.root
     # 패턴에 ..가 있어도 결과를 jail로 거른다
     matches = sorted(str(p) for p in ws.glob(pattern)
                      if p.is_file() and p.resolve().is_relative_to(ws))
     return {"pattern": pattern, "matches": matches}
 
 
-def _grep(pattern: str, path: str = ".", **_):
-    root = _resolve(path)
+def _grep(pattern: str, path: str = ".", *, _context: WorkspaceContext):
+    root = _resolve(path, _context)
     if shutil.which("rg"):
         r = subprocess.run(
             ["rg", "--line-number", "--no-heading", "--color=never", pattern, str(root)],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, timeout=60, cwd=_context.root,
         )
         # rg는 매치 없음에 exit 1을 쓴다. 그건 에러가 아니다.
         if r.returncode not in (0, 1):
@@ -111,8 +95,8 @@ def _grep(pattern: str, path: str = ".", **_):
     return {"pattern": pattern, "path": path, "matches": lines, "count": len(lines)}
 
 
-def _write_file(path: str, content: str, **_):
-    p = _resolve(path)
+def _write_file(path: str, content: str, *, _context: WorkspaceContext):
+    p = _resolve(path, _context)
     existed = p.is_file()
     old = p.read_text(encoding="utf-8", errors="replace") if existed else None
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -120,8 +104,10 @@ def _write_file(path: str, content: str, **_):
     return {"path": str(p), "created": not existed, "old": old, "new": content}
 
 
-def _edit_file(path: str, old_string: str, new_string: str, **_):
-    p = _resolve(path)
+def _edit_file(
+    path: str, old_string: str, new_string: str, *, _context: WorkspaceContext
+):
+    p = _resolve(path, _context)
     if not p.is_file():
         return {"error": f"파일 없음: {path}"}
     text = p.read_text(encoding="utf-8", errors="replace")
@@ -136,10 +122,10 @@ def _edit_file(path: str, old_string: str, new_string: str, **_):
             "old_string": old_string, "new_string": new_string}
 
 
-def _run_bash(command: str, **_):
+def _run_bash(command: str, *, _context: WorkspaceContext):
     try:
         r = subprocess.run(command, shell=True, capture_output=True, text=True,
-                           timeout=BASH_TIMEOUT, cwd=get_workspace())
+                           timeout=BASH_TIMEOUT, cwd=_context.root)
     except subprocess.TimeoutExpired:
         return {"command": command, "error": f"{BASH_TIMEOUT}초 타임아웃"}
     return {"command": command, "exit_code": r.returncode,
@@ -229,10 +215,14 @@ def _r_docs(v):
 # ─────────────────────────── registry ───────────────────────────
 # guidance는 도구 옆에 둔다 — agent 노드의 시스템 프롬프트에 이게 합쳐진다.
 
-def _t(name, handler, render, schema, description, guidance="", needs_approval=False):
+def _t(
+    name, handler, render, schema, description, guidance="", needs_approval=False,
+    requires_workspace=False,
+):
     return {"name": name, "handler": handler, "render": render, "schema": schema,
             "description": description, "guidance": guidance,
-            "needs_approval": needs_approval}
+            "needs_approval": needs_approval,
+            "requires_workspace": requires_workspace}
 
 
 def _obj(required, **props):
@@ -247,16 +237,16 @@ TOOLS = [
     _t("read_file", _read_file, _r_read,
        _obj(["path"], path={**_S, "description": "Path to the file."}),
        "Read the full contents of a file.",
-       "Read a file before editing it."),
+       "Read a file before editing it.", requires_workspace=True),
     _t("glob", _glob, _r_glob,
        _obj(["pattern"], pattern={**_S, "description": "Glob pattern, e.g. '**/*.py'."}),
        "Find files by glob pattern, relative to the working directory.",
-       "Use glob to locate files by name."),
+       "Use glob to locate files by name.", requires_workspace=True),
     _t("grep", _grep, _r_grep,
        _obj(["pattern"], pattern={**_S, "description": "Regular expression."},
             path={**_S, "description": "Directory to search. Default '.'."}),
        "Search file contents by regex. Returns 'file:line:text' matches.",
-       "Use grep to find where something is defined or used."),
+       "Use grep to find where something is defined or used.", requires_workspace=True),
     _t("http_get", _http_get, _r_http,
        _obj(["url"], url={**_S, "description": "http/https URL."},
             timeout={**_N, "description": "Seconds. Default 10."}),
@@ -282,7 +272,7 @@ TOOLS = [
        "Write content to a file, creating or overwriting it.",
        "Use write_file only for NEW files or full rewrites. "
        "To change part of an existing file use edit_file — it is far cheaper.",
-       needs_approval=True),
+       needs_approval=True, requires_workspace=True),
     _t("edit_file", _edit_file, _r_edit,
        _obj(["path", "old_string", "new_string"],
             path={**_S, "description": "Path to the file."},
@@ -291,13 +281,13 @@ TOOLS = [
        "Replace an exact string in a file. old_string must be unique.",
        "Prefer edit_file over write_file for existing files. "
        "If old_string is not unique, include more surrounding lines.",
-       needs_approval=True),
+       needs_approval=True, requires_workspace=True),
     _t("run_bash", _run_bash, _r_bash,
        _obj(["command"], command={**_S, "description": "Shell command to run."}),
        "Run a shell command in the working directory.",
        "Check the [exit code: N] on every result. "
        "A non-zero code means it failed — investigate before continuing.",
-       needs_approval=True),
+       needs_approval=True, requires_workspace=True),
 ]
 
 REGISTRY: dict[str, dict] = {t["name"]: t for t in TOOLS}
@@ -314,12 +304,14 @@ def dispatch(
     *,
     approve: Callable[[str, dict], bool] | None = None,
     registry: dict | None = None,
+    context: WorkspaceContext | None = None,
 ) -> dict:
     """도구 실행. 위험 도구는 dispatch 계층에서 승인을 강제한다.
 
     호출자가 승인 UI를 빼먹어도 쉘/쓰기가 실행되지 않도록 승인 콜백이
     없으면 기본 거부한다. 반환값은 구조화된 dict로 이벤트 로그에 그대로 저장된다.
     registry로 실행별 도구(create_worker 등)를 주입한다 — 전역 REGISTRY는 불변.
+    파일/셰 도구는 명시적 WorkspaceContext가 없으면 절대 실행하지 않는다.
     """
     reg = registry or REGISTRY
     tool = reg.get(name)
@@ -332,7 +324,11 @@ def dispatch(
             return {"error": f"승인 처리 실패: {type(e).__name__}: {e}"}
         if not approved:
             return {"error": "사용자가 이 도구 실행을 승인하지 않음"}
+    if tool.get("requires_workspace") and context is None:
+        return {"error": "WorkspaceContext가 필요한 도구입니다"}
     try:
+        if tool.get("requires_workspace"):
+            return tool["handler"](_context=context, **args)
         return tool["handler"](**args)
     except TypeError as e:
         return {"error": f"인자 오류: {e}"}
@@ -367,6 +363,7 @@ def listing() -> list[dict]:
     """UI 드롭다운용 — 함수 객체는 빼고 보낸다."""
     return [{"name": t["name"], "description": t["description"],
              "needs_approval": t["needs_approval"],
+             "requires_workspace": t["requires_workspace"],
              "params": list(t["schema"]["properties"])}
             for t in sorted(TOOLS, key=lambda t: (t["needs_approval"], t["name"]))]
 
@@ -377,72 +374,61 @@ def listing() -> list[dict]:
 def demo():
     import tempfile
 
-    global WORKSPACE
-    prev_ws = WORKSPACE
     with tempfile.TemporaryDirectory() as d:
-        set_workspace(d)
+        context = WorkspaceContext(
+            root=Path(d), task_id="task_demo", workspace_id="workspace_demo"
+        ).for_dispatch("dispatch_demo")
         approved = lambda *_: True
-        try:
-            # dispatch가 위험 도구를 기본 거부한다 — 모든 노드의 마지막 방어선.
-            assert "승인하지 않음" in dispatch(
-                "run_bash", {"command": "echo should-not-run"})["error"]
-            assert "승인하지 않음" in dispatch(
-                "write_file", {"path": "denied", "content": "x"},
-                approve=lambda *_: False)["error"]
-            assert not (Path(d) / "denied").exists()
+        invoke = lambda name, args, **kwargs: dispatch(
+            name, args, context=context, **kwargs
+        )
+        # dispatch가 위험 도구를 기본 거부한다 — 모든 노드의 마지막 방어선.
+        assert "승인하지 않음" in invoke(
+            "run_bash", {"command": "echo should-not-run"})["error"]
+        assert "승인하지 않음" in invoke(
+            "write_file", {"path": "denied", "content": "x"},
+            approve=lambda *_: False)["error"]
+        assert not (Path(d) / "denied").exists()
 
-            v = dispatch("write_file", {"path": "hi.py", "content": "x = 1\ny = 2\n"},
-                         approve=approved)
-            assert v["created"] and v["old"] is None, v
-            v = dispatch("read_file", {"path": "hi.py"})
-            assert v["content"] == "x = 1\ny = 2\n", v
-
-            v = dispatch("edit_file",
-                         {"path": "hi.py", "old_string": "x = 1", "new_string": "x = 99"},
-                         approve=approved)
-            # UI diff에 필요한 old/new가 둘 다 남아야 한다
-            assert v["old"] == "x = 1\ny = 2\n" and v["new"] == "x = 99\ny = 2\n", v
-
-            assert "error" in dispatch("edit_file", {"path": "hi.py",
-                                                     "old_string": "없음", "new_string": "z"},
-                                       approve=approved)
-            dispatch("write_file", {"path": "dup.py", "content": "a\na\n"}, approve=approved)
-            v = dispatch("edit_file", {"path": "dup.py", "old_string": "a", "new_string": "b"},
-                         approve=approved)
-            assert "2번" in v["error"], v
-
-            assert len(dispatch("glob", {"pattern": "*.py"})["matches"]) == 2
-            assert dispatch("grep", {"pattern": "x = 99"})["count"] == 1
-            assert dispatch("grep", {"pattern": "절대없는패턴xyzzy"})["count"] == 0
-
-            v = dispatch("run_bash", {"command": "echo hello"}, approve=approved)
-            assert v["exit_code"] == 0 and render("run_bash", v) == "hello\n[exit code: 0]"
-            assert dispatch("run_bash", {"command": "exit 3"}, approve=approved)["exit_code"] == 3
-
-            assert render("read_file", dispatch("read_file", {"path": "없음"})).startswith("ERROR:")
-            dispatch("write_file", {"path": "big.txt", "content": "z" * 20000},
-                     approve=approved)
-            assert len(render("read_file", dispatch("read_file", {"path": "big.txt"}))) \
-                < MAX_RENDER_CHARS + 100
-            # ── jail: 워크스페이스 밖은 어떤 경로 표기로도 못 나간다 ──
-            for esc in ("../escape.txt", "/etc/hosts", "a/../../escape.txt", "~/escape.txt"):
-                v = dispatch("read_file", {"path": esc})
-                assert "error" in v and "밖 경로" in v["error"], (esc, v)
-                v = dispatch("write_file", {"path": esc, "content": "x"}, approve=approved)
-                assert "error" in v and "밖 경로" in v["error"], (esc, v)
-            v = dispatch("grep", {"pattern": "x", "path": ".."})
-            assert "error" in v and "밖 경로" in v["error"], v
-            # 절대경로여도 워크스페이스 안이면 된다
-            v = dispatch("read_file", {"path": str(get_workspace() / "hi.py")})
-            assert "content" in v, v
-            # 패턴으로 탈출 시도해도 결과가 걸러진다
-            v = dispatch("glob", {"pattern": "../*"})
-            assert v["matches"] == [], v
-            # run_bash는 워크스페이스에서 시작한다
-            v = dispatch("run_bash", {"command": "pwd"}, approve=approved)
-            assert v["stdout"].strip() == str(get_workspace()), v
-        finally:
-            WORKSPACE = prev_ws
+        v = invoke("write_file", {"path": "hi.py", "content": "x = 1\ny = 2\n"},
+                   approve=approved)
+        assert v["created"] and v["old"] is None, v
+        assert invoke("read_file", {"path": "hi.py"})["content"] == "x = 1\ny = 2\n"
+        v = invoke(
+            "edit_file", {"path": "hi.py", "old_string": "x = 1", "new_string": "x = 99"},
+            approve=approved,
+        )
+        assert v["old"] == "x = 1\ny = 2\n" and v["new"] == "x = 99\ny = 2\n", v
+        assert "error" in invoke(
+            "edit_file", {"path": "hi.py", "old_string": "없음", "new_string": "z"},
+            approve=approved,
+        )
+        invoke("write_file", {"path": "dup.py", "content": "a\na\n"}, approve=approved)
+        v = invoke(
+            "edit_file", {"path": "dup.py", "old_string": "a", "new_string": "b"},
+            approve=approved,
+        )
+        assert "2번" in v["error"], v
+        assert len(invoke("glob", {"pattern": "*.py"})["matches"]) == 2
+        assert invoke("grep", {"pattern": "x = 99"})["count"] == 1
+        assert invoke("grep", {"pattern": "절대없는패턴xyzzy"})["count"] == 0
+        v = invoke("run_bash", {"command": "echo hello"}, approve=approved)
+        assert v["exit_code"] == 0 and render("run_bash", v) == "hello\n[exit code: 0]"
+        assert invoke("run_bash", {"command": "exit 3"}, approve=approved)["exit_code"] == 3
+        assert render("read_file", invoke("read_file", {"path": "없음"})).startswith("ERROR:")
+        invoke("write_file", {"path": "big.txt", "content": "z" * 20000}, approve=approved)
+        assert len(render("read_file", invoke("read_file", {"path": "big.txt"}))) \
+            < MAX_RENDER_CHARS + 100
+        for esc in ("../escape.txt", "/etc/hosts", "a/../../escape.txt", "~/escape.txt"):
+            v = invoke("read_file", {"path": esc})
+            assert "error" in v and "밖 경로" in v["error"], (esc, v)
+            v = invoke("write_file", {"path": esc, "content": "x"}, approve=approved)
+            assert "error" in v and "밖 경로" in v["error"], (esc, v)
+        assert "error" in invoke("grep", {"pattern": "x", "path": ".."})
+        assert "content" in invoke("read_file", {"path": str(context.root / "hi.py")})
+        assert invoke("glob", {"pattern": "../*"})["matches"] == []
+        v = invoke("run_bash", {"command": "pwd"}, approve=approved)
+        assert v["stdout"].strip() == str(context.root), v
 
     # 범용 도구
     assert dispatch("echo", {"text": "hi"})["text"] == "hi"

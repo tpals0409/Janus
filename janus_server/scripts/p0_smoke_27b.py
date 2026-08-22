@@ -34,6 +34,7 @@ if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
 
 from janus_server import runtime  # noqa: E402
+from janus_server.workspace import WorkspaceContext  # noqa: E402
 
 
 class SmokeFailure(RuntimeError):
@@ -180,7 +181,15 @@ class ScenarioRunner:
             self.event_hook(event)
 
     def orchestration(self, system_prompt: str) -> runtime.Orchestration:
-        return runtime.Orchestration(base_spec(system_prompt), send=self.send, approver=None)
+        context = WorkspaceContext(
+            root=REPO_ROOT,
+            task_id=f"task_p0_smoke_{uuid.uuid4().hex[:12]}",
+            workspace_id="workspace_p0_smoke_repo",
+        )
+        return runtime.Orchestration(
+            base_spec(system_prompt), send=self.send, approver=None,
+            workspace_context=context,
+        )
 
     def turn(self, orch: runtime.Orchestration, prompt: str) -> None:
         failure: list[BaseException] = []

@@ -123,29 +123,29 @@
 
 발견된 분기·문제:
 
-- [ ] 기존 agent YAML/run JSON은 파괴적으로 이동하지 않고 P1 DB 전환 동안 legacy 호환 입력으로 유지
-- [ ] WebSocket·worker thread 동시 접근을 위해 요청별 SQLite transaction, WAL, foreign key를 강제
-- [ ] Task/Dispatch/Session 상태 전이를 route가 아닌 도메인 저장소에서 검증
-- [ ] DB 경로와 migration을 import 시점 전역 상태로 고정하지 않아 테스트·앱 재시작 격리
+- [x] 기존 agent YAML/run JSON은 파괴적으로 이동하지 않고 P1 DB 전환 동안 legacy 호환 입력으로 유지
+- [x] WebSocket·worker thread 동시 접근을 위해 요청별 SQLite transaction, WAL, foreign key를 강제
+- [x] Task/Dispatch/Session 상태 전이를 route가 아닌 도메인 저장소에서 검증
+- [x] DB 경로와 migration을 import 시점 전역 상태로 고정하지 않아 테스트·앱 재시작 격리
 
-- [ ] Project schema
-- [ ] Task schema와 상태 전이
-- [ ] Workspace schema
-- [ ] Dispatch schema
-- [ ] AgentSession schema
-- [ ] AgentProfile과 ModelProfile schema
-- [ ] SQLite 또는 동등한 트랜잭션 저장소
-- [ ] schema version과 migration
-- [ ] 앱 재시작 후 상태 복원 테스트
+- [x] Project schema
+- [x] Task schema와 상태 전이
+- [x] Workspace schema
+- [x] Dispatch schema
+- [x] AgentSession schema
+- [x] AgentProfile과 ModelProfile schema
+- [x] SQLite 또는 동등한 트랜잭션 저장소
+- [x] schema version과 migration
+- [x] 앱 재시작 후 상태 복원 테스트
 
 ### 7. WorkspaceContext
 
-- [ ] 전역 `tools.WORKSPACE` 제거
-- [ ] 모든 파일 도구에 workspace root 전달
-- [ ] 모든 셸·검증 호출에 workspace root 전달
-- [ ] 승인·이벤트에 task/workspace/dispatch ID 포함
-- [ ] 다른 workspace 접근 기본 거부
-- [ ] 두 context 병렬 실행 파일 격리 테스트
+- [x] 전역 `tools.WORKSPACE` 제거
+- [x] 모든 파일 도구에 workspace root 전달
+- [x] 모든 셸·검증 호출에 workspace root 전달
+- [x] 승인·이벤트에 task/workspace/dispatch ID 포함
+- [x] 다른 workspace 접근 기본 거부
+- [x] 두 context 병렬 실행 파일 격리 테스트
 
 ### 8. WorkspaceService
 

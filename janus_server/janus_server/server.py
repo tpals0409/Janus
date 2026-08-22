@@ -27,6 +27,7 @@ from . import runtime
 from . import domain as D
 from . import spec as S
 from . import tools as T
+from .workspace import WorkspaceContext
 
 AGENTS_DIR = Path(__file__).parent / "agents"
 RUNS_DIR = Path(__file__).parent / "runs"    # 실행 기록. 앱을 닫아도 남는다.
@@ -37,6 +38,8 @@ DOMAIN_DB_FILE = Path(
     os.environ.get("JANUS_DB_FILE", str(Path.home() / ".janus" / "janus.sqlite3"))
 ).expanduser()
 _STATE_LOCK = threading.Lock()
+_LEGACY_WORKSPACE_LOCK = threading.Lock()
+_LEGACY_WORKSPACE_ROOT = (Path(__file__).parent / "workspace").resolve()
 _DOMAIN_LOCK = threading.Lock()
 _DOMAIN_STORE: D.DomainStore | None = None
 _DOMAIN_STORE_PATH: Path | None = None
@@ -105,12 +108,38 @@ def _persist_workspace(path: Path) -> None:
             tmp.unlink(missing_ok=True)
 
 
+def _set_legacy_workspace(path: str | Path) -> Path:
+    """Compatibility UI selection; tool execution still receives a value copy."""
+    global _LEGACY_WORKSPACE_ROOT
+    root = Path(path).expanduser().resolve()
+    if not root.is_dir():
+        raise ValueError(f"디렉토리가 아닙니다: {path}")
+    with _LEGACY_WORKSPACE_LOCK:
+        _LEGACY_WORKSPACE_ROOT = root
+    return root
+
+
+def _get_legacy_workspace() -> Path:
+    with _LEGACY_WORKSPACE_LOCK:
+        root = _LEGACY_WORKSPACE_ROOT
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _legacy_workspace_context(task_id: str) -> WorkspaceContext:
+    root = _get_legacy_workspace()
+    workspace_id = "workspace_legacy_" + uuid.uuid5(
+        uuid.NAMESPACE_URL, str(root)
+    ).hex[:16]
+    return WorkspaceContext(root=root, task_id=task_id, workspace_id=workspace_id)
+
+
 def _restore_workspace() -> bool:
     saved = _read_state().get("workspace")
     if not isinstance(saved, str) or not saved:
         return False
     try:
-        T.set_workspace(saved)
+        _set_legacy_workspace(saved)
     except ValueError as e:
         # 삭제된 폴더나 접근 불가 경로는 기본 workspace로 안전하게 돌아간다.
         print(f"[janus] saved workspace ignored: {e}", file=sys.stderr)
@@ -471,7 +500,7 @@ def get_run(agent_id: str, run_id: str):
 
 @app.get("/workspace")
 def get_workspace():
-    return {"path": str(T.get_workspace())}
+    return {"path": str(_get_legacy_workspace())}
 
 
 @app.post("/workspace")
@@ -479,16 +508,16 @@ def set_workspace(body: dict):
     path = body.get("path")
     if not path:
         raise HTTPException(400, "path가 필요합니다")
-    previous = T.get_workspace()
+    previous = _get_legacy_workspace()
     try:
-        p = T.set_workspace(path)
+        p = _set_legacy_workspace(path)
     except ValueError as e:
         raise HTTPException(400, str(e))
     try:
         _persist_workspace(p)
     except OSError as e:
         # UI는 저장 실패를 받고 이전 경로를 계속 표시해야 하므로 메모리도 롤백한다.
-        T.set_workspace(str(previous))
+        _set_legacy_workspace(previous)
         raise HTTPException(500, f"워크스페이스 설정 저장 실패: {e}")
     return {"path": str(p)}
 
@@ -501,7 +530,7 @@ _IGNORE = {".git", "node_modules", ".venv", "__pycache__", "out", "dist"}
 def workspace_tree(path: str = ""):
     """디렉토리 한 층. 재귀 아님 — 큰 프로젝트에서 폭발하지 않게 lazy로 편다."""
     try:
-        root = T._resolve(path or ".")
+        root = T._resolve(path or ".", _legacy_workspace_context("task_legacy_ide"))
     except ValueError as e:
         raise HTTPException(400, str(e))
     if not root.is_dir():
@@ -520,7 +549,7 @@ def workspace_tree(path: str = ""):
 @app.get("/workspace/file")
 def workspace_file(path: str):
     try:
-        p = T._resolve(path)
+        p = T._resolve(path, _legacy_workspace_context("task_legacy_ide"))
     except ValueError as e:
         raise HTTPException(400, str(e))
     if not p.is_file():
@@ -571,16 +600,22 @@ async def run_agent(ws: WebSocket, agent_id: str):
     turn_task: asyncio.Task | None = None
     orch: runtime.Orchestration | None = None
     run_id = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:4]}"
+    workspace_context = _legacy_workspace_context(f"task_legacy_{run_id}")
 
-    def approver(node_id: str, tool: str, args: dict) -> bool:
+    def approver(
+        node_id: str, tool: str, args: dict, context: WorkspaceContext
+    ) -> bool:
         """agent 워커 스레드에서 **블로킹**으로 호출된다."""
         req_id = uuid.uuid4().hex[:12]
         ev = threading.Event()
         with pending_lock:
             pending[req_id] = [ev, False]
         asyncio.run_coroutine_threadsafe(
-            ws.send_json({"type": "approval_request", "id": req_id,
-                          "node_id": node_id, "tool": tool, "args": args}),
+            ws.send_json({
+                "type": "approval_request", "id": req_id,
+                "node_id": node_id, "tool": tool, "args": args,
+                **context.identifiers(),
+            }),
             loop,
         )
         if not ev.wait(timeout=APPROVAL_TIMEOUT):
@@ -610,6 +645,17 @@ async def run_agent(ws: WebSocket, agent_id: str):
                       orch.snapshot_spans(), orch.cancelled_turn,
                       orch.snapshot_telemetry())
 
+    def run_identifiers() -> dict:
+        context = workspace_context
+        if orch is not None and (orch.current_dispatch_id or orch.last_dispatch_id):
+            context = context.for_dispatch(
+                str(orch.current_dispatch_id or orch.last_dispatch_id)
+            )
+        return {
+            **context.identifiers(),
+            "session_id": orch.telemetry.session_id if orch is not None else None,
+        }
+
     async def do_turn(text: str):
         nonlocal orch
         if orch is None:
@@ -619,21 +665,32 @@ async def run_agent(ws: WebSocket, agent_id: str):
                 return
             try:
                 spec = S.load(p)
-                orch = runtime.Orchestration(spec, send=send, approver=approver)
+                orch = runtime.Orchestration(
+                    spec, send=send, approver=approver,
+                    workspace_context=workspace_context,
+                )
             except (S.SpecError, yaml.YAMLError) as e:
                 await ws.send_json({"type": "run_error", "error": str(e)})
                 return
-            await ws.send_json({"type": "run_start", "agent_id": agent_id})
+            await ws.send_json({
+                "type": "run_start", "agent_id": agent_id,
+                **workspace_context.identifiers(),
+                "session_id": orch.telemetry.session_id,
+            })
         try:
             await asyncio.to_thread(orch.turn, text)
         except Exception as e:
             orch.turn_failed = True
-            send({"type": "run_error", "error": f"{type(e).__name__}: {e}"})
+            send({
+                "type": "run_error", "error": f"{type(e).__name__}: {e}",
+                **run_identifiers(),
+            })
         finally:
             save()   # 턴마다 같은 run_id로 덮어쓴다 — 대화 도중 죽어도 기록이 남는다
             # send()로 보낸다 — 직접 await하면 워커가 예약해 둔 span/event 전송을
             # 추월해 turn_end가 먼저 도착할 수 있다. 같은 FIFO 경로가 순서를 지킨다.
-            send({"type": "turn_end"})  # 저장 후 — 히스토리 갱신이 빈손이 안 되게
+            send({"type": "turn_end", **run_identifiers()})
+            # 저장 후 — 히스토리 갱신이 빈손이 안 되게
 
     try:
         while True:

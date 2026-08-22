@@ -18,6 +18,7 @@ from typing import Callable
 from openai import OpenAI
 
 from . import tools as T
+from .workspace import WorkspaceContext
 
 DEFAULT_MAX_STEPS = 15
 CIRCUIT_BREAK = 3  # 같은 도구가 연속 N회 실패하면 중단
@@ -120,6 +121,7 @@ def run(
     system_prompt: str,
     task: str,
     tool_names: list[str],
+    workspace_context: WorkspaceContext,
     approve: Callable[[str, dict], bool],
     emit: Callable[..., None],
     max_steps: int = DEFAULT_MAX_STEPS,
@@ -135,6 +137,7 @@ def run(
     emit(kind, **data)          : 표시용. 로직에 영향을 주지 않는다
     extra_tools                 : _t() 모양 dict들 — 실행별 도구(create_worker) 주입
     session                     : 지속 Session을 넘기면 이어서 대화한다 (멀티턴)
+    workspace_context           : 파일/셰 도구의 불변 소유권과 jail
     """
     reg = dict(T.REGISTRY)
     reg.update({t["name"]: t for t in (extra_tools or [])})
@@ -222,7 +225,10 @@ def run(
             # 승인 강제는 모든 호출 경로가 공유하는 dispatch의 책임이다.
             # 여기서 미리 검사하면 다른 호출 경로가 또 뚫린다.
             try:
-                value = T.dispatch(name, args, approve=approve, registry=reg)
+                value = T.dispatch(
+                    name, args, approve=approve, registry=reg,
+                    context=workspace_context,
+                )
             except Exception:
                 emit("tool_run_end", operation_id=operation_id, name=name,
                      call_id=call["id"], status="error")

@@ -22,7 +22,8 @@ class TelemetryTests(unittest.TestCase):
     def test_whole_task_time_is_explained_by_exclusive_top_level_intervals(self):
         clock = FakeClock()
         trace = ExecutionTelemetry(
-            task_id="task-fixed", session_id="session-fixed", clock=clock
+            task_id="task-fixed", workspace_id="workspace-fixed",
+            session_id="session-fixed", clock=clock
         )
 
         clock.advance(5)
@@ -90,6 +91,8 @@ class TelemetryTests(unittest.TestCase):
         )
 
         self.assertEqual("monotonic_ns", saved["clock"])
+        self.assertEqual(2, saved["schema_version"])
+        self.assertEqual("workspace-fixed", saved["workspace_id"])
         self.assertEqual(29.0, saved["elapsed_ms"])
         self.assertEqual(29.0, saved["top_level_accounted_ms"])
         self.assertEqual(0.0, saved["top_level_unaccounted_ms"])
@@ -104,6 +107,7 @@ class TelemetryTests(unittest.TestCase):
         self.assertGreater(saved["memory_snapshots"][0]["process_peak_rss_bytes"], 0)
         for event in saved["events"]:
             self.assertEqual("task-fixed", event["task_id"])
+            self.assertEqual("workspace-fixed", event["workspace_id"])
             self.assertEqual("session-fixed", event["session_id"])
             self.assertEqual(dispatch_id, event["dispatch_id"])
 

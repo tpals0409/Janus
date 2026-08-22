@@ -15,7 +15,7 @@ import uuid
 from collections.abc import Callable
 from datetime import datetime, timezone
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def _id(prefix: str) -> str:
@@ -50,10 +50,12 @@ class ExecutionTelemetry:
         self,
         *,
         task_id: str | None = None,
+        workspace_id: str | None = None,
         session_id: str | None = None,
         clock: Callable[[], int] = time.perf_counter_ns,
     ):
         self.task_id = task_id or _id("task")
+        self.workspace_id = workspace_id or _id("workspace")
         self.session_id = session_id or _id("session")
         self.clock = clock
         self.origin_ns = clock()
@@ -77,6 +79,7 @@ class ExecutionTelemetry:
     def _base(self, *, dispatch_id: str | None, worker_id: str | None) -> dict:
         return {
             "task_id": self.task_id,
+            "workspace_id": self.workspace_id,
             "session_id": self.session_id,
             "dispatch_id": dispatch_id,
             "worker_id": worker_id,
@@ -168,7 +171,7 @@ class ExecutionTelemetry:
                         detail = {
                             k: v for k, v in start_event.items()
                             if k not in {
-                                "kind", "at_ms", "task_id", "session_id",
+                                "kind", "at_ms", "task_id", "workspace_id", "session_id",
                                 "dispatch_id", "worker_id", "node_id", "operation_id",
                             }
                         }
@@ -227,6 +230,7 @@ class ExecutionTelemetry:
             "clock": "monotonic_ns",
             "started_at": self.started_at,
             "task_id": self.task_id,
+            "workspace_id": self.workspace_id,
             "session_id": self.session_id,
             "elapsed_ms": elapsed,
             "top_level_accounted_ms": accounted,
