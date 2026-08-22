@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { ReactFlowProvider } from '@xyflow/react'
-import { ChevronDown, FolderOpen, Loader2, Play, Rocket, Save, FlaskConical, ShieldAlert, Square } from 'lucide-react'
+import { ChevronDown, FolderOpen, Loader2, Rocket, Save, FlaskConical, ShieldAlert, Square } from 'lucide-react'
 import { useStore } from './store'
 import Canvas from './components/Canvas'
 import Inspector from './components/Inspector'
@@ -14,8 +14,12 @@ const YamlView = lazy(() => import('./components/YamlView'))
 const FileView = lazy(() => import('./components/FileView'))
 
 const DESIGN_TABS = ['Design', 'Prompt', 'Tools', 'Context', 'Memory', 'Settings'] as const
-const BOTTOM_TABS = ['Run', 'Traces', 'Logs', 'Metrics'] as const
-const WIRED_BOTTOM = new Set(['Run', 'Traces'])
+const BOTTOM_TABS = [
+  ['traces', 'Chat & Traces'],
+  ['logs', 'Logs'],
+  ['metrics', 'Metrics']
+] as const
+const WIRED_BOTTOM = new Set(['traces'])
 
 /** 상하 분할용 드래그 핸들 */
 function useDragHeight(initial: number, min = 140, max = 520) {
@@ -38,15 +42,6 @@ function useDragHeight(initial: number, min = 140, max = 520) {
   return { h, onMouseDown }
 }
 
-
-/** 실행 입력 필드는 start 노드의 outputs에서 나온다 — 그래프마다 다르다. */
-function useStartFields(): string[] {
-  const spec = useStore((s) => s.spec)
-  const sync = useStore((s) => s.syncRunFields)
-  const fields = spec?.nodes.find((n) => n.type === 'start')?.outputs ?? []
-  useEffect(() => sync(fields), [fields.join(' ')])
-  return fields
-}
 
 /** IDE의 '폴더 열기' — 프로젝트가 1급 시민이 되는 지점. 최근 폴더 포함. */
 function ProjectButton() {
@@ -106,48 +101,6 @@ function ProjectButton() {
   )
 }
 
-function RunBar() {
-  const run = useStore((s) => s.run)
-  const running = useStore((s) => s.running)
-  const spec = useStore((s) => s.spec)
-  const errors = useStore((s) => s.errors)
-  const values = useStore((s) => s.runInputs)
-  const setRunInput = useStore((s) => s.setRunInput)
-  const fields = useStartFields()
-
-  if (!fields.length) {
-    return (
-      <div className="grid h-full place-items-center text-[12px] text-faint">
-        start 노드에 출력 필드가 없습니다. 인스펙터에서 추가하세요.
-      </div>
-    )
-  }
-
-  return (
-    <div className="flex h-full items-start gap-3 overflow-x-auto px-4 py-3">
-      {fields.map((f) => (
-        <label key={f} className="min-w-[180px] flex-1">
-          <div className="mb-1 font-mono text-[10px] tracking-wider text-faint">{f}</div>
-          <input
-            value={values[f] ?? ''}
-            onChange={(e) => setRunInput(f, e.target.value)}
-            className="w-full rounded-md border border-border-strong bg-raised px-2.5 py-1.5 text-[12px] outline-none focus:border-accent"
-          />
-        </label>
-      ))}
-      <button
-        disabled={running || !spec || errors.length > 0}
-        onClick={() => run(values)}
-        className="mt-[18px] flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-50"
-        style={{ background: 'var(--color-accent)' }}
-      >
-        {running ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
-        {running ? '실행 중' : 'Run'}
-      </button>
-    </div>
-  )
-}
-
 export default function App() {
   const boot = useStore((s) => s.boot)
   const serverUp = useStore((s) => s.serverUp)
@@ -159,15 +112,15 @@ export default function App() {
   const save = useStore((s) => s.save)
   const dirty = useStore((s) => s.dirty)
   const errors = useStore((s) => s.errors)
-  const running = useStore((s) => s.running)
-  const runFn = useStore((s) => s.run)
-  const cancel = useStore((s) => s.cancel)
+  const turnActive = useStore((s) => s.turnActive)
+  const stopTurn = useStore((s) => s.stopTurn)
   const sidebarTab = useStore((s) => s.sidebarTab)
   const setSidebarTab = useStore((s) => s.setSidebarTab)
+  const bottom = useStore((s) => s.bottomTab)
+  const setBottom = useStore((s) => s.setBottomTab)
 
   const [nav, setNav] = useState('agents')
   const [tab, setTab] = useState<(typeof DESIGN_TABS)[number]>('Design')
-  const [bottom, setBottom] = useState<(typeof BOTTOM_TABS)[number]>('Run')
   const { h, onMouseDown } = useDragHeight(280)
 
   const pollHealth = useStore((s) => s.pollHealth)
@@ -270,21 +223,10 @@ export default function App() {
         >
           <Save size={13} /> Save
         </button>
-        <button
-          disabled={running || !spec || errors.length > 0}
-          onClick={() => {
-            setBottom('Traces')
-            runFn(useStore.getState().runInputs)
-          }}
-          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-50"
-          style={{ background: 'var(--color-accent)' }}
-        >
-          {running ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />} Run
-        </button>
-        {running && (
+        {turnActive && (
           <button
-            onClick={cancel}
-            title="실행 중단"
+            onClick={stopTurn}
+            title="현재 턴 중단 — 대화는 유지됩니다"
             className="flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px]"
             style={{ borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
           >
@@ -396,31 +338,29 @@ export default function App() {
                 style={{ height: h }}
               >
                 <div className="flex h-[32px] shrink-0 items-center gap-1 border-b border-border px-3">
-                  {BOTTOM_TABS.map((t) => (
+                  {BOTTOM_TABS.map(([id, label]) => (
                     <button
-                      key={t}
-                      onClick={() => setBottom(t)}
-                      title={WIRED_BOTTOM.has(t) ? undefined : `${t} — 아직 구현되지 않음`}
+                      key={id}
+                      onClick={() => setBottom(id)}
+                      title={WIRED_BOTTOM.has(id) ? undefined : `${label} — 아직 구현되지 않음`}
                       className="rounded px-2.5 py-1 text-[12px]"
                       style={{
-                        background: bottom === t ? 'var(--color-raised)' : 'transparent',
-                        color: bottom === t ? 'var(--color-fg)' : 'var(--color-muted)',
-                        opacity: WIRED_BOTTOM.has(t) ? 1 : 0.45
+                        background: bottom === id ? 'var(--color-raised)' : 'transparent',
+                        color: bottom === id ? 'var(--color-fg)' : 'var(--color-muted)',
+                        opacity: WIRED_BOTTOM.has(id) ? 1 : 0.45
                       }}
                     >
-                      {t}
+                      {label}
                     </button>
                   ))}
                 </div>
                 <ApprovalCard />
                 <div className="min-h-0 flex-1">
-                  {bottom === 'Run' ? (
-                    <RunBar />
-                  ) : bottom === 'Traces' ? (
+                  {bottom === 'traces' ? (
                     <TracePanel />
                   ) : (
                     <div className="grid h-full place-items-center text-[12px] text-faint">
-                      {bottom} 탭은 아직 구현되지 않았습니다
+                      이 탭은 아직 구현되지 않았습니다
                     </div>
                   )}
                 </div>
@@ -431,7 +371,7 @@ export default function App() {
               <div className="flex shrink-0 gap-1 border-b border-border px-2 py-1.5">
                 {(
                   [
-                    ['node', 'Node'],
+                    ['config', 'Config'],
                     ['files', 'Files']
                   ] as const
                 ).map(([id, label]) => (

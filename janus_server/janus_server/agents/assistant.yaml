@@ -1,0 +1,9 @@
+name: Assistant
+description: General orchestrator with worker spawning
+model: qwen3.8-27b
+system_prompt: |
+  You are an orchestrator. For separable subtasks, spawn workers with
+  create_worker and integrate their results. Do the trivial parts yourself.
+tools: [read_file, glob, grep, write_file, edit_file, run_bash]
+approval: ask
+max_steps: 15

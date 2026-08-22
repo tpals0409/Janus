@@ -1,26 +1,29 @@
-export type NodeType = 'start' | 'llm' | 'tool' | 'end' | 'agent'
 export type Approval = 'auto' | 'ask'
 
-export interface SpecNode {
-  id: string
-  type: NodeType
-  position?: { x: number; y: number }
-  outputs?: string[]
-  model?: { provider?: string; name?: string; temperature?: number; max_tokens?: number }
+/** 에이전트 = 오케스트레이터 1개의 평평한 설정. 워커는 런타임에 만들어져 트레이스에만 존재한다. */
+export interface Spec {
+  name: string
+  description?: string
+  model: string
   system_prompt?: string
-  prompt?: string
-  tool?: string
   tools?: string[]
   approval?: Approval
   max_steps?: number
-  inputs?: Record<string, string>
-  output?: { name: string; type?: string }
 }
 
-/** agent 노드가 도는 동안 흘러나오는 세션 이벤트 */
+/** 에이전트가 도는 동안 흘러나오는 세션 이벤트 */
 export interface AgentEvent {
   node_id: string
-  kind: 'user' | 'assistant' | 'step' | 'text_delta' | 'tool_start' | 'tool_result' | 'llm_call' | 'done'
+  kind:
+    | 'user'
+    | 'assistant'
+    | 'step'
+    | 'text_delta'
+    | 'tool_start'
+    | 'tool_result'
+    | 'llm_call'
+    | 'usage'
+    | 'done'
   at_ms: number
   content?: string
   text?: string
@@ -34,6 +37,8 @@ export interface AgentEvent {
   prompt_tokens?: number
   completion_tokens?: number
   step?: number
+  /** 병렬 동명 호출을 짝짓는 tool call id */
+  call_id?: string
 }
 
 export interface TreeEntry {
@@ -64,20 +69,6 @@ export interface ApprovalRequest {
   args: Record<string, unknown>
 }
 
-export interface SpecEdge {
-  from: string
-  to: string
-  when?: string
-}
-
-export interface Spec {
-  name: string
-  description?: string
-  version?: number
-  nodes: SpecNode[]
-  edges: SpecEdge[]
-}
-
 export interface Span {
   id: string
   node_id: string
@@ -87,14 +78,18 @@ export interface Span {
   input?: unknown
   output?: unknown
   events?: AgentEvent[]
-  usage?: { prompt_tokens: number; completion_tokens: number }
+  usage?: { prompt_tokens: number; completion_tokens: number } | null
+  /** 오케스트레이터는 null, 워커는 부모(오케스트레이터) 스팬 id */
+  parent_id?: string | null
+  /** 워커의 표시 이름 (create_worker의 name) */
+  label?: string | null
 }
 
 export interface AgentSummary {
   id: string
   name: string
   description?: string
-  node_count?: number
+  model?: string
   error?: string
 }
 

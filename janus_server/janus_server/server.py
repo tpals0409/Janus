@@ -1,4 +1,4 @@
-"""Janus 서버 — 그래프 CRUD + 실행 스트리밍.
+"""Janus 서버 — 에이전트 CRUD + 오케스트레이터 대화 스트리밍.
 
 렌더러는 이 서버하고만 통신한다. Electron main은 창과 다이얼로그만 담당한다.
 """
@@ -23,10 +23,9 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconn
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from . import compile as C
+from . import runtime
 from . import spec as S
 from . import tools as T
-from . import trace
 
 AGENTS_DIR = Path(__file__).parent / "agents"
 RUNS_DIR = Path(__file__).parent / "runs"    # 실행 기록. 앱을 닫아도 남는다.
@@ -115,20 +114,19 @@ def _restore_workspace() -> bool:
 _restore_workspace()
 
 
-def _save_run(agent_id: str, inputs: dict, spans: list, cancelled: bool) -> None:
-    """한 번의 실행을 JSONL 아닌 단일 JSON 파일로 남긴다. 이벤트 로그가 직렬화
-    가능하므로 스팬을 그대로 떨구면 나중에 그대로 다시 그릴 수 있다."""
+def _save_run(agent_id: str, run_id: str, inputs: dict, spans: list,
+              cancelled: bool) -> None:
+    """실행 하나를 단일 JSON 파일로 남긴다. run_id가 고정이라 대화가 이어질 때마다
+    같은 파일을 덮어쓴다 — 한 대화 = 한 기록."""
     if not spans:
         return
     d = RUNS_DIR / agent_id
     d.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    run_id = f"{stamp}-{uuid.uuid4().hex[:4]}"
     total = max((s.get("started_ms", 0) + (s.get("duration_ms") or 0)) for s in spans)
-    last = spans[-1].get("output") or {}
-    summary = next((str(v) for v in last.values() if v), "")
+    first = spans[0].get("output") or {}
+    summary = next((str(v) for v in first.values() if v), "")
     (d / f"{run_id}.json").write_text(json.dumps({
-        "id": run_id, "agent_id": agent_id, "at": stamp,
+        "id": run_id, "agent_id": agent_id, "at": run_id.rsplit("-", 1)[0],
         "inputs": inputs, "cancelled": cancelled,
         "duration_ms": total, "node_count": len(spans),
         "summary": summary[:120], "spans": spans,
@@ -203,7 +201,7 @@ def list_agents():
             "id": p.stem,
             "name": raw.get("name", p.stem),
             "description": raw.get("description", ""),
-            "node_count": len(raw["nodes"]) if isinstance(raw.get("nodes"), list) else 0,
+            "model": raw.get("model", ""),
         }
         try:
             S.validate(raw)
@@ -214,17 +212,17 @@ def list_agents():
 
 
 def _blank_spec(name: str) -> dict:
-    """새 에이전트의 최소 그래프 — 이 상태로도 검증을 통과해야 한다."""
+    """새 오케스트레이터의 기본 설정 — 이 상태로도 검증을 통과해야 한다."""
     return {
         "name": name,
-        "version": 1,
-        "nodes": [
-            {"id": "start", "type": "start", "outputs": ["input"],
-             "position": {"x": 80, "y": 200}},
-            {"id": "end", "type": "end", "inputs": {"result": "{{ start.input }}"},
-             "position": {"x": 420, "y": 200}},
-        ],
-        "edges": [{"from": "start", "to": "end"}],
+        "description": "",
+        "model": sorted(runtime.LOCAL_MODELS)[0],
+        "system_prompt": (
+            "You are an orchestrator. For separable subtasks, spawn workers with "
+            "create_worker and integrate their results."),
+        "tools": [],
+        "approval": "auto",
+        "max_steps": 15,
     }
 
 
@@ -241,7 +239,7 @@ def create_agent(body: dict):
         p = _path(f"{agent_id}_{n}")
         n += 1
     spec = _blank_spec(name)
-    S.validate(spec)  # 빈 그래프도 유효해야 한다 — 아니면 버그다
+    S.validate(spec)  # 기본 설정도 유효해야 한다 — 아니면 버그다
     p.write_text(S.dumps(spec), encoding="utf-8")
     return {"id": p.stem, "spec": spec, "yaml": S.dumps(spec), "errors": []}
 
@@ -270,23 +268,14 @@ def get_agent(agent_id: str):
             "yaml": source,
             "errors": [f"YAML 파싱 실패: {e}"],
         }
-    # 구조가 캔버스에 안전하면 검증 오류와 함께 돌려줘 Graph에서 고칠 수 있게 한다.
+    # 구조가 UI에 안전하면 검증 오류와 함께 돌려줘 설정 폼에서 고칠 수 있게 한다.
     try:
         S.validate(raw)
         errors = []
     except (S.SpecError, yaml.YAMLError, TypeError, AttributeError) as e:
         errors = str(e).splitlines()
-    # React 캔버스가 안전하게 순회할 최소 구조가 없으면 YAML 원문과 오류만 보여준다.
-    nodes = raw.get("nodes") if isinstance(raw, dict) else None
-    edges = raw.get("edges", []) if isinstance(raw, dict) else None
-    canvas_safe = (
-        isinstance(raw, dict)
-        and isinstance(nodes, list)
-        and all(isinstance(node, dict) for node in nodes)
-        and isinstance(edges, list)
-        and all(isinstance(edge, dict) for edge in edges)
-    )
-    spec = {**raw, "edges": edges} if canvas_safe else None
+    # 매핑이 아니면 YAML 원문과 오류만 보여준다.
+    spec = raw if isinstance(raw, dict) else None
     return {"id": agent_id, "spec": spec, "yaml": source, "errors": errors}
 
 
@@ -401,7 +390,7 @@ def list_tools():
 
 @app.get("/models")
 def list_models():
-    return [{"name": n, "provider": "local"} for n in sorted(C.LOCAL_MODELS)]
+    return [{"name": n, "provider": "local"} for n in sorted(runtime.LOCAL_MODELS)]
 
 
 APPROVAL_TIMEOUT = 300  # 초. 무응답은 거부로 친다.
@@ -409,10 +398,11 @@ APPROVAL_TIMEOUT = 300  # 초. 무응답은 거부로 친다.
 
 @app.websocket("/run/{agent_id}")
 async def run_agent(ws: WebSocket, agent_id: str):
-    """실행과 수신을 분리한다.
+    """WS 연결 하나 = 오케스트레이터 대화 하나.
 
-    승인은 왕복이다 — 에이전트 워커 스레드가 응답을 기다리는 동안에도 WS는 계속
-    메시지를 받을 수 있어야 한다. 그래서 실행은 태스크로 띄우고 이 루프는 수신만 한다.
+    승인은 왕복이다 — 워커 스레드가 응답을 기다리는 동안에도 WS는 계속 메시지를
+    받을 수 있어야 한다. 그래서 턴은 태스크로 띄우고 이 루프는 수신만 한다.
+    첫 message가 실행 시작이고, 소켓이 닫히면 대화가 끝난다.
     """
     origin = ws.headers.get("origin")
     protocols = {
@@ -428,8 +418,9 @@ async def run_agent(ws: WebSocket, agent_id: str):
     loop = asyncio.get_running_loop()
     pending: dict[str, list] = {}   # req_id -> [threading.Event, approved]
     pending_lock = threading.Lock()
-    run_task: asyncio.Task | None = None
-    cancel_event = threading.Event()
+    turn_task: asyncio.Task | None = None
+    orch: runtime.Orchestration | None = None
+    run_id = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:4]}"
 
     def approver(node_id: str, tool: str, args: dict) -> bool:
         """agent 워커 스레드에서 **블로킹**으로 호출된다."""
@@ -450,48 +441,58 @@ async def run_agent(ws: WebSocket, agent_id: str):
             slot = pending.pop(req_id, None)
         return bool(slot and slot[1])
 
-    async def do_run(inputs: dict):
-        p = _path(agent_id)
-        if not p.is_file():
-            await ws.send_json({"type": "run_error", "error": f"없는 에이전트: {agent_id}"})
-            return
+    async def _safe_send(ev: dict) -> None:
         try:
-            spec = S.load(p)
-            graph = C.build(spec)
-        except S.SpecError as e:
-            await ws.send_json({"type": "run_error", "error": str(e)})
-            return
+            await ws.send_json(ev)
+        except Exception:
+            pass  # 연결이 이미 끊김 — 잔여 이벤트는 버린다
 
-        node_types = {n["id"]: n["type"] for n in spec["nodes"]}
-        state = C.initial_state(spec, inputs)
-        await ws.send_json({"type": "run_start", "agent_id": agent_id})
-        run_spans: list = []
-        cancelled = False
+    def send(ev: dict) -> None:
+        """runtime 워커 스레드에서 안전하게 WS로 밀어넣는다."""
         try:
-            async for ev in trace.run(graph, state, node_types, C.RECURSION_LIMIT,
-                                      approver=approver, cancel_event=cancel_event):
-                if ev["type"] == "span_end":
-                    run_spans.append(ev["span"])
-                elif ev["type"] == "run_end":
-                    cancelled = bool(ev.get("cancelled"))
-                await ws.send_json(ev)
-        except asyncio.CancelledError:
-            # task.cancel() 백스톱으로 끊긴 경우 — UI가 '실행 중'에 갇히면 안 된다
-            cancelled = True
-            await ws.send_json({"type": "run_end", "cancelled": True})
+            asyncio.run_coroutine_threadsafe(_safe_send(ev), loop)
+        except RuntimeError:
+            pass  # 루프가 이미 닫힘 — 연결 종료 후의 잔여 이벤트
+
+    def save() -> None:
+        if orch is not None:
+            _save_run(agent_id, run_id, {"task": orch.first_message or ""},
+                      orch.snapshot_spans(), orch.cancelled_turn)
+
+    async def do_turn(text: str):
+        nonlocal orch
+        if orch is None:
+            p = _path(agent_id)
+            if not p.is_file():
+                await ws.send_json({"type": "run_error", "error": f"없는 에이전트: {agent_id}"})
+                return
+            try:
+                spec = S.load(p)
+                orch = runtime.Orchestration(spec, send=send, approver=approver)
+            except (S.SpecError, yaml.YAMLError) as e:
+                await ws.send_json({"type": "run_error", "error": str(e)})
+                return
+            await ws.send_json({"type": "run_start", "agent_id": agent_id})
+        try:
+            await asyncio.to_thread(orch.turn, text)
+        except Exception as e:
+            orch.turn_failed = True
+            send({"type": "run_error", "error": f"{type(e).__name__}: {e}"})
         finally:
-            _save_run(agent_id, inputs, run_spans, cancelled)
+            save()   # 턴마다 같은 run_id로 덮어쓴다 — 대화 도중 죽어도 기록이 남는다
+            # send()로 보낸다 — 직접 await하면 워커가 예약해 둔 span/event 전송을
+            # 추월해 turn_end가 먼저 도착할 수 있다. 같은 FIFO 경로가 순서를 지킨다.
+            send({"type": "turn_end"})  # 저장 후 — 히스토리 갱신이 빈손이 안 되게
 
     try:
         while True:
             msg = await ws.receive_json()
             t = msg.get("type")
 
-            if t == "run":
-                if run_task and not run_task.done():
-                    continue          # 이미 돌고 있으면 무시
-                cancel_event.clear()
-                run_task = asyncio.create_task(do_run(msg.get("inputs") or {}))
+            if t == "message":
+                if turn_task and not turn_task.done():
+                    continue          # 턴이 돌고 있으면 무시 (컴포저도 잠겨 있다)
+                turn_task = asyncio.create_task(do_turn(str(msg.get("text") or "")))
 
             elif t == "approval_response":
                 with pending_lock:
@@ -501,17 +502,19 @@ async def run_agent(ws: WebSocket, agent_id: str):
                     slot[0].set()
 
             elif t == "cancel":
-                # ① 에이전트 워커 스레드에 취소 신호 — 생성 중에도 스트림을 닫고 나온다
-                cancel_event.set()
-                # ② asyncio 쪽 백스톱
-                if run_task and not run_task.done():
-                    run_task.cancel()
+                # 현재 턴만 중단 — 세션은 살아서 다음 message가 대화를 잇는다
+                if orch is not None:
+                    orch.cancel_all()
                 # 대기 중인 승인은 전부 거부로 풀어준다 — 안 그러면 스레드가 매달린다
                 with pending_lock:
                     slots = list(pending.values())
                 for slot in slots:
                     slot[1] = False
                     slot[0].set()
+
+            elif t == "stop_worker":
+                if orch is not None:
+                    orch.stop_worker(str(msg.get("node_id") or ""))
 
     except WebSocketDisconnect:
         pass
@@ -521,14 +524,16 @@ async def run_agent(ws: WebSocket, agent_id: str):
         except Exception:
             pass
     finally:
-        cancel_event.set()   # 연결이 끊기면 워커도 멈춰야 한다
-        if run_task and not run_task.done():
-            run_task.cancel()
+        if orch is not None:
+            orch.cancel_all()   # 연결이 끊기면 워커도 멈춰야 한다
+        if turn_task and not turn_task.done():
+            turn_task.cancel()  # asyncio 쪽 백스톱
         with pending_lock:
             slots = list(pending.values())
         for slot in slots:   # 매달린 워커 스레드를 풀어준다
             slot[1] = False
             slot[0].set()
+        save()
 
 
 def main():

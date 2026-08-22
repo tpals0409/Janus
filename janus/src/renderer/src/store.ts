@@ -1,8 +1,7 @@
 import { create } from 'zustand'
 import type {
-  AgentEvent, AgentSummary, ApprovalRequest, BackendStatus, NodeType, RunDetail, RunSummary, Span,
-  Spec, SpecNode,
-  ToolInfo, TreeEntry
+  AgentEvent, AgentSummary, ApprovalRequest, BackendStatus, RunDetail, RunSummary, Span,
+  Spec, ToolInfo, TreeEntry
 } from './types'
 
 const BASE = 'http://localhost:8765'
@@ -36,6 +35,8 @@ async function readBackendStatus(): Promise<BackendStatus | null> {
   }
 }
 
+export const ORCH_ID = 'orchestrator'
+
 interface State {
   serverUp: boolean | null
   /** true면 서버는 살아 있는데 토큰/Origin이 거부됐다 (연결 실패와 다르다) */
@@ -53,43 +54,44 @@ interface State {
   errors: string[]
   dirty: boolean
 
-  selectedNodeId: string | null
-  selectedEdgeIdx: number | null
   view: 'graph' | 'yaml' | 'file'
 
   /** IDE성 상태 — 워크스페이스 파일 트리와 열어본 파일 */
-  sidebarTab: 'node' | 'files'
+  sidebarTab: 'config' | 'files'
   tree: Record<string, TreeEntry[]>
   openedFile: { path: string; content: string } | null
   recentFolders: string[]
 
-  runInputs: Record<string, string>
-  setRunInput(key: string, value: string): void
-  syncRunFields(fields: string[]): void
+  /** 하단 패널 탭 — 캔버스 클릭이 Traces로 끌어와야 해서 스토어에 있다 */
+  bottomTab: 'traces' | 'logs' | 'metrics'
 
-  running: boolean
+  /** WS가 열려 있고 대화가 살아 있다 */
+  connected: boolean
+  /** 오케스트레이터 턴이 도는 중 (컴포저 잠금) */
+  turnActive: boolean
+  /** 이 대화의 첫 메시지 — 재실행과 RUN INPUTS 표시의 기준 */
+  firstMessage: string | null
   spans: Span[]
-  /** 아직 끝나지 않은 agent 노드의 세션 — span_end 전까지 여기서 자란다 */
+  /** 아직 끝나지 않은 노드의 세션 — span_end 전까지 여기서 자란다 */
   liveEvents: Record<string, AgentEvent[]>
   approvals: ApprovalRequest[]
-  /** 실행 중인 WS. 승인 응답과 취소를 여기로 보낸다. */
+  /** 대화 WS. 메시지·승인 응답·취소를 여기로 보낸다. */
   ws: WebSocket | null
   selectedSpanId: string | null
   runError: string | null
   cancelled: boolean
-  /** 지난 실행 기록 (C). viewingRunId가 있으면 spans는 과거 실행을 보는 중이다. */
+  /** 지난 실행 기록. viewingRunId가 있으면 spans는 과거 실행을 보는 중이다. */
   pastRuns: RunSummary[]
   viewingRunId: string | null
   /** A를 덮어쓰지 않고 오른쪽에 나란히 보여줄 B 실행. */
   comparisonRun: RunDetail | null
-  /** 현재 A 스팬을 만든 실제 입력. 입력 폼이 후에 바뀌어도 기준은 보존한다. */
-  lastRunInputs: Record<string, string> | null
 
   boot(): Promise<void>
   pollHealth(): Promise<void>
   pickWorkspace(): Promise<void>
   setWorkspaceTo(path: string): Promise<void>
-  setSidebarTab(t: 'node' | 'files'): void
+  setSidebarTab(t: 'config' | 'files'): void
+  setBottomTab(t: 'traces' | 'logs' | 'metrics'): void
   loadDir(rel: string): Promise<void>
   refreshTree(): void
   openFile(rel: string): Promise<void>
@@ -98,123 +100,31 @@ interface State {
   createAgent(name: string): Promise<void>
   deleteAgent(id: string): Promise<void>
 
-  patchNode(nodeId: string, patch: Record<string, unknown>): void
-  setNodePosition(nodeId: string, pos: { x: number; y: number }): void
-  addNode(type: NodeType): void
-  deleteNode(nodeId: string): void
-  renameNode(oldId: string, newId: string): string | null
-
-  addEdge(from: string, to: string): void
-  deleteEdge(idx: number): void
-  patchEdge(idx: number, patch: { when?: string | null }): void
-
+  patchSpec(patch: Partial<Spec>): void
   save(): Promise<void>
-  selectNode(id: string | null): void
-  selectEdge(idx: number | null): void
   setView(v: 'graph' | 'yaml' | 'file'): void
-  run(inputs: Record<string, string>): void
-  cancel(): void
+
+  sendMessage(text: string): void
+  stopTurn(): void
+  stopWorker(nodeId: string): void
+  endSession(): void
   respondApproval(id: string, approved: boolean): void
+
   loadRuns(): Promise<void>
   loadRun(runId: string): Promise<void>
   loadComparison(runId: string): Promise<void>
   clearComparison(): void
   rerun(): void
   rerunRun(runId: string): Promise<void>
-  selectSpan(id: string): void
-}
-
-/** 얕은 병합이지만 model 같은 중첩 객체는 한 겹 더 병합한다. */
-function mergeNode(node: any, patch: Record<string, unknown>) {
-  const next = { ...node }
-  for (const [k, v] of Object.entries(patch)) {
-    if (v && typeof v === 'object' && !Array.isArray(v) && next[k] && typeof next[k] === 'object') {
-      next[k] = { ...next[k], ...(v as object) }
-    } else {
-      next[k] = v
-    }
-  }
-  return next
-}
-
-/** 노드 id를 바꾸면 {{ old.field }} 참조가 전부 따라와야 한다. 안 그러면 그래프가 깨진다. */
-function rewriteRefs(spec: Spec, oldId: string, newId: string): Spec {
-  const re = new RegExp(`\\{\\{\\s*${oldId}\\.(\\w+)\\s*\\}\\}`, 'g')
-  const fix = (s: string) => s.replace(re, `{{ ${newId}.$1 }}`)
-
-  return {
-    ...spec,
-    nodes: spec.nodes.map((n) => {
-      const next: SpecNode = { ...n, id: n.id === oldId ? newId : n.id }
-      if (n.inputs) {
-        next.inputs = Object.fromEntries(Object.entries(n.inputs).map(([k, v]) => [k, fix(v)]))
-      }
-      if (n.prompt) next.prompt = fix(n.prompt)
-      return next
-    }),
-    edges: spec.edges.map((e) => ({
-      ...e,
-      from: e.from === oldId ? newId : e.from,
-      to: e.to === oldId ? newId : e.to
-    }))
-  }
-}
-
-function uniqueId(spec: Spec, base: string): string {
-  if (!spec.nodes.some((n) => n.id === base)) return base
-  let i = 2
-  while (spec.nodes.some((n) => n.id === `${base}_${i}`)) i++
-  return `${base}_${i}`
+  selectSpan(id: string | null): void
+  /** 캔버스 노드 클릭 — 해당 노드의 스팬을 선택하고 Traces 패널을 연다 */
+  selectNodeSpan(nodeId: string): void
 }
 
 function confirmDiscardChanges(nextName: string): boolean {
   return window.confirm(
     `저장되지 않은 변경이 있습니다. 변경을 버리고 ${nextName}(으)로 전환할까요?`
   )
-}
-
-/** 새 노드는 검증을 통과하는 최소 형태로 만든다 — 만들자마자 빨간 줄이 뜨면 안 된다. */
-function blankNode(spec: Spec, type: NodeType, models: { name: string }[], tools: ToolInfo[]) {
-  const id = uniqueId(spec, type)
-  const xs = spec.nodes.map((n) => n.position?.x ?? 0)
-  const position = { x: Math.max(0, ...xs) + 240, y: 300 }
-
-  if (type === 'llm') {
-    return {
-      id,
-      type,
-      position,
-      model: { provider: 'local', name: models[0]?.name ?? '', temperature: 0, max_tokens: 200 },
-      system_prompt: 'You are a helpful assistant.',
-      inputs: {},
-      output: { name: `${id}_out`, type: 'string' }
-    } as SpecNode
-  }
-  if (type === 'agent') {
-    return {
-      id,
-      type,
-      position,
-      model: { provider: 'local', name: models[0]?.name ?? '', temperature: 0.2, max_tokens: 400 },
-      system_prompt: 'You are a helpful agent. Finish the task, then reply with your result.',
-      tools: [],
-      approval: 'auto',
-      max_steps: 10,
-      inputs: {},
-      output: { name: `${id}_out`, type: 'string' }
-    } as SpecNode
-  }
-  if (type === 'tool') {
-    return {
-      id,
-      type,
-      position,
-      tool: tools[0]?.name ?? 'echo',
-      inputs: {},
-      output: { name: `${id}_out`, type: 'string' }
-    } as SpecNode
-  }
-  return { id, type, position, inputs: {} } as SpecNode
 }
 
 export const useStore = create<State>((set, get) => ({
@@ -231,15 +141,15 @@ export const useStore = create<State>((set, get) => ({
   yaml: '',
   errors: [],
   dirty: false,
-  selectedNodeId: null,
-  selectedEdgeIdx: null,
   view: 'graph',
-  sidebarTab: 'node',
+  sidebarTab: 'config',
   tree: {},
   openedFile: null,
   recentFolders: JSON.parse(localStorage.getItem('janus.recentFolders') ?? '[]'),
-  runInputs: {},
-  running: false,
+  bottomTab: 'traces',
+  connected: false,
+  turnActive: false,
+  firstMessage: null,
   spans: [],
   liveEvents: {},
   approvals: [],
@@ -250,7 +160,6 @@ export const useStore = create<State>((set, get) => ({
   pastRuns: [],
   viewingRunId: null,
   comparisonRun: null,
-  lastRunInputs: null,
 
   async boot() {
     const currentAgentId = get().agentId
@@ -341,6 +250,10 @@ export const useStore = create<State>((set, get) => ({
     set({ sidebarTab: t })
   },
 
+  setBottomTab(t) {
+    set({ bottomTab: t })
+  },
+
   async loadDir(rel) {
     try {
       const r = await apiFetch(`${BASE}/workspace/tree?path=${encodeURIComponent(rel)}`)
@@ -381,12 +294,9 @@ export const useStore = create<State>((set, get) => ({
       if (!confirmDiscardChanges(name)) return
     }
     const sequence = ++openAgentSequence
-    const active = get().ws
-    if (active) {
-      if (active.readyState === WebSocket.OPEN) active.send(JSON.stringify({ type: 'cancel' }))
-      active.close()
-      set({ ws: null, running: false, approvals: [] })
-    }
+    // 대화가 살아 있으면 끊는다 — 서버 finally가 워커까지 정리하고 저장한다
+    get().ws?.close()
+    set({ ws: null, connected: false, turnActive: false, approvals: [] })
     const r = await apiJson(`${BASE}/agents/${id}`)
     if (sequence !== openAgentSequence) return
     set({
@@ -396,18 +306,16 @@ export const useStore = create<State>((set, get) => ({
       errors: r.errors ?? [],
       dirty: false,
       view: r.spec ? get().view : 'yaml',
-      selectedNodeId: null,
-      selectedEdgeIdx: null,
-      runInputs: {},
+      firstMessage: null,
       spans: [],
       liveEvents: {},
       approvals: [],
       selectedSpanId: null,
       runError: null,
+      cancelled: false,
       pastRuns: [],
       viewingRunId: null,
-      comparisonRun: null,
-      lastRunInputs: null
+      comparisonRun: null
     })
     get().loadRuns()
   },
@@ -434,93 +342,10 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  patchNode(nodeId, patch) {
+  patchSpec(patch) {
     const spec = get().spec
     if (!spec) return
-    set({
-      spec: { ...spec, nodes: spec.nodes.map((n) => (n.id === nodeId ? mergeNode(n, patch) : n)) },
-      dirty: true
-    })
-  },
-
-  setNodePosition(nodeId, pos) {
-    const spec = get().spec
-    if (!spec) return
-    set({
-      spec: {
-        ...spec,
-        nodes: spec.nodes.map((n) => (n.id === nodeId ? { ...n, position: pos } : n))
-      },
-      dirty: true
-    })
-  },
-
-  addNode(type) {
-    const { spec, models, tools } = get()
-    if (!spec) return
-    const node = blankNode(spec, type, models, tools)
-    set({ spec: { ...spec, nodes: [...spec.nodes, node] }, dirty: true, selectedNodeId: node.id })
-  },
-
-  deleteNode(nodeId) {
-    const spec = get().spec
-    if (!spec) return
-    set({
-      spec: {
-        ...spec,
-        nodes: spec.nodes.filter((n) => n.id !== nodeId),
-        // 매달린 엣지를 남기면 저장이 거부된다 — 같이 지운다
-        edges: spec.edges.filter((e) => e.from !== nodeId && e.to !== nodeId)
-      },
-      dirty: true,
-      selectedNodeId: null
-    })
-  },
-
-  renameNode(oldId, newId) {
-    const spec = get().spec
-    if (!spec || oldId === newId) return null
-    if (!/^[A-Za-z_][\w-]*$/.test(newId)) return '영문자/밑줄로 시작하는 이름만 됩니다'
-    if (spec.nodes.some((n) => n.id === newId)) return `이미 있는 이름입니다: ${newId}`
-    set({ spec: rewriteRefs(spec, oldId, newId), dirty: true, selectedNodeId: newId })
-    return null
-  },
-
-  addEdge(from, to) {
-    const spec = get().spec
-    if (!spec) return
-    if (spec.edges.some((e) => e.from === from && e.to === to)) return
-    set({ spec: { ...spec, edges: [...spec.edges, { from, to }] }, dirty: true })
-  },
-
-  deleteEdge(idx) {
-    const spec = get().spec
-    if (!spec) return
-    set({
-      spec: { ...spec, edges: spec.edges.filter((_, i) => i !== idx) },
-      dirty: true,
-      selectedEdgeIdx: null
-    })
-  },
-
-  patchEdge(idx, patch) {
-    const spec = get().spec
-    if (!spec) return
-    set({
-      spec: {
-        ...spec,
-        edges: spec.edges.map((e, i) => {
-          if (i !== idx) return e
-          // when: null/'' 은 "조건 제거" 를 뜻한다 — 키 자체를 빼야 무조건 엣지가 된다
-          if (patch.when === null || patch.when === '') {
-            const { when: _drop, ...rest } = e
-            return rest
-          }
-          return { ...e, when: patch.when }
-        })
-      },
-      dirty: true
-    })
+    set({ spec: { ...spec, ...patch }, dirty: true })
   },
 
   async save() {
@@ -538,48 +363,44 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  setRunInput(key, value) {
-    set({ runInputs: { ...get().runInputs, [key]: value } })
-  },
-
-  /** start 노드의 outputs가 바뀌면 없어진 필드는 버리고 새 필드는 빈 값으로 만든다. */
-  syncRunFields(fields) {
-    const cur = get().runInputs
-    const next = Object.fromEntries(fields.map((f) => [f, cur[f] ?? '']))
-    if (JSON.stringify(next) !== JSON.stringify(cur)) set({ runInputs: next })
-  },
-
-  selectNode(id) {
-    set({ selectedNodeId: id, selectedEdgeIdx: id ? null : get().selectedEdgeIdx })
-    if (id) set({ sidebarTab: 'node' })
-  },
-
-  selectEdge(idx) {
-    set({ selectedEdgeIdx: idx, selectedNodeId: idx === null ? get().selectedNodeId : null })
-  },
-
   setView(v) {
     set({ view: v })
   },
 
-  run(inputs) {
-    const { agentId, spec, errors, running } = get()
-    if (!agentId || !spec || errors.length > 0 || running) return
-    set({ running: true, spans: [], liveEvents: {}, approvals: [],
-          selectedSpanId: null, runError: null, cancelled: false, viewingRunId: null,
-          lastRunInputs: { ...inputs } })
+  sendMessage(text) {
+    const { agentId, errors, turnActive, ws } = get()
+    const trimmed = text.trim()
+    if (!agentId || errors.length > 0 || turnActive || !trimmed) return
 
-    const ws = new WebSocket(`ws://localhost:8765/run/${agentId}`, ['janus', TOKEN])
-    set({ ws })
-    ws.onopen = () => ws.send(JSON.stringify({ type: 'run', inputs }))
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      // 이어지는 턴 — 같은 세션
+      ws.send(JSON.stringify({ type: 'message', text: trimmed }))
+      set({ turnActive: true, cancelled: false, runError: null })
+      return
+    }
 
-    ws.onmessage = (m) => {
-      if (get().ws !== ws) return
+    // 새 대화 — 이전 스팬을 비우고 소켓을 연다. 첫 메시지가 곧 실행 시작이다.
+    set({
+      spans: [], liveEvents: {}, approvals: [], selectedSpanId: null,
+      runError: null, cancelled: false, viewingRunId: null,
+      turnActive: true, firstMessage: trimmed
+    })
+    const sock = new WebSocket(`ws://localhost:8765/run/${agentId}`, ['janus', TOKEN])
+    set({ ws: sock, connected: false })
+
+    sock.onopen = () => {
+      if (get().ws !== sock) return
+      set({ connected: true })
+      sock.send(JSON.stringify({ type: 'message', text: trimmed }))
+    }
+
+    sock.onmessage = (m) => {
+      if (get().ws !== sock) return
       const ev = JSON.parse(m.data)
       if (ev.type === 'span_start') {
         set({
           spans: [...get().spans, ev.span],
-          // 재실행 A가 시작하자마자 B의 같은 노드와 대응해 볼 수 있게 한다.
+          // 오케스트레이터 스팬이 기본 선택 — 클릭 없이도 대화가 보인다
           selectedSpanId: get().selectedSpanId ?? ev.span.id
         })
       } else if (ev.type === 'span_end') {
@@ -588,46 +409,55 @@ export const useStore = create<State>((set, get) => ({
           // 끝난 노드의 세션은 스팬이 들고 있으므로 live에서 뺀다
           liveEvents: Object.fromEntries(
             Object.entries(get().liveEvents).filter(([k]) => k !== ev.span.node_id)
-          ),
-          selectedSpanId: get().selectedSpanId ?? ev.span.id
+          )
         })
       } else if (ev.type === 'agent_event') {
         const cur = get().liveEvents[ev.node_id] ?? []
         set({ liveEvents: { ...get().liveEvents, [ev.node_id]: [...cur, ev] } })
-      } else if (ev.type === 'token' && ev.node_id) {
-        // llm 노드의 토큰 — agent 노드처럼 세션에 흘려 실시간 표시되게 한다
-        const cur = get().liveEvents[ev.node_id] ?? []
-        set({
-          liveEvents: {
-            ...get().liveEvents,
-            [ev.node_id]: [...cur, { node_id: ev.node_id, kind: 'text_delta', text: ev.text, at_ms: 0 }]
-          }
-        })
       } else if (ev.type === 'approval_request') {
         if (!get().approvals.some((request) => request.id === ev.id)) {
           set({ approvals: [...get().approvals, ev] })
         }
       } else if (ev.type === 'run_error') {
-        set({ runError: ev.error, running: false, approvals: [] })
-        ws.close()
-      } else if (ev.type === 'run_end') {
-        set({ running: false, approvals: [], cancelled: Boolean(ev.cancelled) })
-        get().loadRuns()   // 방금 실행이 기록됐다 — 히스토리 갱신
+        set({ runError: ev.error, turnActive: false, approvals: [] })
+      } else if (ev.type === 'turn_end') {
+        set({ turnActive: false, approvals: [] })
+        get().loadRuns()    // 서버가 저장을 마친 뒤 turn_end를 보낸다
         get().refreshTree() // 에이전트가 파일을 만들었을 수 있다
-        ws.close()
       }
     }
-    ws.onerror = () => {
-      if (get().ws === ws) set({ runError: '서버에 연결할 수 없습니다', running: false })
+    sock.onerror = () => {
+      if (get().ws === sock) set({ runError: '서버에 연결할 수 없습니다', turnActive: false })
     }
-    ws.onclose = () => {
-      if (get().ws === ws) set({ running: false, approvals: [], ws: null })
+    sock.onclose = () => {
+      if (get().ws !== sock) return
+      set({
+        connected: false,
+        turnActive: false,
+        approvals: [],
+        ws: null,
+        // 대화가 끝났다 — 아직 running인 스팬을 정리해 영원한 스피너를 막는다
+        spans: get().spans.map((s) =>
+          s.status === 'running' ? { ...s, status: get().cancelled ? 'error' : 'success' } : s
+        )
+      })
     }
   },
 
-  cancel() {
+  stopTurn() {
     get().ws?.send(JSON.stringify({ type: 'cancel' }))
-    set({ approvals: [] })
+    set({ approvals: [], cancelled: true })
+  },
+
+  stopWorker(nodeId) {
+    const ws = get().ws
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'stop_worker', node_id: nodeId }))
+    }
+  },
+
+  endSession() {
+    get().ws?.close()
   },
 
   respondApproval(id, approved) {
@@ -649,15 +479,15 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async loadRun(runId) {
-    const { agentId, running } = get()
-    if (!agentId || running) return
+    const { agentId, turnActive } = get()
+    if (!agentId || turnActive) return
+    get().ws?.close() // 과거 실행을 보는 건 현재 대화를 닫는다는 뜻이다
     const r = (await apiJson(`${BASE}/runs/${agentId}/${runId}`)) as RunDetail
-    // 과거 실행을 스팬 뷰에 로드한다. running/live와 섞이지 않게 플래그를 세운다.
     set({
-      spans: r.spans, liveEvents: {}, running: false, approvals: [],
+      spans: r.spans, liveEvents: {}, approvals: [],
       cancelled: Boolean(r.cancelled), viewingRunId: runId,
       selectedSpanId: r.spans[0]?.id ?? null, runError: null,
-      runInputs: { ...r.inputs }, lastRunInputs: { ...r.inputs }
+      firstMessage: r.inputs?.task ?? null
     })
   },
 
@@ -676,11 +506,11 @@ export const useStore = create<State>((set, get) => ({
     set({ comparisonRun: null })
   },
 
+  /** 현재 스팬을 B에 고정하고, 같은 첫 메시지로 새 대화를 시작한다. */
   rerun() {
     const state = get()
-    if (state.running || !state.agentId) return
+    if (state.turnActive || !state.agentId || !state.firstMessage) return
     const source = state.pastRuns.find((r) => r.id === state.viewingRunId)
-    const baselineInputs = state.lastRunInputs ?? state.runInputs
     if (state.spans.length) {
       const duration = state.spans.reduce(
         (max, span) => Math.max(max, span.started_ms + (span.duration_ms ?? 0)),
@@ -694,27 +524,34 @@ export const useStore = create<State>((set, get) => ({
           duration_ms: duration,
           node_count: state.spans.length,
           summary: source?.summary ?? '',
-          inputs: { ...baselineInputs },
+          inputs: { task: state.firstMessage },
           spans: state.spans
         }
       })
     }
-    state.run({ ...state.runInputs })
+    state.ws?.close()
+    set({ ws: null, connected: false })
+    get().sendMessage(state.firstMessage)
   },
 
   async rerunRun(runId) {
-    const { agentId, running } = get()
-    if (!agentId || running) return
+    const { agentId, turnActive } = get()
+    if (!agentId || turnActive) return
     const run = (await apiJson(`${BASE}/runs/${agentId}/${runId}`)) as RunDetail
-    set({
-      comparisonRun: run,
-      runInputs: { ...run.inputs },
-      lastRunInputs: { ...run.inputs }
-    })
-    get().run({ ...run.inputs })
+    const first = run.inputs?.task
+    if (!first) return
+    set({ comparisonRun: run })
+    get().ws?.close()
+    set({ ws: null, connected: false })
+    get().sendMessage(first)
   },
 
   selectSpan(id) {
     set({ selectedSpanId: id })
+  },
+
+  selectNodeSpan(nodeId) {
+    const span = get().spans.find((s) => s.node_id === nodeId)
+    set({ selectedSpanId: span?.id ?? null, bottomTab: 'traces' })
   }
 }))

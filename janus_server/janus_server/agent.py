@@ -2,7 +2,7 @@
 
 `qwen3.8mlx/agent/loop.py`에서 이식했다. 바뀐 점:
   - 도구를 통합 레지스트리에서 가져오고, 에이전트마다 **부분집합**만 갖는다
-  - 모델 클라이언트는 호출자(compile.py)가 만들어 넘긴다 (순환 임포트 회피)
+  - 모델 클라이언트는 호출자(runtime.py)가 만들어 넘긴다 (순환 임포트 회피)
   - emit이 UI로 흘러갈 것을 전제로 이벤트 이름을 고정한다
 
 이 모듈은 UI도 그래프도 모른다. 표시와 승인은 콜백으로 빠진다.
@@ -29,9 +29,10 @@ class Session:
     tool_result 이벤트는 도구가 반환한 dict 원본을 그대로 보관한다.
     """
 
-    def __init__(self, system_prompt: str):
+    def __init__(self, system_prompt: str, registry: dict | None = None):
         self.system_prompt = system_prompt
         self.events: list[dict] = []
+        self.registry = registry  # 실행별 도구(create_worker 등)의 렌더러를 찾기 위해
 
     def append(self, kind: str, **data):
         self.events.append({"kind": kind, **data})
@@ -49,11 +50,13 @@ class Session:
             elif e["kind"] == "tool_result":
                 # 원본 dict는 e["value"]에 남고, 모델에겐 렌더링된 텍스트만 보낸다
                 msgs.append({"role": "tool", "tool_call_id": e["tool_call_id"],
-                             "content": T.render(e["name"], e["value"])})
+                             "content": T.render(e["name"], e["value"],
+                                                 registry=self.registry)})
         return msgs
 
 
-def build_system_prompt(base: str, tool_names: list[str]) -> str:
+def build_system_prompt(base: str, tool_names: list[str],
+                        registry: dict | None = None) -> str:
     """도구별 guidance를 시스템 프롬프트에 합친다 — 규칙을 도구 옆에 두는 패턴."""
     if not tool_names:
         return base + "\n\nYou have no tools. Answer directly."
@@ -61,7 +64,7 @@ def build_system_prompt(base: str, tool_names: list[str]) -> str:
         f"{base}\n\n"
         "Work by calling tools. When the task is done, reply with plain text and no "
         "tool call — that is how you finish.\n\n"
-        f"Tools:\n{T.guidance_for(tool_names)}\n\n"
+        f"Tools:\n{T.guidance_for(tool_names, registry=registry)}\n\n"
         "Be brief. Do not narrate what you are about to do; just do it."
     )
 
@@ -120,20 +123,28 @@ def run(
     emit: Callable[..., None],
     max_steps: int = DEFAULT_MAX_STEPS,
     cancel: threading.Event | None = None,
+    extra_tools: list[dict] | None = None,
+    session: Session | None = None,
 ) -> tuple[str, list[dict]]:
-    """에이전트를 한 번 돌린다.
+    """에이전트를 한 턴 돌린다.
 
     반환: (마지막 assistant 텍스트, 이벤트 로그)
 
     approve(name, args) -> bool : 승인 필요한 도구를 실행하기 전 호출 (블로킹)
     emit(kind, **data)          : 표시용. 로직에 영향을 주지 않는다
+    extra_tools                 : _t() 모양 dict들 — 실행별 도구(create_worker) 주입
+    session                     : 지속 Session을 넘기면 이어서 대화한다 (멀티턴)
     """
-    tool_names = [n for n in tool_names if n in T.REGISTRY]
-    session = Session(build_system_prompt(system_prompt, tool_names))
+    reg = dict(T.REGISTRY)
+    reg.update({t["name"]: t for t in (extra_tools or [])})
+    tool_names = [n for n in tool_names if n in reg]
+    if session is None:
+        session = Session(build_system_prompt(system_prompt, tool_names, registry=reg),
+                          registry=reg)
     session.append("user", content=task)
     emit("user", content=task)
 
-    schemas = T.schemas_for(tool_names)
+    schemas = T.schemas_for(tool_names, registry=reg)
     fail_streak: dict[str, int] = {}
     last_text = ""
     tok_prompt = tok_completion = 0
@@ -173,24 +184,42 @@ def run(
             emit("done", reason="no_tool_calls")
             return last_text, session.events
 
-        for call in calls:
+        def exec_call(call: dict) -> tuple[str, dict]:
             name = call["function"]["name"]
             try:
                 args = json.loads(call["function"]["arguments"] or "{}")
             except json.JSONDecodeError as e:
-                value = {"error": f"인자 JSON 파싱 실패: {e}"}
-                session.append("tool_result", tool_call_id=call["id"], name=name, value=value)
-                emit("tool_result", name=name, value=value)
-                continue
-
-            emit("tool_start", name=name, args=args)
-
-            # 승인 강제는 tool/agent 노드가 공유하는 dispatch의 책임이다.
+                return name, {"error": f"인자 JSON 파싱 실패: {e}"}
+            emit("tool_start", name=name, args=args, call_id=call["id"])
+            # 승인 강제는 모든 호출 경로가 공유하는 dispatch의 책임이다.
             # 여기서 미리 검사하면 다른 호출 경로가 또 뚫린다.
-            value = T.dispatch(name, args, approve=approve)
+            return name, T.dispatch(name, args, approve=approve, registry=reg)
 
+        if len(calls) > 1:
+            # ponytail: 턴의 모든 도구 호출을 병렬화 — agent가 워커를 모르게 유지.
+            # MLX 1대가 생성을 직렬화하므로 병렬은 도구 I/O만 겹친다. 충분.
+            results: list[tuple[str, dict] | None] = [None] * len(calls)
+
+            def _exec_into(i: int, c: dict) -> None:
+                try:
+                    results[i] = exec_call(c)
+                except Exception as e:  # emit 등이 죽어도 턴은 계속
+                    results[i] = (c["function"]["name"],
+                                  {"error": f"{type(e).__name__}: {e}"})
+
+            threads = [threading.Thread(target=_exec_into, args=(i, c), daemon=True)
+                       for i, c in enumerate(calls)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+        else:
+            results = [exec_call(calls[0])]
+
+        # 결과 반영은 호출 순서대로 — 병렬이어도 세션 로그는 결정적이다
+        for call, (name, value) in zip(calls, results):
             session.append("tool_result", tool_call_id=call["id"], name=name, value=value)
-            emit("tool_result", name=name, value=value)
+            emit("tool_result", name=name, value=value, call_id=call["id"])
 
             # 서킷 브레이커 — 로컬 모델이 같은 실수를 반복하는 걸 끊는다
             if "error" in value:

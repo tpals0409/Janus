@@ -77,8 +77,7 @@ export function AgentList() {
 
   const counts = [
     ['Tools', tools.length],
-    ['Nodes', spec?.nodes.length ?? 0],
-    ['Edges', spec?.edges.length ?? 0],
+    ['Agent tools', spec?.tools?.length ?? 0],
     ['Models', models.length]
   ] as const
 
@@ -153,7 +152,7 @@ export function AgentList() {
               <div
                 className={`mt-0.5 truncate pl-[21px] text-[11px] ${a.error ? 'text-danger' : 'text-faint'}`}
               >
-                {a.error ? '스펙 오류 · 클릭해 원문 확인' : a.description || `${a.node_count} nodes`}
+                {a.error ? '스펙 오류 · 클릭해 원문 확인' : a.description || a.model || ''}
               </div>
             </button>
             {confirmId === a.id ? (

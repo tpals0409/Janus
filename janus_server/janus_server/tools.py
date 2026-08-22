@@ -313,15 +313,18 @@ def dispatch(
     args: dict,
     *,
     approve: Callable[[str, dict], bool] | None = None,
+    registry: dict | None = None,
 ) -> dict:
     """도구 실행. 위험 도구는 dispatch 계층에서 승인을 강제한다.
 
     호출자가 승인 UI를 빼먹어도 쉘/쓰기가 실행되지 않도록 승인 콜백이
     없으면 기본 거부한다. 반환값은 구조화된 dict로 이벤트 로그에 그대로 저장된다.
+    registry로 실행별 도구(create_worker 등)를 주입한다 — 전역 REGISTRY는 불변.
     """
-    tool = REGISTRY.get(name)
+    reg = registry or REGISTRY
+    tool = reg.get(name)
     if tool is None:
-        return {"error": f"알 수 없는 도구: {name} (가능: {sorted(REGISTRY)})"}
+        return {"error": f"알 수 없는 도구: {name} (가능: {sorted(reg)})"}
     if tool["needs_approval"]:
         try:
             approved = approve is not None and bool(approve(name, args))
@@ -337,24 +340,27 @@ def dispatch(
         return {"error": f"{type(e).__name__}: {e}"}
 
 
-def render(name: str, value: dict) -> str:
+def render(name: str, value: dict, registry: dict | None = None) -> str:
     """모델에게 보낼 텍스트. 여기서만 자른다 — 원본 dict는 온전히 남는다."""
+    reg = registry or REGISTRY
     if "error" in value:
         return f"ERROR: {value['error']}"
-    return _clip(REGISTRY[name]["render"](value))
+    return _clip(reg[name]["render"](value))
 
 
-def schemas_for(names: list[str]) -> list[dict]:
-    """OpenAI tools 파라미터 — agent 노드가 가진 도구만."""
+def schemas_for(names: list[str], registry: dict | None = None) -> list[dict]:
+    """OpenAI tools 파라미터 — 에이전트가 가진 도구만."""
+    reg = registry or REGISTRY
     return [{"type": "function", "function": {
-        "name": n, "description": REGISTRY[n]["description"],
-        "parameters": REGISTRY[n]["schema"]}}
-        for n in names if n in REGISTRY]
+        "name": n, "description": reg[n]["description"],
+        "parameters": reg[n]["schema"]}}
+        for n in names if n in reg]
 
 
-def guidance_for(names: list[str]) -> str:
-    return "\n".join(f"- {n}: {REGISTRY[n]['guidance']}"
-                     for n in names if n in REGISTRY and REGISTRY[n]["guidance"])
+def guidance_for(names: list[str], registry: dict | None = None) -> str:
+    reg = registry or REGISTRY
+    return "\n".join(f"- {n}: {reg[n]['guidance']}"
+                     for n in names if n in reg and reg[n]["guidance"])
 
 
 def listing() -> list[dict]:

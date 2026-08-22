@@ -6,10 +6,11 @@ import {
   Columns2,
   Loader2,
   RefreshCw,
+  Send,
   X,
   XCircle
 } from 'lucide-react'
-import { useStore } from '../../store'
+import { ORCH_ID, useStore } from '../../store'
 import SessionView from './SessionView'
 import type { Span } from '../../types'
 
@@ -36,6 +37,60 @@ function StatusIcon({ s }: { s: Span['status'] }) {
 
 function shortAt(at: string): string {
   return /^\d{8}-\d{6}/.test(at) ? `${at.slice(4, 8)} ${at.slice(9, 15)}` : at
+}
+
+const isOrch = (s?: Span | null) => !s || s.node_id === ORCH_ID
+
+/** 오케스트레이터에게 말을 거는 입력줄. 첫 메시지가 곧 실행 시작이다. */
+function Composer() {
+  const turnActive = useStore((s) => s.turnActive)
+  const errors = useStore((s) => s.errors)
+  const agentId = useStore((s) => s.agentId)
+  const sendMessage = useStore((s) => s.sendMessage)
+  const [draft, setDraft] = useState('')
+
+  const disabled = turnActive || !agentId || errors.length > 0
+  const submit = () => {
+    if (disabled || !draft.trim()) return
+    sendMessage(draft)
+    setDraft('')
+  }
+
+  return (
+    <div className="shrink-0 border-t border-border px-3 py-2">
+      <div className="flex items-end gap-2">
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              submit()
+            }
+          }}
+          rows={2}
+          placeholder={
+            errors.length > 0
+              ? '스펙 오류를 먼저 고치세요'
+              : turnActive
+                ? '턴이 끝나면 이어서 보낼 수 있습니다…'
+                : '오케스트레이터에게 메시지… (Enter 전송, Shift+Enter 줄바꿈)'
+          }
+          disabled={disabled}
+          className="min-h-[38px] flex-1 resize-y rounded-md border border-border-strong bg-raised px-2.5 py-1.5 text-[12px] outline-none focus:border-accent disabled:opacity-50"
+        />
+        <button
+          onClick={submit}
+          disabled={disabled || !draft.trim()}
+          title="전송"
+          className="flex h-[38px] shrink-0 items-center gap-1.5 rounded-md px-3 text-[12px] font-medium text-white disabled:opacity-40"
+          style={{ background: 'var(--color-accent)' }}
+        >
+          {turnActive ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+        </button>
+      </div>
+    </div>
+  )
 }
 
 function ComparisonColumn({
@@ -84,7 +139,7 @@ function ComparisonColumn({
         <>
           <div className="mb-2 flex items-center gap-2">
             <StatusIcon s={span.status} />
-            <span className="truncate text-[12px] font-medium">{span.node_id}</span>
+            <span className="truncate text-[12px] font-medium">{span.label ?? span.node_id}</span>
           </div>
           {perfLine(span) && (
             <div className="mb-2 font-mono text-[10.5px] text-faint">{perfLine(span)}</div>
@@ -110,7 +165,8 @@ export default function TracePanel() {
   const spans = useStore((s) => s.spans)
   const selectedSpanId = useStore((s) => s.selectedSpanId)
   const selectSpan = useStore((s) => s.selectSpan)
-  const running = useStore((s) => s.running)
+  const turnActive = useStore((s) => s.turnActive)
+  const connected = useStore((s) => s.connected)
   const runError = useStore((s) => s.runError)
   const cancelled = useStore((s) => s.cancelled)
   const pastRuns = useStore((s) => s.pastRuns)
@@ -121,26 +177,36 @@ export default function TracePanel() {
   const clearComparison = useStore((s) => s.clearComparison)
   const rerun = useStore((s) => s.rerun)
   const rerunRun = useStore((s) => s.rerunRun)
-  const runInputs = useStore((s) => s.runInputs)
-  const lastRunInputs = useStore((s) => s.lastRunInputs)
+  const firstMessage = useStore((s) => s.firstMessage)
+  const stopWorker = useStore((s) => s.stopWorker)
   const [showHistory, setShowHistory] = useState(false)
   const [io, setIo] = useState<'input' | 'output'>('output')
 
   const liveEvents = useStore((s) => s.liveEvents)
-  const span = spans.find((s) => s.id === selectedSpanId)
+  const span = spans.find((s) => s.id === selectedSpanId) ?? spans.find((s) => s.node_id === ORCH_ID)
   const total = spans.reduce((a, s) => Math.max(a, (s.started_ms ?? 0) + (s.duration_ms ?? 0)), 0)
   const failed = Boolean(runError || spans.some((s) => s.status === 'error'))
-  const runState = running ? 'running' : cancelled ? 'cancelled' : failed ? 'error' : 'success'
+  const runState = turnActive
+    ? 'running'
+    : cancelled
+      ? 'cancelled'
+      : failed
+        ? 'error'
+        : connected
+          ? 'idle'
+          : 'success'
   const comparisonSpan = comparisonRun?.spans.find((s) => s.node_id === span?.node_id)
   const primaryAt = viewingRunId
     ? (pastRuns.find((r) => r.id === viewingRunId)?.at ?? viewingRunId)
-    : running
+    : turnActive
       ? '실행 중'
-      : '현재 실행'
+      : '현재 대화'
+  const inputsA = { task: firstMessage ?? '' }
 
-  // 아직 안 끝난 agent 노드는 스팬에 events가 없다 — live에서 가져온다
+  // 아직 안 끝난 노드는 스팬에 events가 없다 — live에서 가져온다
   const events = span ? (span.events ?? liveEvents[span.node_id] ?? []) : []
   const isLive = Boolean(span && span.status === 'running' && liveEvents[span.node_id])
+  const showComposer = isOrch(span) && !viewingRunId
 
   const History = () =>
     pastRuns.length ? (
@@ -149,7 +215,7 @@ export default function TracePanel() {
           onClick={() => setShowHistory((v) => !v)}
           className="flex w-full items-center gap-1.5 px-3 py-1.5 text-[11px] text-muted hover:text-fg"
         >
-          <Clock size={11} /> 지난 실행 {pastRuns.length}
+          <Clock size={11} /> 지난 대화 {pastRuns.length}
         </button>
         {showHistory && (
           <div className="max-h-40 overflow-y-auto pb-1">
@@ -160,7 +226,7 @@ export default function TracePanel() {
                 style={{ borderLeftColor: r.id === viewingRunId ? 'var(--color-accent)' : 'transparent' }}
               >
                 <button
-                  disabled={running}
+                  disabled={turnActive}
                   onClick={() => {
                     loadRun(r.id)
                     setShowHistory(false)
@@ -182,9 +248,9 @@ export default function TracePanel() {
                   <Columns2 size={11} />
                 </button>
                 <button
-                  disabled={running}
+                  disabled={turnActive}
                   onClick={() => rerunRun(r.id)}
-                  title="이 입력으로 재실행하고 이전 결과와 비교"
+                  title="이 첫 메시지로 새 대화를 시작하고 이전 결과와 비교"
                   className="p-1.5 text-faint hover:text-fg disabled:opacity-30"
                 >
                   <RefreshCw size={11} />
@@ -203,16 +269,17 @@ export default function TracePanel() {
         <div className="grid flex-1 place-items-center text-[12px] text-faint">
           {runError ? (
             <span className="text-danger">{runError}</span>
-          ) : running ? (
+          ) : turnActive ? (
             <span className="flex items-center gap-2">
               <Loader2 size={13} className="animate-spin" /> 실행 중…
             </span>
           ) : (
             <span className="flex items-center gap-2">
-              <CircleDashed size={13} /> Run을 눌러 그래프를 실행하세요
+              <CircleDashed size={13} /> 아래에 메시지를 보내 대화를 시작하세요
             </span>
           )}
         </div>
+        <Composer />
       </div>
     )
   }
@@ -240,13 +307,15 @@ export default function TracePanel() {
                 ? '● 중단됨'
                 : runState === 'error'
                   ? '● 실패'
-                  : '● Success'}
+                  : runState === 'idle'
+                    ? '● 대기 중'
+                    : '● Success'}
           </span>
-          {viewingRunId && <span className="text-[10px] text-accent-fg">과거 실행 보기</span>}
+          {viewingRunId && <span className="text-[10px] text-accent-fg">과거 대화 보기</span>}
           <button
-            disabled={running}
+            disabled={turnActive || !firstMessage}
             onClick={rerun}
-            title="현재 입력으로 재실행하고 이 결과를 B에 고정"
+            title="같은 첫 메시지로 새 대화를 시작하고 이 결과를 B에 고정"
             className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-faint hover:bg-raised hover:text-fg disabled:opacity-30"
           >
             <RefreshCw size={10} /> 재실행
@@ -274,12 +343,12 @@ export default function TracePanel() {
             onClick={() => selectSpan(s.id)}
             className="flex w-full items-center gap-2 border-l-2 px-3 py-2 text-left hover:bg-panel-2"
             style={{
-              borderLeftColor: s.id === selectedSpanId ? 'var(--color-accent)' : 'transparent',
-              background: s.id === selectedSpanId ? 'var(--color-panel-2)' : undefined
+              borderLeftColor: s.id === span?.id ? 'var(--color-accent)' : 'transparent',
+              background: s.id === span?.id ? 'var(--color-panel-2)' : undefined
             }}
           >
             <StatusIcon s={s.status} />
-            <span className="truncate text-[12px]">{s.node_id}</span>
+            <span className="truncate text-[12px]">{s.label ?? s.node_id}</span>
             {s.usage ? (
               <span className="shrink-0 font-mono text-[9.5px] text-faint" title="prompt+gen 토큰">
                 {s.usage.prompt_tokens}+{s.usage.completion_tokens}
@@ -303,7 +372,7 @@ export default function TracePanel() {
             label="A"
             at={primaryAt}
             span={span}
-            inputs={lastRunInputs ?? runInputs}
+            inputs={inputsA}
             events={events}
             live={isLive}
           />
@@ -317,13 +386,24 @@ export default function TracePanel() {
         </div>
       ) : (
         <>
-      {/* 선택 스팬 상세 */}
-      <div className="min-w-0 flex-1 overflow-y-auto px-4 py-3">
+      {/* 선택 스팬 상세 — 오케스트레이터면 대화창, 워커면 로그 + Stop */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         {span ? (
           <>
             <div className="mb-2 flex items-center gap-2">
               <StatusIcon s={span.status} />
-              <span className="font-medium">{span.node_id}</span>
+              <span className="font-medium">{span.label ?? span.node_id}</span>
+              {!isOrch(span) && span.status === 'running' && connected && (
+                <button
+                  onClick={() => stopWorker(span.node_id)}
+                  title="이 워커만 중단"
+                  className="flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px]"
+                  style={{ borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
+                >
+                  <X size={10} /> Stop
+                </button>
+              )}
               <span className="ml-auto font-mono text-[11px] text-muted">
                 +{span.started_ms}ms · {span.duration_ms ?? '…'}ms
               </span>
@@ -332,7 +412,7 @@ export default function TracePanel() {
               <div className="mb-2 font-mono text-[10.5px] text-faint">{perfLine(span)}</div>
             )}
             {events.length ? (
-              <SessionView events={events} live={isLive} />
+              <SessionView events={events} live={isLive || (isOrch(span) && turnActive)} />
             ) : (
               <div className="rounded-md border border-border bg-panel-2 p-2">
                 <div className="mb-1 text-[10px] tracking-wider text-faint">RESULT</div>
@@ -345,6 +425,8 @@ export default function TracePanel() {
         ) : (
           <div className="text-[12px] text-faint">스팬을 선택하세요</div>
         )}
+        </div>
+        {showComposer && <Composer />}
       </div>
 
       {/* Input / Output */}

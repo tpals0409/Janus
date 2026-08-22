@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ChevronRight, MessageSquareText, User, Wrench } from 'lucide-react'
 import type { AgentEvent } from '../../types'
 
@@ -8,6 +8,7 @@ interface ToolRun {
   args?: Record<string, unknown>
   value?: Record<string, unknown>
   pending: boolean
+  callId?: string
 }
 
 type Row =
@@ -41,15 +42,17 @@ function toRows(events: AgentEvent[]): Row[] {
       rows.push({ kind: 'llm_call', messages: e.messages ?? [], total: e.total_messages ?? (e.messages?.length ?? 0) })
     } else if (e.kind === 'tool_start') {
       const last = rows[rows.length - 1]
-      const run: ToolRun = { name: e.name ?? '?', args: e.args, pending: true }
+      const run: ToolRun = { name: e.name ?? '?', args: e.args, pending: true, callId: e.call_id }
       if (last && last.kind === 'tools') last.runs.push(run)
       else rows.push({ kind: 'tools', runs: [run] })
     } else if (e.kind === 'tool_result') {
-      // 가장 최근의 미완료 호출에 결과를 붙인다
+      // call_id로 짝짓고(병렬 동명 호출), 없으면 가장 최근의 미완료 동명 호출에 붙인다
       for (let i = rows.length - 1; i >= 0; i--) {
         const r = rows[i]
         if (r.kind !== 'tools') continue
-        const run = [...r.runs].reverse().find((x) => x.pending && x.name === e.name)
+        const run =
+          (e.call_id && r.runs.find((x) => x.pending && x.callId === e.call_id)) ||
+          [...r.runs].reverse().find((x) => x.pending && x.name === e.name)
         if (run) {
           run.value = e.value
           run.pending = false
@@ -155,10 +158,17 @@ export default function SessionView({
   const rows = toRows(events)
   const steps = events.filter((e) => e.kind === 'step').length
 
+  // 라이브 세션은 채팅처럼 바닥을 따라간다
+  const tail = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    // ponytail: 라이브 중 항상 스크롤. 위로 읽는 중 방해가 거슬리면 앵커링 추가.
+    if (live) tail.current?.scrollIntoView({ block: 'nearest' })
+  }, [live, events.length])
+
   if (!rows.length) {
     return (
       <div className="py-4 text-[12px] text-faint">
-        {live ? '에이전트 시작 중…' : '이 노드는 세션이 없습니다 (에이전트 노드가 아님)'}
+        {live ? '에이전트 시작 중…' : '이 스팬에는 세션 이벤트가 없습니다'}
       </div>
     )
   }
@@ -211,6 +221,7 @@ export default function SessionView({
           ))}
         </div>
       )}
+      <div ref={tail} />
     </div>
   )
 }

@@ -14,13 +14,15 @@ os.environ["JANUS_STATE_FILE"] = str(
     Path(tempfile.gettempdir()) / f"janus-test-state-{os.getpid()}.json"
 )
 
+import json
+
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from janus_server import compile as C
-from janus_server import server
+from janus_server import runtime, server
 from janus_server import spec as S
 from janus_server import tools as T
+from tests.fakes import FakeClient
 
 
 class DispatchApprovalTests(unittest.TestCase):
@@ -33,31 +35,6 @@ class DispatchApprovalTests(unittest.TestCase):
         T.WORKSPACE = self.previous_workspace
         self.temp.cleanup()
 
-    @staticmethod
-    def tool_spec(command: str) -> dict:
-        return {
-            "name": "approval-test",
-            "nodes": [
-                {"id": "start", "type": "start", "outputs": ["command"]},
-                {
-                    "id": "shell",
-                    "type": "tool",
-                    "tool": "run_bash",
-                    "inputs": {"command": command},
-                    "output": {"name": "result"},
-                },
-                {
-                    "id": "end",
-                    "type": "end",
-                    "inputs": {"result": "{{ shell.result }}"},
-                },
-            ],
-            "edges": [
-                {"from": "start", "to": "shell"},
-                {"from": "shell", "to": "end"},
-            ],
-        }
-
     def test_dangerous_dispatch_defaults_to_deny(self):
         marker = Path(self.temp.name) / "should-not-exist"
 
@@ -66,34 +43,15 @@ class DispatchApprovalTests(unittest.TestCase):
         self.assertIn("승인하지 않음", result["error"])
         self.assertFalse(marker.exists())
 
-    def test_tool_node_without_approver_defaults_to_deny(self):
-        marker = Path(self.temp.name) / "tool-node-should-not-exist"
-        spec = self.tool_spec(f"touch {marker.name}")
+    def test_injected_registry_does_not_bypass_approval(self):
+        # 실행별 레지스트리를 써도 위험 도구의 승인 게이트는 그대로다
+        marker = Path(self.temp.name) / "registry-should-not-exist"
+        reg = dict(T.REGISTRY)
 
-        state = C.build(spec).invoke(C.initial_state(spec, {}))
+        result = T.dispatch("run_bash", {"command": f"touch {marker.name}"}, registry=reg)
 
-        value = state["outputs"]["shell"]["result"]
-        self.assertIn("승인하지 않음", value["error"])
+        self.assertIn("승인하지 않음", result["error"])
         self.assertFalse(marker.exists())
-
-    def test_tool_node_uses_shared_approver(self):
-        calls: list[tuple[str, str, dict]] = []
-        spec = self.tool_spec("printf approved")
-        graph = C.build(spec)
-
-        state = graph.invoke(
-            C.initial_state(spec, {}),
-            config={
-                "configurable": {
-                    "approver": lambda node, tool, args: calls.append((node, tool, args)) or True
-                }
-            },
-        )
-
-        value = state["outputs"]["shell"]["result"]
-        self.assertEqual([("shell", "run_bash", {"command": "printf approved"})], calls)
-        self.assertEqual(0, value["exit_code"])
-        self.assertEqual("approved", value["stdout"])
 
 
 class ServerBoundaryTests(unittest.TestCase):
@@ -161,40 +119,17 @@ class ServerBoundaryTests(unittest.TestCase):
         self.assertFalse(server._token_valid("wrong-token"))
 
     def test_parallel_tools_emit_two_independent_approval_requests(self):
-        spec = {
-            "name": "parallel-approval",
-            "nodes": [
-                {"id": "start", "type": "start", "outputs": []},
-                {
-                    "id": "write_a",
-                    "type": "tool",
-                    "tool": "write_file",
-                    "inputs": {"path": "a.txt", "content": "A"},
-                    "output": {"name": "result"},
-                },
-                {
-                    "id": "write_b",
-                    "type": "tool",
-                    "tool": "write_file",
-                    "inputs": {"path": "b.txt", "content": "B"},
-                    "output": {"name": "result"},
-                },
-                {
-                    "id": "end",
-                    "type": "end",
-                    "inputs": {
-                        "a": "{{ write_a.result }}",
-                        "b": "{{ write_b.result }}",
-                    },
-                },
-            ],
-            "edges": [
-                {"from": "start", "to": "write_a"},
-                {"from": "start", "to": "write_b"},
-                {"from": "write_a", "to": "end"},
-                {"from": "write_b", "to": "end"},
-            ],
-        }
+        # 오케스트레이터가 한 턴에 위험 도구를 2번 호출 — 승인 요청 2건이 독립 왕복한다
+        spec = {"name": "parallel-approval", "model": "qwen3.8-27b",
+                "system_prompt": "write files", "tools": ["write_file"],
+                "approval": "ask", "max_steps": 4}
+        fake = FakeClient([
+            {"calls": [
+                ("write_file", json.dumps({"path": "a.txt", "content": "A"})),
+                ("write_file", json.dumps({"path": "b.txt", "content": "B"})),
+            ]},
+            {"text": "done"},
+        ])
 
         previous_workspace = T.WORKSPACE
         with tempfile.TemporaryDirectory() as tmp:
@@ -210,13 +145,15 @@ class ServerBoundaryTests(unittest.TestCase):
                 with (
                     patch.object(server, "AGENTS_DIR", agents),
                     patch.object(server, "RUNS_DIR", runs),
+                    patch.object(runtime, "resolve_local_model", lambda n: n),
+                    patch.object(runtime, "make_client", lambda: fake),
                     self.client.websocket_connect(
                         "/run/parallel",
                         headers={"origin": self.origin},
                         subprotocols=["janus", "test-token"],
                     ) as ws,
                 ):
-                    ws.send_json({"type": "run", "inputs": {}})
+                    ws.send_json({"type": "message", "text": "write both"})
                     approvals = []
                     while len(approvals) < 2:
                         message = ws.receive_json()
@@ -225,7 +162,8 @@ class ServerBoundaryTests(unittest.TestCase):
                         if message["type"] == "approval_request":
                             approvals.append(message)
 
-                    self.assertEqual({"write_a", "write_b"}, {r["node_id"] for r in approvals})
+                    self.assertEqual(2, len({r["id"] for r in approvals}))
+                    self.assertEqual({"write_file"}, {r["tool"] for r in approvals})
                     for request in approvals:
                         ws.send_json(
                             {"type": "approval_response", "id": request["id"], "approved": True}
@@ -235,7 +173,7 @@ class ServerBoundaryTests(unittest.TestCase):
                         message = ws.receive_json()
                         if message["type"] == "run_error":
                             self.fail(message["error"])
-                        if message["type"] == "run_end":
+                        if message["type"] == "turn_end":
                             break
 
                 self.assertEqual("A", (workspace / "a.txt").read_text(encoding="utf-8"))

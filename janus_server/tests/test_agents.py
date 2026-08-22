@@ -53,6 +53,36 @@ class AgentLoadTests(unittest.TestCase):
         self.assertIsNone(detail.json()["spec"])
         self.assertEqual(["스펙 최상위는 매핑이어야 합니다"], detail.json()["errors"])
 
+    def test_post_creates_valid_orchestrator_spec(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(server, "AGENTS_DIR", Path(tmp)):
+                created = self.client.post(
+                    "/agents", json={"name": "새 팀"},
+                    headers={"x-janus-token": server.AUTH_TOKEN},
+                )
+
+        self.assertEqual(200, created.status_code)
+        body = created.json()
+        self.assertEqual([], body["errors"])
+        self.assertEqual("새 팀", body["spec"]["name"])
+        self.assertIn("model", body["spec"])
+
+    def test_put_rejects_create_worker_in_tools(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            agents = Path(tmp)
+            spec = server._blank_spec("Orch")
+            (agents / "orch.yaml").write_text("name: Orch\n", encoding="utf-8")
+            with patch.object(server, "AGENTS_DIR", agents):
+                saved = self.client.put(
+                    "/agents/orch",
+                    json={"spec": {**spec, "tools": ["create_worker"]}},
+                    headers={"x-janus-token": server.AUTH_TOKEN},
+                )
+
+        self.assertEqual(200, saved.status_code)
+        self.assertFalse(saved.json()["saved"])
+        self.assertTrue(any("항상 주입됩니다" in e for e in saved.json()["errors"]))
+
 
 if __name__ == "__main__":
     unittest.main()
