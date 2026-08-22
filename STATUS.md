@@ -93,8 +93,8 @@ Janus memory peak, budget 소진율, generation/tool/verification 흔적을 2초
 
 2026-08-22 현재 체크아웃에서 직접 확인:
 
-- Python 테스트 119개 통과
-- Node lifecycle 테스트 7개 통과(실제 분리 프로세스 그룹 3회 start/stop 포함)
+- Python 테스트 122개 통과
+- Node main-process 테스트 10개 통과(실제 분리 프로세스 그룹 3회 start/stop 포함)
 - 도구 자체 검사 통과
 - 오케스트레이터 spec 검사 통과
 - TypeScript 타입 검사 통과
@@ -229,6 +229,16 @@ P5-22 PR·CI 통합 결과:
   URL, base/head, review/merge 상태, checks, workflow run과 제한된 실패 로그를 영속화한다.
 - 원격 refresh가 실패해도 마지막 PR/CI 관측값과 오류를 함께 남기며, merge 후 clean
   workspace archive를 제안하되 branch/worktree를 자동 삭제하지 않는다.
+
+P5-23 Task 개발 표면 결과:
+
+- primary/secondary PTY는 서버가 확인한 Task worktree에서만 실행되고, Task 전환 뒤에도
+  bounded output buffer와 pane 상태를 복원한다. 다른 Task ID로 input/stop할 수 없다.
+- Monaco 편집기는 Task jail 안의 2MB 이하 text file만 atomic replace로 저장하고 mtime
+  충돌을 거부한다. `rg` 고정문자 검색과 파일 탭을 Task별 local state로 복원한다.
+- preview는 Task ID를 해시한 별도 Electron persistent partition에서 localhost만 열며,
+  console/network를 각 500개로 제한해 수집한다. 요소 선택은 DOM/CSS/rect/source hint와
+  screenshot을 함께 반환하고, Task별 URL·탭·split 상태와 출력 copy/단축키를 제공한다.
 
 ## 완료한 마일스톤: R1 실제 27B Baseline과 계측
 

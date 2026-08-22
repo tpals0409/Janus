@@ -548,11 +548,35 @@ export interface BackendStatus {
   mlx: { phase: ServicePhase; attempts: number; retryInMs: number; lastError: string | null }
 }
 
+export interface TaskBrowserStatus {
+  taskId: string
+  partition: string
+  url: string
+  open: boolean
+  console: Array<{ at: string; level: string; message: string; line?: number; source?: string }>
+  network: Array<{ at: string; method: string; url: string; status?: number; error?: string }>
+}
+
+export interface TaskBrowserInspection {
+  element: {
+    tag: string; id: string | null; classes: string[]; html: string; text: string
+    css: Record<string, string>
+    rect: { x: number; y: number; width: number; height: number }
+    sourceContext: string | null
+    url: string
+  }
+  screenshotDataUrl: string
+}
+
 declare global {
   interface Window {
     janus?: {
       pickFolder(): Promise<string | null>
       backendStatus(): Promise<BackendStatus>
+      taskBrowserOpen(input: { taskId: string; url: string }): Promise<TaskBrowserStatus>
+      taskBrowserStatus(taskId: string): Promise<TaskBrowserStatus>
+      taskBrowserScreenshot(taskId: string): Promise<{ dataUrl: string; url: string }>
+      taskBrowserInspect(taskId: string): Promise<TaskBrowserInspection>
       authToken: string
     }
   }

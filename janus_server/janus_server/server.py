@@ -32,6 +32,7 @@ from . import adaptive
 from . import runtime
 from . import scheduler as scheduler_mod
 from . import telemetry as telemetry_mod
+from . import terminal_service as terminal_mod
 from . import domain as D
 from . import evaluation
 from . import github_service as github_mod
@@ -73,6 +74,9 @@ _EVALUATION_JOBS: dict[str, threading.Thread] = {}
 _EVALUATION_PROCESSES: dict[str, subprocess.Popen[str]] = {}
 _EVALUATION_CANCELLED: set[str] = set()
 _GITHUB_SERVICE: github_mod.GitHubService | None = None
+_TERMINAL_MANAGER_LOCK = threading.Lock()
+_TERMINAL_MANAGER: terminal_mod.TerminalManager | None = None
+_TERMINAL_MANAGER_PATH: Path | None = None
 
 # Electron main이 기동마다 만든 토큰을 서버/렌더러에만 나눠준다.
 # 수동 기동도 무인증으로 열리지 않도록, env가 없으면 서버가 자체적으로
@@ -213,6 +217,38 @@ def get_github_service() -> github_mod.GitHubService:
     return _GITHUB_SERVICE
 
 
+def get_terminal_manager() -> terminal_mod.TerminalManager:
+    global _TERMINAL_MANAGER, _TERMINAL_MANAGER_PATH
+    store = get_domain_store()
+    path = store.path.resolve()
+    with _TERMINAL_MANAGER_LOCK:
+        if _TERMINAL_MANAGER is not None and _TERMINAL_MANAGER_PATH != path:
+            _TERMINAL_MANAGER.stop_all()
+            _TERMINAL_MANAGER = None
+        if _TERMINAL_MANAGER is None:
+            def on_output(terminal_id: str, output: str, offset: int) -> None:
+                try:
+                    get_domain_store().append_task_terminal_output(
+                        terminal_id, text=output, output_offset=offset
+                    )
+                except D.DomainError:
+                    pass
+
+            def on_exit(terminal_id: str, exit_code: int | None) -> None:
+                try:
+                    get_domain_store().finish_task_terminal(
+                        terminal_id, state="exited", exit_code=exit_code
+                    )
+                except D.DomainError:
+                    pass
+
+            _TERMINAL_MANAGER = terminal_mod.TerminalManager(
+                on_output=on_output, on_exit=on_exit
+            )
+            _TERMINAL_MANAGER_PATH = path
+        return _TERMINAL_MANAGER
+
+
 def _save_run(
     agent_id: str, run_id: str, inputs: dict, spans: list,
     cancelled: bool, telemetry: dict | None = None,
@@ -247,6 +283,10 @@ async def shutdown_local_resources(
         runtimes = list(_TASK_RUNTIMES.values())
     for orchestration in runtimes:
         orchestration.cancel_all()
+    with _TERMINAL_MANAGER_LOCK:
+        terminal_manager = _TERMINAL_MANAGER
+    if terminal_manager is not None:
+        await asyncio.to_thread(terminal_manager.stop_all)
     with _EVALUATION_JOBS_LOCK:
         evaluation_processes = list(_EVALUATION_PROCESSES.values())
         evaluation_threads = list(_EVALUATION_JOBS.values())
@@ -1578,6 +1618,225 @@ def operations_dashboard(project_id: str | None = None):
         },
         "tasks": rows,
     }
+
+
+def _terminal_json(item: dict, *, after_offset: int | None = None) -> dict:
+    value = dict(item)
+    buffer = str(value.pop("buffer"))
+    end = int(value["output_offset"])
+    start = max(0, end - len(buffer))
+    requested = start if after_offset is None else max(0, int(after_offset))
+    reset = requested < start or requested > end
+    if reset:
+        requested = start
+    value["output"] = buffer[max(0, requested - start):]
+    value["output_start"] = requested
+    value["buffer_start"] = start
+    value["reset"] = reset
+    return value
+
+
+@app.get("/tasks/{task_id}/terminals")
+def list_task_terminals(task_id: str):
+    store = get_domain_store()
+    store.get_task(task_id)
+    return [_terminal_json(item) for item in store.list_task_terminals(task_id)]
+
+
+@app.post("/tasks/{task_id}/terminals")
+def create_task_terminal(task_id: str, body: dict):
+    store = get_domain_store()
+    workspace = store.get_task_workspace(task_id)
+    if workspace is None or workspace["state"] != "ready" or not workspace["root_path"]:
+        raise D.Conflict("ready Task workspace가 있어야 terminal을 열 수 있습니다")
+    pane_id = str(body.get("pane_id") or "primary")
+    if pane_id not in {"primary", "secondary"}:
+        raise D.Conflict("terminal pane_id는 primary/secondary만 허용합니다")
+    manager = get_terminal_manager()
+    try:
+        session = manager.create(
+            task_id=task_id, pane_id=pane_id, cwd=workspace["root_path"]
+        )
+    except (OSError, terminal_mod.TerminalServiceError) as error:
+        raise D.Conflict(f"terminal 시작 실패: {error}") from error
+    snapshot = session.snapshot()
+    item = store.start_task_terminal(
+        terminal_id=session.id, task_id=task_id, pane_id=pane_id,
+        cwd=str(snapshot["cwd"]), shell=str(snapshot["shell"]), pid=int(snapshot["pid"]),
+    )
+    if snapshot["buffer"]:
+        item = store.append_task_terminal_output(
+            session.id, text=snapshot["buffer"], output_offset=int(snapshot["offset"])
+        )
+    if snapshot["state"] != "running":
+        item = store.finish_task_terminal(
+            session.id, state="exited", exit_code=snapshot["exit_code"]
+        )
+    return _terminal_json(item)
+
+
+def _owned_live_terminal(task_id: str, terminal_id: str) -> terminal_mod.TerminalSession:
+    item = get_domain_store().get_task_terminal(terminal_id)
+    if item["task_id"] != task_id:
+        raise D.Conflict("terminal이 다른 Task에 속합니다")
+    try:
+        return get_terminal_manager().get(terminal_id)
+    except terminal_mod.TerminalServiceError as error:
+        raise D.Conflict(str(error)) from error
+
+
+@app.get("/tasks/{task_id}/terminals/{terminal_id}")
+def get_task_terminal(task_id: str, terminal_id: str, after_offset: int = 0):
+    item = get_domain_store().get_task_terminal(terminal_id)
+    if item["task_id"] != task_id:
+        raise D.Conflict("terminal이 다른 Task에 속합니다")
+    return _terminal_json(item, after_offset=after_offset)
+
+
+@app.post("/tasks/{task_id}/terminals/{terminal_id}/input")
+def input_task_terminal(task_id: str, terminal_id: str, body: dict):
+    value = str(body.get("data") or "")
+    if not value or len(value) > 65_536:
+        raise D.Conflict("terminal input은 1~65536자여야 합니다")
+    session = _owned_live_terminal(task_id, terminal_id)
+    try:
+        session.write(value)
+    except terminal_mod.TerminalServiceError as error:
+        raise D.Conflict(str(error)) from error
+    return {"written": len(value), "terminal_id": terminal_id}
+
+
+@app.post("/tasks/{task_id}/terminals/{terminal_id}/resize")
+def resize_task_terminal(task_id: str, terminal_id: str, body: dict):
+    session = _owned_live_terminal(task_id, terminal_id)
+    try:
+        session.resize(int(body.get("columns") or 80), int(body.get("rows") or 24))
+    except (TypeError, ValueError, OSError) as error:
+        raise D.Conflict(f"terminal resize 실패: {error}") from error
+    return {"terminal_id": terminal_id, "resized": True}
+
+
+@app.delete("/tasks/{task_id}/terminals/{terminal_id}")
+def stop_task_terminal(task_id: str, terminal_id: str):
+    session = _owned_live_terminal(task_id, terminal_id)
+    session.stop()
+    item = get_domain_store().finish_task_terminal(
+        terminal_id, state="stopped", exit_code=session.process.poll()
+    )
+    return _terminal_json(item)
+
+
+def _task_development_root(task_id: str) -> tuple[dict, Path]:
+    workspace = get_domain_store().get_task_workspace(task_id)
+    if workspace is None or workspace["state"] != "ready" or not workspace["root_path"]:
+        raise D.Conflict("ready Task workspace가 필요합니다")
+    root = Path(workspace["root_path"]).resolve()
+    if not root.is_dir():
+        raise D.Conflict("Task workspace 경로가 없습니다")
+    return workspace, root
+
+
+def _task_development_path(task_id: str, value: str) -> tuple[dict, Path, Path]:
+    workspace, root = _task_development_root(task_id)
+    relative = Path(str(value or "."))
+    if relative.is_absolute():
+        raise D.Conflict("Task file path는 상대경로여야 합니다")
+    target = (root / relative).resolve()
+    if not target.is_relative_to(root):
+        raise D.Conflict("Task workspace 밖의 file path입니다")
+    return workspace, root, target
+
+
+@app.get("/tasks/{task_id}/development/files")
+def list_task_development_files(task_id: str, path: str = "."):
+    _workspace, root, target = _task_development_path(task_id, path)
+    if not target.is_dir():
+        raise D.NotFound(f"디렉토리가 없습니다: {path}")
+    entries = []
+    for child in sorted(target.iterdir(), key=lambda item: (not item.is_dir(), item.name.lower())):
+        if child.name == ".git":
+            continue
+        relative = str(child.relative_to(root))
+        entries.append({
+            "name": child.name, "path": relative,
+            "type": "directory" if child.is_dir() else "file",
+            "size": child.stat().st_size if child.is_file() else None,
+        })
+        if len(entries) >= 500:
+            break
+    return {"path": "" if path == "." else path, "entries": entries, "truncated": len(entries) >= 500}
+
+
+@app.get("/tasks/{task_id}/development/file")
+def read_task_development_file(task_id: str, path: str):
+    _workspace, root, target = _task_development_path(task_id, path)
+    if not target.is_file():
+        raise D.NotFound(f"파일이 없습니다: {path}")
+    size = target.stat().st_size
+    if size > 2_000_000:
+        raise D.Conflict("editor는 2MB 이하 text file만 엽니다")
+    raw = target.read_bytes()
+    if b"\0" in raw[:8192]:
+        raise D.Conflict("binary file은 editor에서 열 수 없습니다")
+    return {
+        "path": str(target.relative_to(root)), "content": raw.decode("utf-8", errors="replace"),
+        "size": size, "mtime_ns": target.stat().st_mtime_ns,
+    }
+
+
+@app.put("/tasks/{task_id}/development/file")
+def write_task_development_file(task_id: str, body: dict):
+    path = str(body.get("path") or "")
+    content = body.get("content")
+    if not path or not isinstance(content, str):
+        raise D.Conflict("path와 text content가 필요합니다")
+    encoded = content.encode("utf-8")
+    if len(encoded) > 2_000_000:
+        raise D.Conflict("editor는 2MB 이하 text file만 저장합니다")
+    _workspace, root, target = _task_development_path(task_id, path)
+    expected_mtime = body.get("expected_mtime_ns")
+    if expected_mtime is not None and target.exists() and target.stat().st_mtime_ns != int(expected_mtime):
+        raise D.Conflict("파일이 외부에서 변경됐습니다. 다시 열고 수정하세요")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_name(f".{target.name}.janus-{uuid.uuid4().hex}.tmp")
+    try:
+        temporary.write_bytes(encoded)
+        os.replace(temporary, target)
+    except OSError as error:
+        with suppress(OSError):
+            temporary.unlink()
+        raise D.Conflict(f"파일 저장 실패: {error}") from error
+    return {
+        "path": str(target.relative_to(root)), "saved": True,
+        "size": len(encoded), "mtime_ns": target.stat().st_mtime_ns,
+    }
+
+
+@app.get("/tasks/{task_id}/development/search")
+def search_task_development_files(task_id: str, q: str):
+    _workspace, root = _task_development_root(task_id)
+    query = str(q).strip()
+    if not query or len(query) > 200:
+        raise D.Conflict("검색어는 1~200자여야 합니다")
+    try:
+        completed = subprocess.run(
+            ["rg", "--line-number", "--no-heading", "--color=never", "--fixed-strings",
+             "--glob", "!.git/**", "--max-count", "50", query, "."],
+            cwd=root, capture_output=True, text=True, timeout=15,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as error:
+        raise D.Conflict(f"file search 실패: {error}") from error
+    if completed.returncode not in {0, 1}:
+        raise D.Conflict(completed.stderr.strip() or "file search 실패")
+    matches = []
+    for line in completed.stdout.splitlines()[:500]:
+        file_path, separator, rest = line.removeprefix("./").partition(":")
+        line_number, separator2, text_value = rest.partition(":")
+        if separator and separator2:
+            matches.append({
+                "path": file_path, "line": int(line_number), "text": text_value[:1000],
+            })
+    return {"query": query, "matches": matches, "truncated": len(completed.stdout.splitlines()) > 500}
 
 
 @app.get("/profiles/models")

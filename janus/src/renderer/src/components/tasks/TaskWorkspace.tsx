@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { FormEvent, Suspense, lazy, useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   Archive,
@@ -24,6 +24,8 @@ import {
 } from 'lucide-react'
 import { useStore } from '../../store'
 import type { ChangeLayer, ChangeSetFile, Project, Task, TaskStatus } from '../../types'
+
+const TaskDevelopmentSurface = lazy(() => import('./TaskDevelopmentSurface'))
 
 const STATUS: Record<TaskStatus, { label: string; color: string; short: string }> = {
   todo: { label: 'Todo', color: 'var(--color-muted)', short: 'TO' },
@@ -1521,8 +1523,13 @@ function TaskDetail({ task }: { task: Task }) {
               </dl>
             </section>
           </aside>
-          <div className="col-span-2">
+          <div className="col-span-2 space-y-4">
             <TaskRuntimeCard task={task} />
+            {task.workspace?.state === 'ready' && (
+              <Suspense fallback={<section className="task-card text-[9px] text-faint">Loading Task development surface…</section>}>
+                <TaskDevelopmentSurface task={task} />
+              </Suspense>
+            )}
           </div>
         </div>
       </div>

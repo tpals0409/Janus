@@ -8,7 +8,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",
-    "test:main": "node --test src/main/service-lifecycle.test.ts"
+    "test:main": "node --test src/main/*.test.ts"
   },
   "dependencies": {
     "@xyflow/react": "^12.11.3",

@@ -349,12 +349,12 @@
 
 ### 23. 개발 표면
 
-- [ ] worktree-scoped terminal
-- [ ] Monaco editor와 file search
-- [ ] worktree-scoped browser
-- [ ] console/network capture
-- [ ] UI 요소 → DOM/CSS/screenshot/source context
-- [ ] 출력 복사, 키보드 단축키, 긴 로그 가상화
+- [x] worktree-scoped terminal
+- [x] Monaco editor와 file search
+- [x] worktree-scoped browser
+- [x] console/network capture
+- [x] UI 요소 → DOM/CSS/screenshot/source context
+- [x] 출력 복사, 키보드 단축키, 긴 로그 가상화
 
 ### 24. 견고성과 복구
 

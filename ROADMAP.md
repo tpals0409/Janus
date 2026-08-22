@@ -334,9 +334,9 @@ Task를 떠나지 않고 파일 편집, terminal, 앱 미리보기와 UI 피드�
 
 ### 출구 조건
 
-- [ ] terminal/editor/browser 탭이 명확한 Task workspace에 귀속된다.
-- [ ] Task 전환 후 탭과 session 상태가 복원된다.
-- [ ] browser profile과 저장소 context가 다른 Task와 섞이지 않는다.
+- [x] terminal/editor/browser 탭이 명확한 Task workspace에 귀속된다.
+- [x] Task 전환 후 탭과 session 상태가 복원된다.
+- [x] browser profile과 저장소 context가 다른 Task와 섞이지 않는다.
 
 ---
 

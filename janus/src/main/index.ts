@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, session as electronSession, shell } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
 import { randomBytes } from 'crypto'
 import { createWriteStream } from 'fs'
@@ -15,6 +15,10 @@ import {
   stopOwnedService,
   type ServiceRuntime
 } from './service-lifecycle'
+import {
+  BoundedCapture, normalizePreviewUrl, taskBrowserPartition,
+  type CapturedConsole, type CapturedNetwork
+} from './task-browser'
 
 // ─────────────────────────── 백엔드 소유 ───────────────────────────
 // "하나의 앱": Janus를 켜면 janus-server와 MLX 모델 서버가 함께 뜨고, 끄면 함께
@@ -65,6 +69,118 @@ const services: Record<ServiceLabel, ServiceRuntime> = {
 let quitting = false
 let supervising = false
 let supervisorTimer: ReturnType<typeof setInterval> | null = null
+let mainWindow: BrowserWindow | null = null
+
+interface TaskBrowserRuntime {
+  taskId: string
+  partition: string
+  url: string
+  window: BrowserWindow | null
+  console: BoundedCapture<CapturedConsole>
+  network: BoundedCapture<CapturedNetwork>
+  networkAttached: boolean
+}
+
+const taskBrowsers = new Map<string, TaskBrowserRuntime>()
+
+function taskBrowser(taskId: string): TaskBrowserRuntime {
+  const partition = taskBrowserPartition(taskId)
+  const current = taskBrowsers.get(taskId)
+  if (current) return current
+  const runtime: TaskBrowserRuntime = {
+    taskId, partition, url: '', window: null,
+    console: new BoundedCapture(500), network: new BoundedCapture(500),
+    networkAttached: false
+  }
+  taskBrowsers.set(taskId, runtime)
+  return runtime
+}
+
+function attachNetworkCapture(runtime: TaskBrowserRuntime): void {
+  if (runtime.networkAttached) return
+  runtime.networkAttached = true
+  const isolated = electronSession.fromPartition(runtime.partition)
+  isolated.webRequest.onCompleted({ urls: ['http://*/*', 'https://*/*'] }, (details) => {
+    runtime.network.add({
+      at: new Date().toISOString(), method: details.method, url: details.url,
+      status: details.statusCode
+    })
+  })
+  isolated.webRequest.onErrorOccurred({ urls: ['http://*/*', 'https://*/*'] }, (details) => {
+    runtime.network.add({
+      at: new Date().toISOString(), method: details.method, url: details.url,
+      error: details.error
+    })
+  })
+}
+
+function openTaskBrowser(taskId: string, requestedUrl: string): TaskBrowserRuntime {
+  const runtime = taskBrowser(taskId)
+  const url = normalizePreviewUrl(requestedUrl)
+  runtime.url = url
+  attachNetworkCapture(runtime)
+  if (!runtime.window || runtime.window.isDestroyed()) {
+    const preview = new BrowserWindow({
+      width: 1180, height: 820, minWidth: 720, minHeight: 480,
+      title: `Janus Preview · ${taskId}`,
+      parent: mainWindow ?? undefined,
+      webPreferences: {
+        partition: runtime.partition, sandbox: true, contextIsolation: true,
+        nodeIntegration: false
+      }
+    })
+    runtime.window = preview
+    preview.webContents.on('console-message', (...args: unknown[]) => {
+      const details = args[1]
+      if (typeof details === 'object' && details !== null) {
+        const value = details as Record<string, unknown>
+        runtime.console.add({
+          at: new Date().toISOString(), level: String(value.level ?? 'info'),
+          message: String(value.message ?? ''), line: Number(value.lineNumber ?? 0),
+          source: String(value.sourceId ?? '')
+        })
+      } else {
+        runtime.console.add({
+          at: new Date().toISOString(), level: String(args[1] ?? 'info'),
+          message: String(args[2] ?? ''), line: Number(args[3] ?? 0),
+          source: String(args[4] ?? '')
+        })
+      }
+    })
+    preview.webContents.on('did-navigate', (_event, navigated) => {
+      runtime.url = navigated
+    })
+    preview.webContents.setWindowOpenHandler(({ url: target }) => {
+      try {
+        void preview.loadURL(normalizePreviewUrl(target))
+      } catch {
+        void shell.openExternal(target)
+      }
+      return { action: 'deny' }
+    })
+    preview.webContents.on('will-navigate', (event, target) => {
+      try {
+        normalizePreviewUrl(target)
+      } catch {
+        event.preventDefault()
+      }
+    })
+    preview.on('closed', () => { runtime.window = null })
+  }
+  void runtime.window.loadURL(url)
+  runtime.window.show()
+  runtime.window.focus()
+  return runtime
+}
+
+function taskBrowserStatus(taskId: string) {
+  const runtime = taskBrowser(taskId)
+  return {
+    taskId, partition: runtime.partition, url: runtime.url,
+    open: Boolean(runtime.window && !runtime.window.isDestroyed()),
+    console: runtime.console.snapshot(), network: runtime.network.snapshot()
+  }
+}
 
 function portInUse(port: number): Promise<boolean> {
   return new Promise((res) => {
@@ -197,6 +313,7 @@ function backendStatus() {
 
 async function killBackend(): Promise<void> {
   quitting = true
+  for (const runtime of taskBrowsers.values()) runtime.window?.destroy()
   if (supervisorTimer) clearInterval(supervisorTimer)
   supervisorTimer = null
   const results = await Promise.all(Object.values(services).map((service) => stopOwnedService(service)))
@@ -220,6 +337,7 @@ function createWindow(): void {
     titleBarStyle: 'hiddenInset',
     webPreferences: { preload: join(__dirname, '../preload/index.mjs'), sandbox: false }
   })
+  mainWindow = win
 
   win.on('ready-to-show', () => win.show())
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -237,6 +355,47 @@ ipcMain.handle('pick-folder', async () => {
   return r.canceled ? null : r.filePaths[0]
 })
 ipcMain.handle('backend-status', () => backendStatus())
+ipcMain.handle('task-browser-open', (_event, input: { taskId: string; url: string }) => {
+  openTaskBrowser(input.taskId, input.url)
+  return taskBrowserStatus(input.taskId)
+})
+ipcMain.handle('task-browser-status', (_event, taskId: string) => taskBrowserStatus(taskId))
+ipcMain.handle('task-browser-screenshot', async (_event, taskId: string) => {
+  const runtime = taskBrowser(taskId)
+  if (!runtime.window || runtime.window.isDestroyed()) throw new Error('Task preview가 열려 있지 않습니다')
+  const image = await runtime.window.webContents.capturePage()
+  return { dataUrl: `data:image/png;base64,${image.toPNG().toString('base64')}`, url: runtime.url }
+})
+ipcMain.handle('task-browser-inspect', async (_event, taskId: string) => {
+  const runtime = taskBrowser(taskId)
+  if (!runtime.window || runtime.window.isDestroyed()) throw new Error('Task preview가 열려 있지 않습니다')
+  const element = await runtime.window.webContents.executeJavaScript(`
+    new Promise((resolve) => {
+      const prior = document.getElementById('__janus_inspector_hint__');
+      if (prior) prior.remove();
+      const hint = document.createElement('div');
+      hint.id = '__janus_inspector_hint__'; hint.textContent = 'Janus: select an element';
+      Object.assign(hint.style, { position:'fixed', top:'8px', left:'50%', transform:'translateX(-50%)', zIndex:'2147483647', background:'#171723', color:'#fff', padding:'6px 10px', border:'1px solid #738cff', borderRadius:'4px', font:'12px monospace' });
+      document.documentElement.appendChild(hint);
+      const select = (event) => {
+        event.preventDefault(); event.stopPropagation();
+        document.removeEventListener('click', select, true); hint.remove();
+        const node = event.target; const style = getComputedStyle(node); const rect = node.getBoundingClientRect();
+        resolve({
+          tag: node.tagName.toLowerCase(), id: node.id || null, classes: Array.from(node.classList || []),
+          html: node.outerHTML.slice(0, 12000), text: (node.textContent || '').trim().slice(0, 2000),
+          css: { display:style.display, position:style.position, color:style.color, background:style.background, font:style.font, margin:style.margin, padding:style.padding, width:style.width, height:style.height },
+          rect: { x:rect.x, y:rect.y, width:rect.width, height:rect.height },
+          sourceContext: node.getAttribute('data-source') || node.getAttribute('data-testid') || node.getAttribute('src') || node.getAttribute('href') || null,
+          url: location.href
+        });
+      };
+      document.addEventListener('click', select, true);
+    })
+  `, true)
+  const image = await runtime.window.webContents.capturePage()
+  return { element, screenshotDataUrl: `data:image/png;base64,${image.toPNG().toString('base64')}` }
+})
 
 app.whenReady().then(() => {
   env.JANUS_STATE_FILE =

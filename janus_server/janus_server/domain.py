@@ -17,7 +17,7 @@ from typing import Any
 
 from .budget import empty_usage, merge_budget, normalize_budget
 
-CURRENT_SCHEMA_VERSION = 10
+CURRENT_SCHEMA_VERSION = 11
 
 TASK_STATUSES = frozenset({"todo", "preparing", "working", "needs_you", "review", "failed"})
 TASK_TRANSITIONS = {
@@ -357,10 +357,31 @@ CREATE TABLE task_pull_requests (
 CREATE INDEX idx_task_pull_requests_state ON task_pull_requests(state,updated_at);
 """
 
+MIGRATION_11 = """
+CREATE TABLE task_terminals (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    pane_id TEXT NOT NULL,
+    cwd TEXT NOT NULL,
+    shell TEXT NOT NULL,
+    pid INTEGER,
+    state TEXT NOT NULL CHECK(state IN ('running','exited','stopped')),
+    exit_code INTEGER,
+    buffer TEXT NOT NULL DEFAULT '',
+    output_offset INTEGER NOT NULL DEFAULT 0,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    ended_at TEXT,
+    UNIQUE(task_id,pane_id)
+);
+CREATE INDEX idx_task_terminals_task_state ON task_terminals(task_id,state);
+"""
+
 MIGRATIONS = {
     1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3, 4: MIGRATION_4,
     5: MIGRATION_5, 6: MIGRATION_6, 7: MIGRATION_7, 8: MIGRATION_8,
-    9: MIGRATION_9, 10: MIGRATION_10,
+    9: MIGRATION_9, 10: MIGRATION_10, 11: MIGRATION_11,
 }
 
 
@@ -789,6 +810,71 @@ class DomainStore:
                 "SELECT * FROM task_pull_requests WHERE task_id=?", (task_id,)
             ).fetchone()
             return dict(row) if row is not None else None
+
+    def start_task_terminal(
+        self, *, terminal_id: str, task_id: str, pane_id: str, cwd: str,
+        shell: str, pid: int,
+    ) -> dict:
+        now = _now()
+        with self.transaction(immediate=True) as connection:
+            self._one(connection, "SELECT * FROM tasks WHERE id=?", (task_id,), "Task")
+            connection.execute(
+                "INSERT INTO task_terminals(id,task_id,pane_id,cwd,shell,pid,state,"
+                "created_at,updated_at) VALUES (?,?,?,?,?,?,'running',?,?) "
+                "ON CONFLICT(task_id,pane_id) DO UPDATE SET id=excluded.id,cwd=excluded.cwd,"
+                "shell=excluded.shell,pid=excluded.pid,state='running',exit_code=NULL,buffer='',"
+                "output_offset=0,error=NULL,created_at=excluded.created_at,"
+                "updated_at=excluded.updated_at,ended_at=NULL",
+                (terminal_id, task_id, pane_id, cwd, shell, pid, now, now),
+            )
+        return self.get_task_terminal(terminal_id)
+
+    def append_task_terminal_output(
+        self, terminal_id: str, *, text: str, output_offset: int,
+        max_chars: int = 200_000,
+    ) -> dict:
+        with self.transaction(immediate=True) as connection:
+            current = self._one(
+                connection, "SELECT * FROM task_terminals WHERE id=?",
+                (terminal_id,), "TaskTerminal",
+            )
+            combined = (current["buffer"] + str(text))[-max_chars:]
+            connection.execute(
+                "UPDATE task_terminals SET buffer=?,output_offset=?,updated_at=? WHERE id=?",
+                (combined, int(output_offset), _now(), terminal_id),
+            )
+        return self.get_task_terminal(terminal_id)
+
+    def finish_task_terminal(
+        self, terminal_id: str, *, state: str, exit_code: int | None = None,
+        error: str | None = None,
+    ) -> dict:
+        if state not in {"exited", "stopped"}:
+            raise Conflict(f"terminal 종료 상태가 올바르지 않습니다: {state}")
+        with self.transaction(immediate=True) as connection:
+            self._one(
+                connection, "SELECT * FROM task_terminals WHERE id=?",
+                (terminal_id,), "TaskTerminal",
+            )
+            now = _now()
+            connection.execute(
+                "UPDATE task_terminals SET state=?,exit_code=?,error=?,updated_at=?,ended_at=? "
+                "WHERE id=?", (state, exit_code, error, now, now, terminal_id),
+            )
+        return self.get_task_terminal(terminal_id)
+
+    def get_task_terminal(self, terminal_id: str) -> dict:
+        with self._connect() as connection:
+            return self._one(
+                connection, "SELECT * FROM task_terminals WHERE id=?",
+                (terminal_id,), "TaskTerminal",
+            )
+
+    def list_task_terminals(self, task_id: str) -> list[dict]:
+        with self._connect() as connection:
+            return [dict(row) for row in connection.execute(
+                "SELECT * FROM task_terminals WHERE task_id=? ORDER BY pane_id", (task_id,)
+            )]
 
     def create_evaluation_experiment(
         self, *, role: str, label: str, source: str,
@@ -1549,9 +1635,15 @@ class DomainStore:
                 "error='server restarted during evaluation',ended_at=? "
                 "WHERE status IN ('queued','running')", (now,),
             ).rowcount
+            terminals = connection.execute(
+                "UPDATE task_terminals SET state='stopped',pid=NULL,"
+                "error='server restarted; terminal process is no longer attached',"
+                "updated_at=?,ended_at=? WHERE state='running'", (now, now),
+            ).rowcount
         return {
             "sessions": sessions, "dispatches": dispatches, "tasks": tasks,
             "verifications": verifications, "evaluations": evaluations,
+            "terminals": terminals,
         }
 
     def transition_session(
