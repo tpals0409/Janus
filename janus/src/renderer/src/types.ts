@@ -1,5 +1,87 @@
 export type Approval = 'auto' | 'ask'
 
+export type TaskStatus = 'todo' | 'preparing' | 'working' | 'needs_you' | 'review' | 'failed'
+export type WorkspaceState = 'preparing' | 'ready' | 'failed' | 'archived'
+
+export interface Project {
+  id: string
+  name: string
+  repo_path: string
+  created_at: string
+  updated_at: string
+  archived_at: string | null
+}
+
+export interface TaskWorkspace {
+  id: string
+  task_id: string
+  repo_path: string
+  root_path: string | null
+  base_ref: string
+  branch_name: string | null
+  state: WorkspaceState
+  progress: string
+  error: string | null
+  owned: 0 | 1
+  job_active?: boolean
+}
+
+export interface Task {
+  id: string
+  project_id: string
+  title: string
+  objective: string
+  acceptance_command: string
+  base_ref: string
+  status: TaskStatus
+  created_at: string
+  updated_at: string
+  archived_at: string | null
+  workspace?: TaskWorkspace | null
+  dispatches?: Dispatch[]
+}
+
+export interface Dispatch {
+  id: string
+  task_id: string
+  workspace_id: string
+  agent_profile_id: string
+  attempt: number
+  status: 'queued' | 'running' | 'needs_you' | 'completed' | 'failed' | 'cancelled'
+  error: string | null
+}
+
+export interface AgentProfile {
+  id: string
+  name: string
+  description: string
+  system_prompt: string
+  tools: string[]
+  approval: Approval
+  worker_policy: 'none' | 'fixed_one' | 'autonomous'
+  max_steps: number
+  model_profile_id: string
+}
+
+export interface ModelProfile {
+  id: string
+  name: string
+  provider: 'local'
+  model_key: string
+  quantization: string
+  config: Record<string, unknown>
+}
+
+export interface WorkspaceInspection extends TaskWorkspace {
+  git_status?: {
+    dirty: boolean
+    tracked_changes: string[]
+    untracked: string[]
+    unmerged: string[]
+    porcelain: string[]
+  }
+}
+
 /** 에이전트 = 오케스트레이터 1개의 평평한 설정. 워커는 런타임에 만들어져 트레이스에만 존재한다. */
 export interface Spec {
   name: string
@@ -14,6 +96,10 @@ export interface Spec {
 /** 에이전트가 도는 동안 흘러나오는 세션 이벤트 */
 export interface AgentEvent {
   node_id: string
+  task_id?: string
+  workspace_id?: string
+  dispatch_id?: string
+  session_id?: string
   kind:
     | 'user'
     | 'assistant'
@@ -67,11 +153,18 @@ export interface ApprovalRequest {
   node_id: string
   tool: string
   args: Record<string, unknown>
+  task_id: string
+  workspace_id: string
+  dispatch_id: string
 }
 
 export interface Span {
   id: string
   node_id: string
+  task_id?: string
+  workspace_id?: string
+  dispatch_id?: string
+  session_id?: string
   status: 'running' | 'success' | 'error'
   started_ms: number
   duration_ms?: number
@@ -97,6 +190,7 @@ export interface ToolInfo {
   name: string
   description: string
   needs_approval: boolean
+  requires_workspace: boolean
   params: string[]
 }
 

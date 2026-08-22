@@ -6,6 +6,7 @@ import {
   FlaskConical,
   Home,
   Layers,
+  ListTodo,
   Rocket,
   Search,
   Settings,
@@ -15,9 +16,9 @@ import {
 } from 'lucide-react'
 import { useStore } from '../store'
 
-/** 이번 슬라이스에서 배선된 것은 Agents 뿐이다. 나머지는 형태만 두고 그 사실을 밝힌다. */
+/** Task가 제품의 첫 화면, Agent는 재사용할 실행 프로파일이다. */
 const NAV: { id: string; label: string; Icon: typeof Home; wired?: boolean }[] = [
-  { id: 'home', label: 'Home', Icon: Home },
+  { id: 'tasks', label: 'Tasks', Icon: ListTodo, wired: true },
   { id: 'agents', label: 'Agents', Icon: Boxes, wired: true },
   { id: 'tools', label: 'Tools', Icon: Wrench },
   { id: 'context', label: 'Context', Icon: BookOpen },
@@ -201,7 +202,7 @@ export function AgentList() {
   )
 }
 
-export function StatusBar() {
+export function StatusBar({ mode }: { mode: string }) {
   const serverUp = useStore((s) => s.serverUp)
   const mlxUp = useStore((s) => s.mlxUp)
   const backendStatus = useStore((s) => s.backendStatus)
@@ -209,6 +210,7 @@ export function StatusBar() {
   const pickWorkspace = useStore((s) => s.pickWorkspace)
   const dirty = useStore((s) => s.dirty)
   const errors = useStore((s) => s.errors)
+  const task = useStore((s) => s.task)
   const serverExternal = backendStatus?.server.phase === 'external'
   const mlxPhase = backendStatus?.mlx.phase
   const mlxText = mlxUp
@@ -243,14 +245,21 @@ export function StatusBar() {
         {mlxText}
       </span>
       <button
-        onClick={pickWorkspace}
-        title="에이전트 파일 도구가 갇히는 폴더. 클릭해서 변경"
+        onClick={mode === 'agents' ? pickWorkspace : undefined}
+        title={
+          mode === 'agents'
+            ? '기존 Agent 파일 도구가 갇히는 폴더. 클릭해서 변경'
+            : 'Task에 영속된 격리 worktree'
+        }
         className="max-w-[340px] truncate font-mono text-[10.5px] text-faint hover:text-fg"
       >
-        ws: {workspace ?? '—'}
+        {mode === 'tasks' ? 'task ws' : 'legacy ws'}:{' '}
+        {mode === 'tasks' ? task?.workspace?.root_path ?? '준비 전' : workspace ?? '—'}
       </button>
-      {errors.length > 0 && <span className="text-danger">스펙 오류 {errors.length}건</span>}
-      {dirty && <span className="text-warn">저장되지 않은 변경</span>}
+      {mode === 'agents' && errors.length > 0 && (
+        <span className="text-danger">스펙 오류 {errors.length}건</span>
+      )}
+      {mode === 'agents' && dirty && <span className="text-warn">저장되지 않은 변경</span>}
       <span className="ml-auto text-faint">Janus v0.1.0</span>
     </footer>
   )

@@ -8,6 +8,7 @@ import TracePanel from './components/traces/TracePanel'
 import ApprovalCard from './components/ApprovalCard'
 import FileTree from './components/FileTree'
 import { AgentList, NavRail, StatusBar } from './components/Shell'
+import TaskWorkspace from './components/tasks/TaskWorkspace'
 
 // Monaco는 무겁다 — YAML 뷰를 열기 전엔 로드하지 않는다
 const YamlView = lazy(() => import('./components/YamlView'))
@@ -118,8 +119,11 @@ export default function App() {
   const setSidebarTab = useStore((s) => s.setSidebarTab)
   const bottom = useStore((s) => s.bottomTab)
   const setBottom = useStore((s) => s.setBottomTab)
+  const task = useStore((s) => s.task)
+  const projects = useStore((s) => s.projects)
+  const projectId = useStore((s) => s.projectId)
 
-  const [nav, setNav] = useState('agents')
+  const [nav, setNav] = useState('tasks')
   const [tab, setTab] = useState<(typeof DESIGN_TABS)[number]>('Design')
   const { h, onMouseDown } = useDragHeight(280)
 
@@ -209,21 +213,32 @@ export default function App() {
       <header className="flex h-[52px] shrink-0 items-center gap-3 border-b border-border bg-panel px-4 pl-20">
         <span className="text-[15px] font-semibold tracking-tight">Janus</span>
         <span className="text-[11px] text-faint">Agent Development Environment</span>
-        <ProjectButton />
+        {nav === 'agents' && <ProjectButton />}
         <div className="mx-auto flex items-center gap-2">
-          <span className="text-[13px] font-medium">{spec?.name ?? '—'}</span>
-          <span className="text-[11px]" style={{ color: dirty ? 'var(--color-warn)' : 'var(--color-ok)' }}>
-            {dirty ? '● Unsaved' : '● Saved'}
+          <span className="max-w-[420px] truncate text-[13px] font-medium">
+            {nav === 'tasks'
+              ? task?.title ?? projects.find((project) => project.id === projectId)?.name ?? 'Tasks'
+              : spec?.name ?? '—'}
           </span>
+          {nav === 'agents' && (
+            <span
+              className="text-[11px]"
+              style={{ color: dirty ? 'var(--color-warn)' : 'var(--color-ok)' }}
+            >
+              {dirty ? '● Unsaved' : '● Saved'}
+            </span>
+          )}
         </div>
-        <button
-          onClick={save}
-          disabled={!dirty}
-          className="flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1.5 text-[12px] text-muted disabled:opacity-40"
-        >
-          <Save size={13} /> Save
-        </button>
-        {turnActive && (
+        {nav === 'agents' && (
+          <button
+            onClick={save}
+            disabled={!dirty}
+            className="flex items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1.5 text-[12px] text-muted disabled:opacity-40"
+          >
+            <Save size={13} /> Save
+          </button>
+        )}
+        {nav === 'agents' && turnActive && (
           <button
             onClick={stopTurn}
             title="현재 턴 중단 — 대화는 유지됩니다"
@@ -250,14 +265,17 @@ export default function App() {
 
       <div className="flex min-h-0 flex-1">
         <NavRail active={nav} onSelect={setNav} />
-        <AgentList />
-
-        {nav !== 'agents' ? (
-          <div className="grid flex-1 place-items-center text-[12px] text-faint">
-            이 화면은 아직 구현되지 않았습니다
-          </div>
+        {nav === 'tasks' ? (
+          <TaskWorkspace />
         ) : (
           <>
+            <AgentList />
+            {nav !== 'agents' ? (
+              <div className="grid flex-1 place-items-center text-[12px] text-faint">
+                이 화면은 아직 구현되지 않았습니다
+              </div>
+            ) : (
+              <>
             {/* 가운데 */}
             <main className="flex min-w-0 flex-1 flex-col">
               <div className="flex h-[38px] shrink-0 items-center gap-1 border-b border-border px-3">
@@ -392,11 +410,13 @@ export default function App() {
                 {sidebarTab === 'files' ? <FileTree /> : <Inspector />}
               </div>
             </aside>
+              </>
+            )}
           </>
         )}
       </div>
 
-      <StatusBar />
+      <StatusBar mode={nav} />
     </div>
   )
 }

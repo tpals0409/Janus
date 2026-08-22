@@ -1,12 +1,15 @@
 import { create } from 'zustand'
 import type {
-  AgentEvent, AgentSummary, ApprovalRequest, BackendStatus, RunDetail, RunSummary, Span,
-  Spec, ToolInfo, TreeEntry
+  AgentEvent, AgentProfile, AgentSummary, ApprovalRequest, BackendStatus, ModelProfile,
+  Project, RunDetail, RunSummary, Span, Spec, Task, ToolInfo, TreeEntry,
+  WorkspaceInspection
 } from './types'
 
-const BASE = 'http://localhost:8765'
-const TOKEN = window.janus?.authToken ?? ''
+const BASE = import.meta.env.VITE_JANUS_BASE ?? 'http://localhost:8765'
+const TOKEN = window.janus?.authToken ?? import.meta.env.VITE_JANUS_TOKEN ?? ''
 let openAgentSequence = 0
+let openProjectSequence = 0
+let openTaskSequence = 0
 
 function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers)
@@ -16,15 +19,27 @@ function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Res
 
 /** 상태 코드를 실어 나른다 — 인증 실패(401/403)와 연결 실패를 UI가 구분해야 한다. */
 class ApiError extends Error {
-  constructor(readonly status: number) {
-    super(`Janus API ${status}`)
+  constructor(readonly status: number, detail?: string) {
+    super(detail || `Janus API ${status}`)
   }
 }
 
 async function apiJson(input: RequestInfo | URL, init: RequestInit = {}) {
   const response = await apiFetch(input, init)
-  if (!response.ok) throw new ApiError(response.status)
+  if (!response.ok) {
+    let detail = ''
+    try {
+      detail = String((await response.clone().json()).detail ?? '')
+    } catch {
+      detail = await response.text()
+    }
+    throw new ApiError(response.status, detail)
+  }
   return response.json()
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 async function readBackendStatus(): Promise<BackendStatus | null> {
@@ -47,6 +62,16 @@ interface State {
   agents: AgentSummary[]
   tools: ToolInfo[]
   models: { name: string; provider: string }[]
+  projects: Project[]
+  tasks: Task[]
+  projectId: string | null
+  taskId: string | null
+  task: Task | null
+  agentProfiles: AgentProfile[]
+  modelProfiles: ModelProfile[]
+  workspaceInspection: WorkspaceInspection | null
+  taskBusy: boolean
+  taskActionError: string | null
 
   agentId: string | null
   spec: Spec | null
@@ -88,6 +113,25 @@ interface State {
 
   boot(): Promise<void>
   pollHealth(): Promise<void>
+  loadProjects(): Promise<void>
+  selectProject(id: string): Promise<void>
+  selectTask(id: string): Promise<void>
+  refreshSelectedTask(): Promise<void>
+  addProjectFromPicker(): Promise<void>
+  createTask(input: {
+    title: string
+    objective: string
+    acceptance_command: string
+    base_ref: string
+  }): Promise<void>
+  updateTask(patch: Partial<Pick<Task, 'title' | 'objective' | 'acceptance_command' | 'base_ref'>>): Promise<void>
+  prepareWorkspace(): Promise<void>
+  retryWorkspace(): Promise<void>
+  inspectWorkspace(): Promise<void>
+  archiveWorkspace(force?: boolean): Promise<void>
+  deleteWorkspaceBranch(): Promise<void>
+  archiveSelectedTask(): Promise<void>
+  clearTaskError(): void
   pickWorkspace(): Promise<void>
   setWorkspaceTo(path: string): Promise<void>
   setSidebarTab(t: 'config' | 'files'): void
@@ -136,6 +180,16 @@ export const useStore = create<State>((set, get) => ({
   agents: [],
   tools: [],
   models: [],
+  projects: [],
+  tasks: [],
+  projectId: null,
+  taskId: null,
+  task: null,
+  agentProfiles: [],
+  modelProfiles: [],
+  workspaceInspection: null,
+  taskBusy: false,
+  taskActionError: null,
   agentId: null,
   spec: null,
   yaml: '',
@@ -165,13 +219,16 @@ export const useStore = create<State>((set, get) => ({
     const currentAgentId = get().agentId
     const previousWorkspace = get().workspace
     try {
-      const [health, agents, tools, models, ws, backendStatus] = await Promise.all([
+      const [health, agents, tools, models, ws, backendStatus, projects, agentProfiles, modelProfiles] = await Promise.all([
         apiJson(`${BASE}/health`),
         apiJson(`${BASE}/agents`),
         apiJson(`${BASE}/tools`),
         apiJson(`${BASE}/models`),
         apiJson(`${BASE}/workspace`),
-        readBackendStatus()
+        readBackendStatus(),
+        apiJson(`${BASE}/projects`),
+        apiJson(`${BASE}/profiles/agents`),
+        apiJson(`${BASE}/profiles/models`)
       ])
       const workspaceChanged = previousWorkspace !== null && previousWorkspace !== ws.path
       set({
@@ -182,6 +239,9 @@ export const useStore = create<State>((set, get) => ({
         agents,
         tools,
         models,
+        projects,
+        agentProfiles,
+        modelProfiles,
         workspace: ws.path,
         ...(workspaceChanged
           ? {
@@ -191,6 +251,9 @@ export const useStore = create<State>((set, get) => ({
             }
           : {})
       })
+      const selectedProject =
+        projects.find((project: Project) => project.id === get().projectId) ?? projects[0]
+      if (selectedProject) await get().selectProject(selectedProject.id)
       get().loadDir('')
       const currentStillExists = currentAgentId && agents.some((a: AgentSummary) => a.id === currentAgentId)
       if (currentStillExists) {
@@ -222,6 +285,227 @@ export const useStore = create<State>((set, get) => ({
       const authFailed = e instanceof ApiError && (e.status === 401 || e.status === 403)
       set({ serverUp: false, authFailed, mlxUp: null, backendStatus: await status })
     }
+  },
+
+  async loadProjects() {
+    const projects = (await apiJson(`${BASE}/projects`)) as Project[]
+    set({ projects })
+    const selected = projects.find((project) => project.id === get().projectId) ?? projects[0]
+    if (selected) await get().selectProject(selected.id)
+    else set({ projectId: null, tasks: [], taskId: null, task: null })
+  },
+
+  async selectProject(id) {
+    const sequence = ++openProjectSequence
+    set({
+      projectId: id,
+      tasks: [],
+      taskId: null,
+      task: null,
+      workspaceInspection: null,
+      taskActionError: null
+    })
+    try {
+      const tasks = (await apiJson(`${BASE}/projects/${id}/tasks`)) as Task[]
+      if (sequence !== openProjectSequence) return
+      set({ tasks })
+      const selected = tasks[0]
+      if (selected) await get().selectTask(selected.id)
+    } catch (error) {
+      if (sequence === openProjectSequence) set({ taskActionError: errorMessage(error) })
+    }
+  },
+
+  async selectTask(id) {
+    const sequence = ++openTaskSequence
+    set({ taskId: id, task: null, workspaceInspection: null, taskActionError: null })
+    try {
+      const task = (await apiJson(`${BASE}/tasks/${id}`)) as Task
+      if (sequence !== openTaskSequence) return
+      set({ task })
+      if (task.workspace?.state === 'ready') await get().inspectWorkspace()
+    } catch (error) {
+      if (sequence === openTaskSequence) set({ taskActionError: errorMessage(error) })
+    }
+  },
+
+  async refreshSelectedTask() {
+    const { taskId, projectId } = get()
+    if (!taskId || !projectId) return
+    try {
+      const [task, tasks] = await Promise.all([
+        apiJson(`${BASE}/tasks/${taskId}`) as Promise<Task>,
+        apiJson(`${BASE}/projects/${projectId}/tasks`) as Promise<Task[]>
+      ])
+      if (get().taskId !== taskId) return
+      set({ task, tasks })
+      if (task.workspace?.state === 'ready') await get().inspectWorkspace()
+    } catch (error) {
+      if (get().taskId === taskId) set({ taskActionError: errorMessage(error) })
+    }
+  },
+
+  async addProjectFromPicker() {
+    const picked = await window.janus?.pickFolder()
+    if (!picked) return
+    set({ taskBusy: true, taskActionError: null })
+    try {
+      const name = picked.split(/[\\/]/).filter(Boolean).pop() ?? 'Project'
+      const project = (await apiJson(`${BASE}/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, repo_path: picked })
+      })) as Project
+      const projects = (await apiJson(`${BASE}/projects`)) as Project[]
+      set({ projects })
+      await get().selectProject(project.id)
+    } catch (error) {
+      set({ taskActionError: errorMessage(error) })
+    } finally {
+      set({ taskBusy: false })
+    }
+  },
+
+  async createTask(input) {
+    const projectId = get().projectId
+    if (!projectId) return
+    set({ taskBusy: true, taskActionError: null })
+    try {
+      const task = (await apiJson(`${BASE}/projects/${projectId}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input)
+      })) as Task
+      const tasks = (await apiJson(`${BASE}/projects/${projectId}/tasks`)) as Task[]
+      set({ tasks })
+      await get().selectTask(task.id)
+    } catch (error) {
+      set({ taskActionError: errorMessage(error) })
+    } finally {
+      set({ taskBusy: false })
+    }
+  },
+
+  async updateTask(patch) {
+    const taskId = get().taskId
+    if (!taskId) return
+    set({ taskBusy: true, taskActionError: null })
+    try {
+      await apiJson(`${BASE}/tasks/${taskId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch)
+      })
+      await get().refreshSelectedTask()
+    } catch (error) {
+      set({ taskActionError: errorMessage(error) })
+    } finally {
+      set({ taskBusy: false })
+    }
+  },
+
+  async prepareWorkspace() {
+    const taskId = get().taskId
+    if (!taskId) return
+    set({ taskBusy: true, taskActionError: null })
+    try {
+      await apiJson(`${BASE}/tasks/${taskId}/workspace/prepare`, { method: 'POST' })
+      await get().refreshSelectedTask()
+    } catch (error) {
+      set({ taskActionError: errorMessage(error) })
+    } finally {
+      set({ taskBusy: false })
+    }
+  },
+
+  async retryWorkspace() {
+    const taskId = get().taskId
+    if (!taskId) return
+    set({ taskBusy: true, taskActionError: null })
+    try {
+      await apiJson(`${BASE}/tasks/${taskId}/workspace/retry`, { method: 'POST' })
+      await get().refreshSelectedTask()
+    } catch (error) {
+      set({ taskActionError: errorMessage(error) })
+    } finally {
+      set({ taskBusy: false })
+    }
+  },
+
+  async inspectWorkspace() {
+    const taskId = get().taskId
+    if (!taskId) return
+    try {
+      const inspection = (await apiJson(
+        `${BASE}/tasks/${taskId}/workspace/status`
+      )) as WorkspaceInspection
+      if (get().taskId === taskId) set({ workspaceInspection: inspection })
+    } catch (error) {
+      if (get().taskId === taskId) set({ taskActionError: errorMessage(error) })
+    }
+  },
+
+  async archiveWorkspace(force = false) {
+    const task = get().task
+    const workspace = task?.workspace
+    if (!task || !workspace) return
+    set({ taskBusy: true, taskActionError: null })
+    try {
+      await apiJson(
+        `${BASE}/tasks/${task.id}/workspace/${force ? 'force' : 'archive'}`,
+        {
+          method: force ? 'DELETE' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ confirm_workspace_id: workspace.id })
+        }
+      )
+      set({ workspaceInspection: null })
+      await get().refreshSelectedTask()
+    } catch (error) {
+      set({ taskActionError: errorMessage(error) })
+      await get().inspectWorkspace()
+    } finally {
+      set({ taskBusy: false })
+    }
+  },
+
+  async deleteWorkspaceBranch() {
+    const task = get().task
+    const workspace = task?.workspace
+    if (!task || !workspace) return
+    set({ taskBusy: true, taskActionError: null })
+    try {
+      await apiJson(`${BASE}/tasks/${task.id}/workspace/branch`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm_workspace_id: workspace.id })
+      })
+      await get().refreshSelectedTask()
+    } catch (error) {
+      set({ taskActionError: errorMessage(error) })
+    } finally {
+      set({ taskBusy: false })
+    }
+  },
+
+  async archiveSelectedTask() {
+    const { taskId, projectId } = get()
+    if (!taskId || !projectId) return
+    set({ taskBusy: true, taskActionError: null })
+    try {
+      await apiJson(`${BASE}/tasks/${taskId}`, { method: 'DELETE' })
+      const tasks = (await apiJson(`${BASE}/projects/${projectId}/tasks`)) as Task[]
+      set({ tasks, taskId: null, task: null, workspaceInspection: null })
+      if (tasks[0]) await get().selectTask(tasks[0].id)
+    } catch (error) {
+      set({ taskActionError: errorMessage(error) })
+    } finally {
+      set({ taskBusy: false })
+    }
+  },
+
+  clearTaskError() {
+    set({ taskActionError: null })
   },
 
   async pickWorkspace() {
