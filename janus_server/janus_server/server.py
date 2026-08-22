@@ -27,6 +27,7 @@ from . import runtime
 from . import domain as D
 from . import spec as S
 from . import tools as T
+from . import workspace_service as WS
 from .workspace import WorkspaceContext
 
 AGENTS_DIR = Path(__file__).parent / "agents"
@@ -37,12 +38,20 @@ STATE_FILE = Path(
 DOMAIN_DB_FILE = Path(
     os.environ.get("JANUS_DB_FILE", str(Path.home() / ".janus" / "janus.sqlite3"))
 ).expanduser()
+WORKTREES_DIR = Path(
+    os.environ.get("JANUS_WORKTREES_DIR", str(Path.home() / ".janus" / "workspaces"))
+).expanduser()
 _STATE_LOCK = threading.Lock()
 _LEGACY_WORKSPACE_LOCK = threading.Lock()
 _LEGACY_WORKSPACE_ROOT = (Path(__file__).parent / "workspace").resolve()
 _DOMAIN_LOCK = threading.Lock()
 _DOMAIN_STORE: D.DomainStore | None = None
 _DOMAIN_STORE_PATH: Path | None = None
+_WORKSPACE_SERVICE_LOCK = threading.Lock()
+_WORKSPACE_SERVICE: WS.WorkspaceService | None = None
+_WORKSPACE_SERVICE_PATH: Path | None = None
+_WORKSPACE_JOBS_LOCK = threading.Lock()
+_WORKSPACE_JOBS: dict[str, threading.Thread] = {}
 
 # Electron main이 기동마다 만든 토큰을 서버/렌더러에만 나눠준다.
 # 수동 기동도 무인증으로 열리지 않도록, env가 없으면 서버가 자체적으로
@@ -161,19 +170,36 @@ def get_domain_store() -> D.DomainStore:
         return _DOMAIN_STORE
 
 
-def _save_run(agent_id: str, run_id: str, inputs: dict, spans: list,
-              cancelled: bool, telemetry: dict | None = None) -> None:
+def get_workspace_service() -> WS.WorkspaceService:
+    global _WORKSPACE_SERVICE, _WORKSPACE_SERVICE_PATH
+    path = Path(
+        os.environ.get("JANUS_WORKTREES_DIR", str(WORKTREES_DIR))
+    ).expanduser().resolve()
+    with _WORKSPACE_SERVICE_LOCK:
+        if _WORKSPACE_SERVICE is None or _WORKSPACE_SERVICE_PATH != path:
+            _WORKSPACE_SERVICE = WS.WorkspaceService(path)
+            _WORKSPACE_SERVICE_PATH = path
+        return _WORKSPACE_SERVICE
+
+
+def _save_run(
+    agent_id: str, run_id: str, inputs: dict, spans: list,
+    cancelled: bool, telemetry: dict | None = None,
+    owner_id: str | None = None,
+) -> None:
     """실행 하나를 단일 JSON 파일로 남긴다. run_id가 고정이라 대화가 이어질 때마다
     같은 파일을 덮어쓴다 — 한 대화 = 한 기록."""
     if not spans:
         return
-    d = RUNS_DIR / agent_id
+    owner_id = owner_id or agent_id
+    d = RUNS_DIR / owner_id
     d.mkdir(parents=True, exist_ok=True)
     total = max((s.get("started_ms", 0) + (s.get("duration_ms") or 0)) for s in spans)
     first = spans[0].get("output") or {}
     summary = next((str(v) for v in first.values() if v), "")
     (d / f"{run_id}.json").write_text(json.dumps({
-        "id": run_id, "agent_id": agent_id, "at": run_id.rsplit("-", 1)[0],
+        "id": run_id, "agent_id": agent_id, "owner_id": owner_id,
+        "at": run_id.rsplit("-", 1)[0],
         "inputs": inputs, "cancelled": cancelled,
         "duration_ms": total, "node_count": len(spans),
         "summary": summary[:120], "spans": spans,
@@ -198,6 +224,16 @@ async def domain_transition(_request: Request, error: D.InvalidTransition):
     return JSONResponse({"detail": str(error)}, status_code=409)
 
 
+@app.exception_handler(WS.InvalidRepository)
+async def invalid_repository(_request: Request, error: WS.InvalidRepository):
+    return JSONResponse({"detail": str(error)}, status_code=400)
+
+
+@app.exception_handler(WS.WorkspaceServiceError)
+async def workspace_conflict(_request: Request, error: WS.WorkspaceServiceError):
+    return JSONResponse({"detail": str(error)}, status_code=409)
+
+
 @app.middleware("http")
 async def authenticate_http(request: Request, call_next):
     # CORS preflight는 CORSMiddleware가 origin/메서드/헤더를 검증한다.
@@ -217,7 +253,7 @@ async def authenticate_http(request: Request, call_next):
 app.add_middleware(
     CORSMiddleware,
     allow_origins=sorted(ALLOWED_ORIGINS),
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "X-Janus-Token"],
 )
 
@@ -227,6 +263,20 @@ def _path(agent_id: str) -> Path:
     if "/" in agent_id or "\\" in agent_id or agent_id.startswith("."):
         raise HTTPException(400, f"잘못된 agent id: {agent_id!r}")
     return AGENTS_DIR / f"{agent_id}.yaml"
+
+
+def _run_owner_id(agent_id: str) -> str:
+    path = _path(agent_id)
+    if not path.is_file():
+        return agent_id
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return agent_id
+    owner = raw.get("_instance_id") if isinstance(raw, dict) else None
+    if isinstance(owner, str) and re.fullmatch(r"agent_instance_[a-f0-9]{24}", owner):
+        return owner
+    return agent_id
 
 
 @app.get("/health")
@@ -320,6 +370,201 @@ def archive_task(task_id: str):
     return get_domain_store().archive_task(task_id)
 
 
+def _workspace_job_active(workspace_id: str) -> bool:
+    with _WORKSPACE_JOBS_LOCK:
+        thread = _WORKSPACE_JOBS.get(workspace_id)
+        return bool(thread and thread.is_alive())
+
+
+def _run_workspace_preparation(workspace_id: str) -> None:
+    store = get_domain_store()
+    try:
+        workspace = store.get_workspace(workspace_id)
+        task = store.get_task(workspace["task_id"])
+
+        def progress(stage: str, details: dict) -> None:
+            store.update_workspace_preparation(
+                workspace_id,
+                progress=stage,
+                root_path=details.get("root_path"),
+                branch_name=details.get("branch_name"),
+            )
+
+        prepared = get_workspace_service().prepare(
+            workspace_id=workspace_id,
+            task_id=task["id"],
+            title=task["title"],
+            repo_path=workspace["repo_path"],
+            base_ref=workspace["base_ref"],
+            existing_root=workspace.get("root_path"),
+            existing_branch=workspace.get("branch_name"),
+            progress=progress,
+        )
+        store.transition_workspace(
+            workspace_id, "ready",
+            root_path=prepared["root_path"],
+            branch_name=prepared["branch_name"],
+            progress="ready",
+        )
+        current_task = store.get_task(task["id"])
+        if current_task["status"] == "preparing":
+            store.transition_task(task["id"], "todo", expected="preparing")
+    except Exception as error:
+        message = f"{type(error).__name__}: {error}"
+        try:
+            current = store.get_workspace(workspace_id)
+            if current["state"] == "preparing":
+                store.transition_workspace(
+                    workspace_id, "failed", error=message, progress="failed"
+                )
+            task = store.get_task(current["task_id"])
+            if task["status"] == "preparing":
+                store.transition_task(task["id"], "failed", expected="preparing")
+        except D.DomainError:
+            pass
+    finally:
+        with _WORKSPACE_JOBS_LOCK:
+            if _WORKSPACE_JOBS.get(workspace_id) is threading.current_thread():
+                _WORKSPACE_JOBS.pop(workspace_id, None)
+
+
+def _start_workspace_preparation(workspace_id: str) -> None:
+    with _WORKSPACE_JOBS_LOCK:
+        existing = _WORKSPACE_JOBS.get(workspace_id)
+        if existing is not None and existing.is_alive():
+            raise D.Conflict(f"Workspace 준비가 이미 진행 중입니다: {workspace_id}")
+        thread = threading.Thread(
+            target=_run_workspace_preparation,
+            args=(workspace_id,),
+            name=f"janus-workspace-{workspace_id}",
+            daemon=True,
+        )
+        _WORKSPACE_JOBS[workspace_id] = thread
+        thread.start()
+
+
+@app.get("/tasks/{task_id}/workspace")
+def get_task_workspace(task_id: str):
+    get_domain_store().get_task(task_id)
+    workspace = get_domain_store().get_task_workspace(task_id)
+    if workspace is None:
+        raise D.NotFound(f"Task의 Workspace가 없습니다: {task_id}")
+    return {**workspace, "job_active": _workspace_job_active(workspace["id"])}
+
+
+@app.post("/tasks/{task_id}/workspace/prepare", status_code=202)
+def prepare_task_workspace(task_id: str):
+    store = get_domain_store()
+    task = store.get_task(task_id)
+    if store.get_task_workspace(task_id) is not None:
+        raise D.Conflict("Workspace가 이미 있습니다. failed면 retry를 사용하세요.")
+    project = store.get_project(task["project_id"])
+    workspace = store.create_workspace(
+        task_id=task_id, repo_path=project["repo_path"], base_ref=task["base_ref"]
+    )
+    store.transition_task(task_id, "preparing", expected="todo")
+    _start_workspace_preparation(workspace["id"])
+    return {
+        **store.get_workspace(workspace["id"]),
+        "job_active": _workspace_job_active(workspace["id"]),
+    }
+
+
+@app.post("/tasks/{task_id}/workspace/retry", status_code=202)
+def retry_task_workspace(task_id: str):
+    store = get_domain_store()
+    task = store.get_task(task_id)
+    workspace = store.get_task_workspace(task_id)
+    if workspace is None:
+        raise D.NotFound(f"Task의 Workspace가 없습니다: {task_id}")
+    if _workspace_job_active(workspace["id"]):
+        raise D.Conflict("Workspace 준비가 이미 진행 중입니다")
+    if workspace["state"] not in {"failed", "archived"}:
+        raise D.Conflict(f"retry할 수 없는 Workspace 상태: {workspace['state']}")
+    if task["status"] not in {"failed", "todo"}:
+        raise D.Conflict(f"retry할 수 없는 Task 상태: {task['status']}")
+    store.transition_workspace(
+        workspace["id"], "preparing", progress="queued", error=None,
+        base_ref=task["base_ref"],
+    )
+    store.transition_task(task_id, "preparing", expected=task["status"])
+    _start_workspace_preparation(workspace["id"])
+    return {
+        **store.get_workspace(workspace["id"]),
+        "job_active": _workspace_job_active(workspace["id"]),
+    }
+
+
+@app.get("/tasks/{task_id}/workspace/status")
+def inspect_task_workspace(task_id: str):
+    workspace = get_domain_store().get_task_workspace(task_id)
+    if workspace is None:
+        raise D.NotFound(f"Task의 Workspace가 없습니다: {task_id}")
+    if not workspace.get("root_path") or workspace["state"] != "ready":
+        return {**workspace, "job_active": _workspace_job_active(workspace["id"])}
+    status = get_workspace_service().inspect(
+        workspace["repo_path"], workspace["root_path"]
+    )
+    return {
+        **workspace, "job_active": _workspace_job_active(workspace["id"]),
+        "git_status": status,
+    }
+
+
+def _workspace_for_removal(task_id: str, body: dict) -> dict:
+    workspace = get_domain_store().get_task_workspace(task_id)
+    if workspace is None:
+        raise D.NotFound(f"Task의 Workspace가 없습니다: {task_id}")
+    if str(body.get("confirm_workspace_id") or "") != workspace["id"]:
+        raise D.Conflict("정확한 confirm_workspace_id가 필요합니다")
+    if not workspace["owned"]:
+        raise D.Conflict("Janus가 소유하지 않은 Workspace는 제거할 수 없습니다")
+    if _workspace_job_active(workspace["id"]):
+        raise D.Conflict("준비 중인 Workspace는 제거할 수 없습니다")
+    return workspace
+
+
+@app.post("/tasks/{task_id}/workspace/archive")
+def archive_task_workspace(task_id: str, body: dict):
+    workspace = _workspace_for_removal(task_id, body)
+    result = {"removed": False, "branch_preserved": True}
+    if workspace.get("root_path"):
+        result = get_workspace_service().archive(
+            repo_path=workspace["repo_path"], root_path=workspace["root_path"]
+        )
+    updated = get_domain_store().transition_workspace(
+        workspace["id"], "archived", progress="archived"
+    )
+    return {"workspace": updated, "result": result}
+
+
+@app.delete("/tasks/{task_id}/workspace/force")
+def force_remove_task_workspace(task_id: str, body: dict):
+    workspace = _workspace_for_removal(task_id, body)
+    result = {"removed": False, "branch_preserved": True}
+    if workspace.get("root_path"):
+        result = get_workspace_service().force_remove(
+            repo_path=workspace["repo_path"], root_path=workspace["root_path"]
+        )
+    updated = get_domain_store().transition_workspace(
+        workspace["id"], "archived", progress="force_removed"
+    )
+    return {"workspace": updated, "result": result}
+
+
+@app.delete("/tasks/{task_id}/workspace/branch")
+def delete_task_workspace_branch(task_id: str, body: dict):
+    workspace = _workspace_for_removal(task_id, body)
+    if workspace["state"] != "archived":
+        raise D.Conflict("Workspace를 먼저 archive해야 branch를 삭제할 수 있습니다")
+    branch = str(workspace.get("branch_name") or "")
+    if not branch:
+        return {"deleted": False, "branch_name": None}
+    return get_workspace_service().delete_branch(
+        repo_path=workspace["repo_path"], branch_name=branch
+    )
+
+
 def _agent_profile_json(profile: dict) -> dict:
     return {**profile, "tools": json.loads(profile["tools_json"])}
 
@@ -377,6 +622,7 @@ def list_agents():
             continue
         agent = {
             "id": p.stem,
+            "instance_id": raw.get("_instance_id"),
             "name": raw.get("name", p.stem),
             "description": raw.get("description", ""),
             "model": raw.get("model", ""),
@@ -418,6 +664,7 @@ def create_agent(body: dict):
         p = _path(f"{agent_id}_{n}")
         n += 1
     spec = _blank_spec(name)
+    spec["_instance_id"] = f"agent_instance_{uuid.uuid4().hex[:24]}"
     S.validate(spec)  # 기본 설정도 유효해야 한다 — 아니면 버그다
     p.write_text(S.dumps(spec), encoding="utf-8")
     return {"id": p.stem, "spec": spec, "yaml": S.dumps(spec), "errors": []}
@@ -463,18 +710,28 @@ def put_agent(agent_id: str, body: dict):
     new_spec = body.get("spec")
     if not isinstance(new_spec, dict):
         raise HTTPException(400, "body.spec 이 필요합니다")
+    path = _path(agent_id)
+    if not path.is_file():
+        raise HTTPException(404, f"없는 에이전트: {agent_id}")
+    current = yaml.safe_load(path.read_text(encoding="utf-8"))
+    current_owner = current.get("_instance_id") if isinstance(current, dict) else None
+    new_spec = dict(new_spec)
+    if isinstance(current_owner, str):
+        new_spec["_instance_id"] = current_owner
+    else:
+        new_spec.pop("_instance_id", None)
     try:
         S.validate(new_spec)
     except S.SpecError as e:
         # 저장은 하지 않고 문제를 돌려준다
         return {"saved": False, "errors": str(e).splitlines()}
-    _path(agent_id).write_text(S.dumps(new_spec), encoding="utf-8")
+    path.write_text(S.dumps(new_spec), encoding="utf-8")
     return {"saved": True, "errors": [], "yaml": S.dumps(new_spec)}
 
 
 @app.get("/runs/{agent_id}")
 def list_runs(agent_id: str):
-    d = RUNS_DIR / agent_id
+    d = RUNS_DIR / _run_owner_id(agent_id)
     if not d.is_dir():
         return []
     out = []
@@ -492,7 +749,7 @@ def list_runs(agent_id: str):
 def get_run(agent_id: str, run_id: str):
     if "/" in run_id or ".." in run_id:
         raise HTTPException(400, "잘못된 run id")
-    f = RUNS_DIR / agent_id / f"{run_id}.json"
+    f = RUNS_DIR / _run_owner_id(agent_id) / f"{run_id}.json"
     if not f.is_file():
         raise HTTPException(404, f"없는 실행: {run_id}")
     return json.loads(f.read_text(encoding="utf-8"))
@@ -599,6 +856,7 @@ async def run_agent(ws: WebSocket, agent_id: str):
     pending_lock = threading.Lock()
     turn_task: asyncio.Task | None = None
     orch: runtime.Orchestration | None = None
+    run_owner_id = agent_id
     run_id = f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:4]}"
     workspace_context = _legacy_workspace_context(f"task_legacy_{run_id}")
 
@@ -643,7 +901,7 @@ async def run_agent(ws: WebSocket, agent_id: str):
         if orch is not None:
             _save_run(agent_id, run_id, {"task": orch.first_message or ""},
                       orch.snapshot_spans(), orch.cancelled_turn,
-                      orch.snapshot_telemetry())
+                      orch.snapshot_telemetry(), owner_id=run_owner_id)
 
     def run_identifiers() -> dict:
         context = workspace_context
@@ -657,7 +915,7 @@ async def run_agent(ws: WebSocket, agent_id: str):
         }
 
     async def do_turn(text: str):
-        nonlocal orch
+        nonlocal orch, run_owner_id
         if orch is None:
             p = _path(agent_id)
             if not p.is_file():
@@ -665,6 +923,7 @@ async def run_agent(ws: WebSocket, agent_id: str):
                 return
             try:
                 spec = S.load(p)
+                run_owner_id = _run_owner_id(agent_id)
                 orch = runtime.Orchestration(
                     spec, send=send, approver=approver,
                     workspace_context=workspace_context,

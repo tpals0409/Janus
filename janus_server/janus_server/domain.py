@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 
 TASK_STATUSES = frozenset({"todo", "preparing", "working", "needs_you", "review", "failed"})
 TASK_TRANSITIONS = {
@@ -200,7 +200,11 @@ CREATE INDEX idx_sessions_dispatch ON agent_sessions(dispatch_id);
 CREATE INDEX idx_session_events_dispatch ON session_events(dispatch_id, seq);
 """
 
-MIGRATIONS = {1: MIGRATION_1}
+MIGRATION_2 = """
+ALTER TABLE workspaces ADD COLUMN progress TEXT NOT NULL DEFAULT 'queued';
+"""
+
+MIGRATIONS = {1: MIGRATION_1, 2: MIGRATION_2}
 
 
 class DomainStore:
@@ -451,6 +455,7 @@ class DomainStore:
     def transition_workspace(
         self, workspace_id: str, target: str, *, root_path: str | None = None,
         branch_name: str | None = None, error: str | None = None,
+        progress: str | None = None, base_ref: str | None = None,
     ) -> dict:
         if target not in WORKSPACE_STATES:
             raise InvalidTransition(f"모르는 Workspace 상태: {target}")
@@ -463,8 +468,34 @@ class DomainStore:
                 raise InvalidTransition(f"Workspace 상태 전이 불가: {source} -> {target}")
             connection.execute(
                 "UPDATE workspaces SET state=?,root_path=COALESCE(?,root_path),"
+                "branch_name=COALESCE(?,branch_name),error=?,"
+                "progress=COALESCE(?,progress),base_ref=COALESCE(?,base_ref),"
+                "updated_at=? WHERE id=?",
+                (
+                    target, root_path, branch_name, error, progress, base_ref,
+                    _now(), workspace_id,
+                ),
+            )
+        return self.get_workspace(workspace_id)
+
+    def update_workspace_preparation(
+        self, workspace_id: str, *, progress: str,
+        root_path: str | None = None, branch_name: str | None = None,
+        error: str | None = None,
+    ) -> dict:
+        """Persist background preparation progress without changing its state."""
+        with self.transaction(immediate=True) as connection:
+            current = self._one(
+                connection, "SELECT * FROM workspaces WHERE id=?", (workspace_id,), "Workspace"
+            )
+            if current["state"] != "preparing":
+                raise Conflict(
+                    f"Workspace가 preparing이 아닙니다: {current['state']}"
+                )
+            connection.execute(
+                "UPDATE workspaces SET progress=?,root_path=COALESCE(?,root_path),"
                 "branch_name=COALESCE(?,branch_name),error=?,updated_at=? WHERE id=?",
-                (target, root_path, branch_name, error, _now(), workspace_id),
+                (progress, root_path, branch_name, error, _now(), workspace_id),
             )
         return self.get_workspace(workspace_id)
 

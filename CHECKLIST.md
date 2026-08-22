@@ -149,15 +149,21 @@
 
 ### 8. WorkspaceService
 
-- [ ] repo와 base ref 검증
-- [ ] 충돌 없는 branch/worktree 생성
-- [ ] background create 진행 상태
-- [ ] 실패·retry·기존 worktree 복구
-- [ ] dirty/untracked/unmerged 검사
-- [ ] archive와 safe delete
-- [ ] branch 보존과 force delete 분리
-- [ ] M4 run 소유권·slug 재사용 문제 해결
-- [ ] main checkout 무수정 통합 테스트
+발견된 분기·문제:
+
+- [x] 준비 중 branch/root 소유권을 즉시 저장하지 않으면 재시작 후 orphan branch가 남는 문제
+- [x] safe archive와 dirty worktree 강제 제거를 하나의 삭제 경로로 다루면 사용자 변경을 잃는 문제
+- [x] Task 수정 API의 `PATCH`가 CORS allow-methods에서 누락된 문제
+
+- [x] repo와 base ref 검증
+- [x] 충돌 없는 branch/worktree 생성
+- [x] background create 진행 상태
+- [x] 실패·retry·기존 worktree 복구
+- [x] dirty/untracked/unmerged 검사
+- [x] archive와 safe delete
+- [x] branch 보존과 force delete 분리
+- [x] M4 run 소유권·slug 재사용 문제 해결
+- [x] main checkout 무수정 통합 테스트
 
 ### 9. Task 중심 UI
 

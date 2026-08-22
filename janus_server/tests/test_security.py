@@ -108,6 +108,15 @@ class ServerBoundaryTests(unittest.TestCase):
         self.assertEqual(200, trusted.status_code)
         self.assertEqual(self.origin, trusted.headers["access-control-allow-origin"])
         self.assertEqual(400, untrusted.status_code)
+        patch_preflight = self.client.options(
+            "/tasks/task-example",
+            headers={
+                "origin": self.origin,
+                "access-control-request-method": "PATCH",
+                "access-control-request-headers": "x-janus-token,content-type",
+            },
+        )
+        self.assertEqual(200, patch_preflight.status_code)
 
     def test_websocket_accepts_only_authenticated_renderer(self):
         with self.client.websocket_connect(

@@ -10,10 +10,12 @@
 
 ## 현재 판정
 
-**측정 가능한 로컬 agent runtime(R1/P0)은 완성됐으나 ADE 작업 골격(R2/P1)은 아직 없다.**
+**측정 가능한 로컬 runtime(R1/P0)과 ADE의 영속 Task·Workspace 백엔드
+(R2/P1 6~8)는 완성됐다. Task 중심 UI와 Task–Runtime 연결(P1 9~10)이 남았다.**
 
 현재 앱은 로컬 MLX 오케스트레이터와 런타임 워커를 실행하고 trace를 보여주는 검증된 세로
-조각이다. 그러나 Project, Task, Task별 worktree, local resource scheduler, Git diff review,
+조각이다. Project/Task/Workspace/Dispatch/AgentSession 스키마와 Task별 Git worktree는
+구현됐지만, Task 중심 UI, runtime 연결, local resource scheduler, Git diff review,
 평가 loop가 없으므로 완성된 ADE로 부르기에는 이르다.
 
 기존 “오케스트레이터-워커 전환으로 원래 계획과 일치했다”는 평가는 제품 목표가 런타임일 때만
@@ -36,7 +38,7 @@
 
 - 위험 도구 승인을 `tools.dispatch`에서 중앙 처리
 - 승인 없음·거부 시 기본 거부
-- 파일 도구 workspace jail
+- 실행별 `WorkspaceContext`와 파일 도구 workspace jail
 - 기동별 인증 토큰, Origin 검증, HTTP/WS 인증
 - 모델 부재와 인증 실패를 구체적인 오류로 표시
 - 병렬 승인 요청과 소켓 경쟁 방어
@@ -55,29 +57,28 @@
 
 | 영역 | 현재 | 목표 |
 |---|---|---|
-| 최상위 객체 | Agent profile | Project와 Task |
-| 실행 경계 | 전역 workspace | Task별 Workspace/worktree |
+| 최상위 객체 | Project/Task 도메인·API | Task 중심 UI |
+| 실행 경계 | Task별 WorkspaceContext/worktree 백엔드 | Task UI와 runtime의 완전한 연결 |
 | 에이전트 | 단일 Janus Local 설정 | 측정·비교 가능한 로컬 Agent/Model Profile |
-| 실행 시도 | agent run | Dispatch + AgentSession |
+| 실행 시도 | Dispatch/AgentSession 저장 스키마 | runtime에 연결된 영속 실행 |
 | 자원 제어 | 모델 서버에 즉시 요청 | generation lease + tool/verification scheduler |
 | 결과 | 답변과 trace | Git ChangeSet + Verification |
 | 최적화 | token/latency 표시 | 고정 TaskSuite의 품질·시간·token·개입 비교 |
 | 완료 | 턴 종료 | review 수락과 ship |
 | 기본 화면 | agent/trace | Task 상태와 Needs You/Review |
 
-가장 위험한 기술 부채는 `tools.WORKSPACE`가 전역 mutable 상태라는 점이다. 이 상태에서 병렬
-Task worktree를 추가하면 한 작업의 도구가 다른 작업 경로를 사용할 수 있다. UI보다 먼저
-workspace context를 실행마다 명시적으로 전달하도록 바꿔야 한다.
+`tools.WORKSPACE` 전역 mutable 상태는 제거됐다. 파일·셸·검증은 불변
+`WorkspaceContext`(소유 Task/Workspace/Dispatch ID 포함)를 받고, 두 context의 병렬 파일
+격리와 다른 workspace 경로 거부를 회귀 테스트로 고정했다.
 
-R1 계측과 baseline은 완료됐다. 현재 가장 큰 실행 제어 공백은 계측된 queue/lease가 아직
-ResourceScheduler 정책으로 연결되지 않았다는 점이다. 이 작업은 Task/Workspace 격리를 먼저
-도입한 뒤 R3에서 진행한다.
+현재 가장 큰 제품 공백은 Task UI와 영속 runtime이 아직 분리됐다는 점이다.
+계측된 queue/lease를 ResourceScheduler 정책으로 연결하는 작업은 P1 통합 후 R3에서 진행한다.
 
 ## 현재 검증
 
 2026-08-22 현재 체크아웃에서 직접 확인:
 
-- Python 테스트 31개 통과
+- Python 테스트 53개 통과
 - Node lifecycle 테스트 7개 통과(실제 분리 프로세스 그룹 3회 start/stop 포함)
 - 도구 자체 검사 통과
 - 오케스트레이터 spec 검사 통과
@@ -90,8 +91,8 @@ ResourceScheduler 정책으로 연결되지 않았다는 점이다. 이 작업�
 
 아직 검증하지 못한 것:
 
-- 새 ADE Task/worktree 흐름 전체 — 아직 구현 전
-- 서로 다른 두 Task의 WorkspaceContext 병렬 격리 — 아직 전역 `tools.WORKSPACE`
+- Task 중심 UI에서 생성→worktree 준비→runtime 실행→review까지의 전체 흐름
+- 두 Task의 영속 AgentSession을 동시 실행·취소하는 runtime 격리
 - scheduler/lease/budget 적용 후 baseline 대비 개선
 
 ## 완료한 마일스톤: R1 실제 27B Baseline과 계측
@@ -110,7 +111,8 @@ ResourceScheduler 정책으로 연결되지 않았다는 점이다. 이 작업�
 
 ## 다음 마일스톤: R2 Task/worktree/WorkspaceContext
 
-다음은 P1 영속 도메인 모델, WorkspaceContext, WorkspaceService, Task 중심 UI와 runtime 연결이다.
+영속 도메인 모델, WorkspaceContext, WorkspaceService는 완료됐다. 다음은 Task 중심 UI와
+Task–Runtime 연결이다.
 R3에서 model generation 1-slot scheduler, ResourceLease와 token/time/worker budget을 도입한다.
 
 R1의 상세 출구 조건은 [ROADMAP.md](ROADMAP.md#r1-실제-27b-baseline과-계측--최적화의-기준선)를
@@ -118,11 +120,11 @@ R1의 상세 출구 조건은 [ROADMAP.md](ROADMAP.md#r1-실제-27b-baseline과-
 
 ## 기존 결함의 새 우선순위
 
-### R2와 함께 해결해야 함
+### R2에서 해결됨
 
-- **M4:** agent 삭제 시 `runs/`가 남아 같은 slug가 이전 기록을 상속한다.
-  새 Task/Dispatch 저장 구조에서 소유권과 archive 정책으로 해결한다.
-- 기존 `agent_id` 중심 run 저장을 더 확장하지 않는다.
+- **M4:** legacy Agent 표시 slug와 불변 `_instance_id` 실행 소유권을 분리했다.
+  Agent를 삭제·재생성해도 이전 `runs/`를 상속하지 않고, 기존 기록은 보존한다.
+- 신규 Task runtime 기록은 `AgentSession`/`Dispatch` UUID를 소유권으로 사용한다.
 
 ### R1에서 해결됨
 

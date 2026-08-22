@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import threading
 import unittest
@@ -12,6 +13,7 @@ from janus_server.domain import (
     Conflict,
     DomainStore,
     InvalidTransition,
+    MIGRATION_1,
 )
 
 
@@ -42,6 +44,24 @@ class DomainStoreTests(unittest.TestCase):
         self.assertEqual(["model_qwen38_27b_4bit"], [item["id"] for item in models])
         self.assertEqual(["agent_default"], [item["id"] for item in agents])
         self.assertEqual("4-bit MLX", models[0]["quantization"])
+
+    def test_version_one_database_migrates_workspace_progress(self):
+        old_path = Path(self.temp.name) / "version-one.sqlite3"
+        connection = sqlite3.connect(old_path)
+        connection.executescript(
+            "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT);"
+            + MIGRATION_1
+            + "INSERT INTO schema_migrations VALUES (1, 'old'); PRAGMA user_version=1;"
+        )
+        connection.close()
+
+        upgraded = DomainStore(old_path)
+        with upgraded._connect() as reopened:
+            columns = {
+                row["name"] for row in reopened.execute("PRAGMA table_info(workspaces)")
+            }
+        self.assertEqual(CURRENT_SCHEMA_VERSION, upgraded.schema_version())
+        self.assertIn("progress", columns)
 
     def test_task_workspace_dispatch_and_session_state_machines(self):
         with self.assertRaises(InvalidTransition):

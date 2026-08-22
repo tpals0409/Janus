@@ -13,7 +13,7 @@ os.environ.setdefault("JANUS_AUTH_TOKEN", "test-token")
 
 from fastapi.testclient import TestClient
 
-from janus_server import server
+from janus_server import domain, server
 
 
 HEADERS = {"x-janus-token": server.AUTH_TOKEN}
@@ -35,7 +35,7 @@ class DomainApiTests(unittest.TestCase):
     def test_project_task_profile_crud_and_transition(self):
         with domain_api() as (client, _path):
             health = client.get("/health", headers=HEADERS)
-            self.assertEqual(1, health.json()["schema_version"])
+            self.assertEqual(domain.CURRENT_SCHEMA_VERSION, health.json()["schema_version"])
 
             project = client.post(
                 "/projects", headers=HEADERS,
