@@ -15,6 +15,8 @@ from janus_server.domain import (
     DomainStore,
     InvalidTransition,
     MIGRATION_1,
+    MIGRATIONS,
+    MigrationError,
 )
 
 
@@ -63,6 +65,83 @@ class DomainStoreTests(unittest.TestCase):
             }
         self.assertEqual(CURRENT_SCHEMA_VERSION, upgraded.schema_version())
         self.assertIn("progress", columns)
+
+    def test_every_historical_schema_version_migrates_to_current(self):
+        for starting_version in range(1, CURRENT_SCHEMA_VERSION):
+            with self.subTest(starting_version=starting_version):
+                old_path = Path(self.temp.name) / f"version-{starting_version}.sqlite3"
+                connection = sqlite3.connect(old_path)
+                connection.execute(
+                    "CREATE TABLE schema_migrations "
+                    "(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
+                )
+                for version in range(1, starting_version + 1):
+                    connection.executescript(MIGRATIONS[version])
+                    connection.execute(
+                        "INSERT INTO schema_migrations VALUES (?, 'fixture')", (version,)
+                    )
+                connection.execute(f"PRAGMA user_version={starting_version}")
+                connection.commit()
+                connection.close()
+
+                upgraded = DomainStore(old_path)
+                self.assertEqual(CURRENT_SCHEMA_VERSION, upgraded.schema_version())
+                with upgraded._connect() as checked:
+                    self.assertEqual("ok", checked.execute(
+                        "PRAGMA integrity_check"
+                    ).fetchone()[0])
+
+    def test_future_or_discontinuous_schema_is_rejected_without_mutation(self):
+        future_path = Path(self.temp.name) / "future.sqlite3"
+        connection = sqlite3.connect(future_path)
+        connection.execute(
+            "CREATE TABLE schema_migrations "
+            "(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO schema_migrations VALUES (?, 'future')",
+            (CURRENT_SCHEMA_VERSION + 1,),
+        )
+        connection.execute(f"PRAGMA user_version={CURRENT_SCHEMA_VERSION + 1}")
+        connection.commit()
+        connection.close()
+
+        with self.assertRaises(MigrationError):
+            DomainStore(future_path)
+        reopened = sqlite3.connect(future_path)
+        try:
+            self.assertEqual(
+                CURRENT_SCHEMA_VERSION + 1,
+                reopened.execute("PRAGMA user_version").fetchone()[0],
+            )
+        finally:
+            reopened.close()
+
+        discontinuous_path = Path(self.temp.name) / "discontinuous.sqlite3"
+        connection = sqlite3.connect(discontinuous_path)
+        connection.execute(
+            "CREATE TABLE schema_migrations "
+            "(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
+        )
+        connection.executemany(
+            "INSERT INTO schema_migrations VALUES (?, 'broken')", [(1,), (3,)]
+        )
+        connection.execute("PRAGMA user_version=3")
+        connection.commit()
+        connection.close()
+
+        with self.assertRaises(MigrationError):
+            DomainStore(discontinuous_path)
+        reopened = sqlite3.connect(discontinuous_path)
+        try:
+            self.assertEqual(
+                [(1,), (3,)],
+                reopened.execute(
+                    "SELECT version FROM schema_migrations ORDER BY version"
+                ).fetchall(),
+            )
+        finally:
+            reopened.close()
 
     def test_task_workspace_dispatch_and_session_state_machines(self):
         with self.assertRaises(InvalidTransition):
@@ -139,6 +218,21 @@ class DomainStoreTests(unittest.TestCase):
         self.assertEqual([], errors)
         self.assertEqual(list(range(1, 9)), sorted(attempts))
 
+    def test_storage_write_failure_rolls_back_the_whole_transaction(self):
+        with self.assertRaises(sqlite3.OperationalError):
+            with self.store.transaction(immediate=True) as connection:
+                connection.execute(
+                    "INSERT INTO projects(id,name,repo_path,created_at,updated_at) "
+                    "VALUES ('project_partial','partial','/tmp/partial','now','now')"
+                )
+                raise sqlite3.OperationalError("database or disk is full")
+
+        with self.store._connect() as connection:
+            count = connection.execute(
+                "SELECT count(*) FROM projects WHERE id='project_partial'"
+            ).fetchone()[0]
+        self.assertEqual(0, count)
+
     def test_app_restart_restores_all_persisted_state(self):
         dispatch = self.store.create_dispatch(
             task_id=self.task["id"], workspace_id=self.workspace["id"],
@@ -160,6 +254,19 @@ class DomainStoreTests(unittest.TestCase):
         self.assertEqual(self.workspace["id"], reopened.get_task_workspace(self.task["id"])["id"])
         self.assertEqual(dispatch["id"], reopened.list_dispatches(self.task["id"])[0]["id"])
         self.assertEqual("resume", reopened.list_session_events(session["id"])[0]["payload"]["next"])
+
+    def test_restart_marks_interrupted_workspace_preparation_retryable(self):
+        self.store.transition_task(self.task["id"], "preparing", expected="todo")
+        recovered = self.store.recover_interrupted_runtime()
+
+        workspace = self.store.get_workspace(self.workspace["id"])
+        task = self.store.get_task(self.task["id"])
+        self.assertEqual("failed", workspace["state"])
+        self.assertEqual("interrupted", workspace["progress"])
+        self.assertIn("server restarted", workspace["error"])
+        self.assertEqual("failed", task["status"])
+        self.assertEqual(1, recovered["workspaces"])
+        self.assertEqual(1, recovered["preparing_tasks"])
 
     def test_dispatch_snapshots_profile_budget_and_persists_usage(self):
         profile = self.store.create_agent_profile(

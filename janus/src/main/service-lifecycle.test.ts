@@ -4,6 +4,8 @@ import test from 'node:test'
 import { spawn, type ChildProcess } from 'node:child_process'
 
 import {
+  appendBoundedText,
+  classifyServiceFailure,
   classifyEndpoint,
   createServiceRuntime,
   markExternal,
@@ -12,6 +14,25 @@ import {
   scheduleRestart,
   stopOwnedService
 } from './service-lifecycle.ts'
+
+test('service output tail stays bounded and preserves the newest failure evidence', () => {
+  const value = appendBoundedText('a'.repeat(12), 'OOM:last', 10)
+  assert.equal(value, 'aaOOM:last')
+  assert.equal(value.length, 10)
+})
+
+test('model OOM is explicit and recoverable instead of a generic restart', () => {
+  const failure = classifyServiceFailure('exit=137 signal=SIGKILL', 'Metal out of memory')
+  assert.equal(failure.kind, 'model_oom')
+  assert.equal(failure.retryable, true)
+  assert.match(failure.action, /worker|context/)
+})
+
+test('disk-full service failure has a storage recovery action', () => {
+  const failure = classifyServiceFailure('exit=1', 'ENOSPC: no space left on device')
+  assert.equal(failure.kind, 'storage_write')
+  assert.match(failure.action, /디스크/)
+})
 
 function fakeProcess(pid: number): ChildProcess {
   const process = new EventEmitter() as EventEmitter & Record<string, unknown>

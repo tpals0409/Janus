@@ -23,6 +23,45 @@ export interface ServiceRuntime {
   lastError: string | null
 }
 
+export interface ServiceFailure {
+  kind: 'model_oom' | 'storage_write' | 'runtime_error'
+  retryable: boolean
+  message: string
+  action: string
+}
+
+export function appendBoundedText(current: string, chunk: unknown, limit = 16_000): string {
+  const combined = current + String(chunk)
+  return combined.length <= limit ? combined : combined.slice(combined.length - limit)
+}
+
+export function classifyServiceFailure(reason: string, recentOutput = ''): ServiceFailure {
+  const detail = `${reason}\n${recentOutput}`.toLowerCase()
+  if ([
+    'out of memory', 'memoryerror', 'metal command buffer', 'killed: 9',
+    'exit=137', 'exit 137', 'resource exhausted', 'insufficient memory'
+  ].some((marker) => detail.includes(marker))) {
+    return {
+      kind: 'model_oom', retryable: true,
+      message: `${reason} (model out of memory)`,
+      action: '모델 서버 종료를 확인한 뒤 worker 동시성 또는 context를 줄여 재시도하세요.'
+    }
+  }
+  if ([
+    'no space left', 'disk full', 'database or disk is full', 'enospc', 'disk i/o error'
+  ].some((marker) => detail.includes(marker))) {
+    return {
+      kind: 'storage_write', retryable: true,
+      message: `${reason} (storage write failure)`,
+      action: '디스크 공간과 쓰기 권한을 확보한 뒤 재시도하세요.'
+    }
+  }
+  return {
+    kind: 'runtime_error', retryable: true, message: reason,
+    action: '서비스 로그를 확인한 뒤 자동 재시도를 기다리거나 앱을 재시작하세요.'
+  }
+}
+
 export function createServiceRuntime(): ServiceRuntime {
   return {
     process: null,

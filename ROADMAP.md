@@ -340,7 +340,67 @@ Task를 떠나지 않고 파일 편집, terminal, 앱 미리보기와 UI 피드�
 
 ---
 
+## R8. 견고성과 데이터 복구
+
+### 사용자 결과
+
+앱, 모델, 저장장치, Git 작업이 실패해도 마지막 확정 데이터를 보존하고 원인과 다음
+복구 동작을 확인할 수 있다.
+
+### 구현 범위
+
+- 실행·검증·평가·terminal·workspace 준비의 crash recovery
+- 모든 과거 SQLite schema migration과 미래 schema 거부 검증
+- disk-full/write failure transaction rollback과 atomic file publish
+- worktree 충돌 기본 거부와 명시적 복구
+- model OOM 분류, bounded error tail, 재시작 안내
+- 대용량 diff, verification, CI, runtime log 제한
+- 반복 crash/reopen/backup soak harness
+- online SQLite backup, integrity check, retention, 수동 reset 정책
+
+### 출구 조건
+
+- [x] 재시작 뒤 transient 상태가 성공으로 남거나 영구 실행 중으로 고착되지 않는다.
+- [x] schema v1부터 현재까지 migration되고 미래·불연속 schema는 원본을 바꾸지 않고 거부된다.
+- [x] disk, worktree, OOM 실패가 구분되며 기존 Task 데이터와 파일을 보존한다.
+- [x] 대용량 출력이 경계 내로 제한되고 scheduler lease가 회수된다.
+- [x] 검증된 backup으로 복원할 수 있고 자동 reset은 수행하지 않는다.
+- [x] soak loop 뒤 running session/dispatch와 preparing workspace가 0이고 DB integrity가 정상이다.
+
+---
+
+## R9. 배포 품질
+
+### 사용자 결과
+
+새 macOS 장비에서 제품과 로컬 모델을 준비하고, 문제가 생기면 진단 자료를 수집하며,
+버전이 명확한 production 앱을 설치할 수 있다.
+
+### 출구 조건
+
+- [ ] 제품 개념, 설치, 모델 준비가 README의 한 경로로 연결된다.
+- [ ] diagnostics bundle이 비밀값을 제외하고 로그·환경·무결성을 수집한다.
+- [ ] 서명 전/후 정책이 명시된 production package를 만든다.
+- [ ] version·schema·update 호환 정책이 문서화된다.
+- [ ] 빈 사용자 데이터 디렉터리에서 fresh-machine smoke가 통과한다.
+
+---
+
 ## 현재 우선순위
+
+### 지금 — R9 배포 품질
+
+1. README에서 제품 개념, 설치, 로컬 모델 준비, 첫 실행을 한 흐름으로 만든다.
+2. 인증 토큰 등 비밀값을 제거한 diagnostics bundle과 로그 수집을 구현한다.
+3. production package와 version/schema/update 호환 정책을 고정한다.
+4. 빈 사용자 데이터 디렉터리의 fresh-machine install smoke를 자동화한다.
+
+### 완료 — R8 견고성과 데이터 복구
+
+1. 모든 transient runtime/workspace 상태의 crash recovery
+2. 전체 migration 경로와 disk-full·worktree·OOM·대용량 출력 검증
+3. online SQLite backup·integrity·retention과 backup-first reset 정책
+4. 반복 crash/reopen/backup soak 후 transient state와 DB integrity 검증
 
 ### 완료 — R1/R2와 R3 ResourceScheduler
 

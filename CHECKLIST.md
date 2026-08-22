@@ -358,14 +358,14 @@
 
 ### 24. 견고성과 복구
 
-- [ ] crash recovery
-- [ ] DB migration 테스트
-- [ ] disk full과 write failure
-- [ ] worktree 충돌
-- [ ] model OOM
-- [ ] 대용량 diff/log
-- [ ] 장시간 soak test
-- [ ] 데이터 백업·초기화 정책
+- [x] crash recovery
+- [x] DB migration 테스트
+- [x] disk full과 write failure
+- [x] worktree 충돌
+- [x] model OOM
+- [x] 대용량 diff/log
+- [x] 장시간 soak test
+- [x] 데이터 백업·초기화 정책
 
 ### 25. 배포 품질
 

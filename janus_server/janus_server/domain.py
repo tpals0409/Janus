@@ -74,6 +74,10 @@ class InvalidTransition(DomainError):
     pass
 
 
+class MigrationError(DomainError):
+    pass
+
+
 class ClosingConnection(sqlite3.Connection):
     """`with store._connect()` read 경로도 file descriptor를 즉시 닫는다."""
 
@@ -428,6 +432,15 @@ class DomainStore:
                 row["version"]
                 for row in connection.execute("SELECT version FROM schema_migrations")
             }
+            unknown = sorted(version for version in applied if version > CURRENT_SCHEMA_VERSION)
+            user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            if unknown or user_version > CURRENT_SCHEMA_VERSION:
+                newest = max([user_version, *unknown])
+                raise MigrationError(
+                    f"database schema v{newest}은 이 Janus(v{CURRENT_SCHEMA_VERSION})보다 새 버전입니다"
+                )
+            if applied and applied != set(range(1, max(applied) + 1)):
+                raise MigrationError("schema_migrations 이력이 연속적이지 않습니다")
             for version in range(1, CURRENT_SCHEMA_VERSION + 1):
                 if version in applied:
                     continue
@@ -1640,10 +1653,21 @@ class DomainStore:
                 "error='server restarted; terminal process is no longer attached',"
                 "updated_at=?,ended_at=? WHERE state='running'", (now, now),
             ).rowcount
+            workspaces = connection.execute(
+                "UPDATE workspaces SET state='failed',progress='interrupted',"
+                "error='server restarted during workspace preparation',updated_at=? "
+                "WHERE state='preparing'", (now,),
+            ).rowcount
+            preparing_tasks = connection.execute(
+                "UPDATE tasks SET status='failed',updated_at=? WHERE status='preparing' "
+                "AND EXISTS (SELECT 1 FROM workspaces w WHERE w.task_id=tasks.id "
+                "AND w.state='failed' AND w.progress='interrupted')", (now,),
+            ).rowcount
         return {
             "sessions": sessions, "dispatches": dispatches, "tasks": tasks,
             "verifications": verifications, "evaluations": evaluations,
-            "terminals": terminals,
+            "terminals": terminals, "workspaces": workspaces,
+            "preparing_tasks": preparing_tasks,
         }
 
     def transition_session(

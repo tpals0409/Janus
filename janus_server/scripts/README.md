@@ -17,3 +17,9 @@
 호스트 권한으로 실행해야 한다. 8080의 정상 MLX 서버가 이미 있으면 `external`로 기록해
 사용만 하고 종료하지 않는다. 포트가 비어 있으면 harness가 서버를 별도 프로세스 그룹으로
 시작하고 종료 시 자신이 소유한 그룹만 정리한다.
+
+## P5 robustness soak
+
+`uv run python scripts/robustness_soak.py`는 기본 30분 동안 crash/reopen/backup
+루프를 반복하고 SQLite 무결성과 transient state 누수를 검사한다.
+`../RECOVERY.md`에 백업, 복원, 명시적 초기화 정책이 있다.

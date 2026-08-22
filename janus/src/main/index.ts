@@ -5,6 +5,8 @@ import { createWriteStream } from 'fs'
 import net from 'net'
 import { join, resolve } from 'path'
 import {
+  appendBoundedText,
+  classifyServiceFailure,
   classifyEndpoint,
   createServiceRuntime,
   markBlocked,
@@ -220,12 +222,15 @@ function spawnLogged(label: ServiceLabel): void {
   markOwned(service, p)
   p.stdout?.pipe(log)
   p.stderr?.pipe(log)
+  let recentError = ''
+  p.stderr?.on('data', (chunk) => { recentError = appendBoundedText(recentError, chunk) })
   let handled = false
   const stopped = (reason: string): void => {
     if (handled) return
     handled = true
-    log.end(`\n[janus] ${label} stopped: ${reason}\n`)
-    if (!quitting) scheduleRestart(service, reason)
+    const failure = classifyServiceFailure(reason, recentError)
+    log.end(`\n[janus] ${label} stopped: ${failure.message}\n[janus] recovery: ${failure.action}\n`)
+    if (!quitting) scheduleRestart(service, failure.message)
   }
   p.once('error', (error) => stopped(`spawn error: ${error.message}`))
   p.once('exit', (code, signal) => stopped(`exit=${code ?? '—'} signal=${signal ?? '—'}`))

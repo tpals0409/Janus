@@ -13,6 +13,7 @@ import re
 import secrets
 import shlex
 import signal
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -36,6 +37,7 @@ from . import terminal_service as terminal_mod
 from . import domain as D
 from . import evaluation
 from . import github_service as github_mod
+from . import recovery
 from . import spec as S
 from . import tools as T
 from . import verification
@@ -53,7 +55,11 @@ DOMAIN_DB_FILE = Path(
 WORKTREES_DIR = Path(
     os.environ.get("JANUS_WORKTREES_DIR", str(Path.home() / ".janus" / "workspaces"))
 ).expanduser()
+BACKUPS_DIR = Path(
+    os.environ.get("JANUS_BACKUPS_DIR", str(Path.home() / ".janus" / "backups"))
+).expanduser()
 _STATE_LOCK = threading.Lock()
+_BACKUP_LOCK = threading.Lock()
 _LEGACY_WORKSPACE_LOCK = threading.Lock()
 _LEGACY_WORKSPACE_ROOT = (Path(__file__).parent / "workspace").resolve()
 _DOMAIN_LOCK = threading.Lock()
@@ -397,6 +403,38 @@ def health():
         "ok": True, "version": app.version, "mlx": mlx,
         "schema_version": get_domain_store().schema_version(),
     }
+
+
+@app.get("/maintenance/recovery")
+def recovery_status():
+    database = get_domain_store().path
+    backups = Path(os.environ.get("JANUS_BACKUPS_DIR", str(BACKUPS_DIR))).expanduser()
+    integrity = recovery.database_integrity(database)
+    return {
+        "database": integrity,
+        "backups": recovery.list_database_backups(backups),
+        "policy": {
+            "automatic_reset": False,
+            "reset_requires_backup": True,
+            "default_retention": 5,
+            "restore": "앱을 종료한 뒤 검증된 backup을 janus.sqlite3로 교체하고 재시작",
+        },
+    }
+
+
+@app.post("/maintenance/backups", status_code=201)
+def create_backup(body: dict | None = None):
+    try:
+        retain = int((body or {}).get("retain", 5))
+        database = get_domain_store().path
+        backups = Path(os.environ.get("JANUS_BACKUPS_DIR", str(BACKUPS_DIR))).expanduser()
+        with _BACKUP_LOCK:
+            return recovery.create_database_backup(
+                database, backups, retain=retain,
+            )
+    except (OSError, sqlite3.Error, ValueError) as error:
+        payload = recovery.classify_failure(error)
+        raise D.Conflict(f"database backup 실패 [{payload['kind']}]: {payload['detail']}") from error
 
 
 # ─────────────────────────── P1 ADE domain API ───────────────────────────
@@ -2466,12 +2504,15 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
             return
         except Exception as error:
             failure = f"{type(error).__name__}: {error}"
+            recovery_hint = recovery.classify_failure(error)
             if current is not None:
                 current.turn_failed = True
             if activated:
-                send({"type": "run_error", "error": failure})
+                send({"type": "run_error", "error": failure, "recovery": recovery_hint})
             else:
-                _direct_send(_payload_with_ids({"type": "run_error", "error": failure}))
+                _direct_send(_payload_with_ids({
+                    "type": "run_error", "error": failure, "recovery": recovery_hint,
+                }))
         finally:
             if stale_notified.is_set() or not activated:
                 return
@@ -2686,6 +2727,7 @@ async def run_agent(ws: WebSocket, agent_id: str):
             orch.turn_failed = True
             send({
                 "type": "run_error", "error": f"{type(e).__name__}: {e}",
+                "recovery": recovery.classify_failure(e),
                 **run_identifiers(),
             })
         finally:

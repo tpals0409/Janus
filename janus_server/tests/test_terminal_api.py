@@ -173,6 +173,17 @@ class TerminalApiTests(unittest.TestCase):
         refreshed = self.client.get(
             f"/tasks/{task['id']}/development/file?path=src/app.ts", headers=self.headers
         ).json()
+        with patch.object(server.os, "replace", side_effect=OSError("disk full")):
+            failed = self.client.put(
+                f"/tasks/{task['id']}/development/file", headers=self.headers, json={
+                    "path": "src/app.ts", "content": "must not publish\n",
+                    "expected_mtime_ns": refreshed["mtime_ns"],
+                },
+            )
+        self.assertEqual(409, failed.status_code, failed.text)
+        self.assertEqual("external change\n", target.read_text(encoding="utf-8"))
+        self.assertFalse(any(path.name.endswith(".tmp") for path in source.iterdir()))
+
         saved = self.client.put(
             f"/tasks/{task['id']}/development/file", headers=self.headers, json={
                 "path": "src/app.ts", "content": "export const answer = 42\n",

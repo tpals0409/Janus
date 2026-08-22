@@ -12,7 +12,8 @@
 
 **측정 가능한 로컬 runtime(R1/P0), ADE 작업 경계(R2/P1), 자원 효율 엔진
 (R3/P2), Git-derived ChangeSet·Verification·Review·Ship(R4/P3), Evaluation Lab·
-Adaptive Orchestration·Operations Dashboard(R5/P4)까지 완료됐다. Janus는
+Adaptive Orchestration·Operations Dashboard(R5/P4), PR·CI와 Task 개발 표면,
+견고성·데이터 복구(R6~R8/P5-24)까지 완료됐다. Janus는
 이제 Task 생성부터 격리 worktree 실행, 독립 검증, revision-aware review, Task branch
 commit/push 또는 명시적 cherry-pick handoff까지 앱 안에서 연결한다.**
 
@@ -93,8 +94,8 @@ Janus memory peak, budget 소진율, generation/tool/verification 흔적을 2초
 
 2026-08-22 현재 체크아웃에서 직접 확인:
 
-- Python 테스트 122개 통과
-- Node main-process 테스트 10개 통과(실제 분리 프로세스 그룹 3회 start/stop 포함)
+- Python 테스트 134개 통과(과거 schema 10개 migration subtest 포함)
+- Node main-process 테스트 13개 통과(실제 분리 프로세스 그룹 3회 start/stop 포함)
 - 도구 자체 검사 통과
 - 오케스트레이터 spec 검사 통과
 - TypeScript 타입 검사 통과
@@ -239,6 +240,21 @@ P5-23 Task 개발 표면 결과:
 - preview는 Task ID를 해시한 별도 Electron persistent partition에서 localhost만 열며,
   console/network를 각 500개로 제한해 수집한다. 요소 선택은 DOM/CSS/rect/source hint와
   screenshot을 함께 반환하고, Task별 URL·탭·split 상태와 출력 copy/단축키를 제공한다.
+
+P5-24 견고성과 복구 결과:
+
+- 서버 재시작은 running session/dispatch/Task, verification, evaluation, terminal뿐 아니라
+  준비 중 workspace/Task도 성공으로 오인되지 않는 retry 가능한 상태로 정리한다.
+- schema v1~v10 각각을 v11로 올리는 migration subtest를 통과하고, 미래 또는 불연속
+  migration 이력은 원본 DB를 수정하기 전에 거부한다. transaction disk-full과 editor
+  atomic replace 실패는 부분 데이터를 남기지 않는다.
+- 모델 서버 stderr tail을 16,000자로 제한하면서 OOM과 storage failure를 구분해 재시작
+  안내를 제공한다. worktree 충돌은 기존 경로·branch를 덮어쓰지 않고, diff·verification·
+  CI log·runtime event는 각각 hard limit 안에 보존된다.
+- 인증된 maintenance API는 online SQLite backup, integrity check, SHA-256, `0600`, retention을
+  제공한다. 자동 초기화는 금지하고 backup-first 수동 복원·reset 절차를 `RECOVERY.md`에
+  고정했다. soak 동일 루프 단축 gate는 3.002초에 281 cycle을 완료했고 transient row 0,
+  SQLite `integrity_check=ok`를 확인했다.
 
 ## 완료한 마일스톤: R1 실제 27B Baseline과 계측
 
