@@ -15,9 +15,16 @@ function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Res
   return fetch(input, { ...init, headers })
 }
 
+/** 상태 코드를 실어 나른다 — 인증 실패(401/403)와 연결 실패를 UI가 구분해야 한다. */
+class ApiError extends Error {
+  constructor(readonly status: number) {
+    super(`Janus API ${status}`)
+  }
+}
+
 async function apiJson(input: RequestInfo | URL, init: RequestInit = {}) {
   const response = await apiFetch(input, init)
-  if (!response.ok) throw new Error(`Janus API ${response.status}`)
+  if (!response.ok) throw new ApiError(response.status)
   return response.json()
 }
 
@@ -31,6 +38,8 @@ async function readBackendStatus(): Promise<BackendStatus | null> {
 
 interface State {
   serverUp: boolean | null
+  /** true면 서버는 살아 있는데 토큰/Origin이 거부됐다 (연결 실패와 다르다) */
+  authFailed: boolean
   mlxUp: boolean | null
   backendStatus: BackendStatus | null
   workspace: string | null
@@ -210,6 +219,7 @@ function blankNode(spec: Spec, type: NodeType, models: { name: string }[], tools
 
 export const useStore = create<State>((set, get) => ({
   serverUp: null,
+  authFailed: false,
   mlxUp: null,
   backendStatus: null,
   workspace: null,
@@ -257,6 +267,7 @@ export const useStore = create<State>((set, get) => ({
       const workspaceChanged = previousWorkspace !== null && previousWorkspace !== ws.path
       set({
         serverUp: true,
+        authFailed: false,
         mlxUp: Boolean(health.mlx),
         backendStatus,
         agents,
@@ -280,8 +291,15 @@ export const useStore = create<State>((set, get) => ({
       } else if (agents[0] && !get().dirty) {
         await get().openAgent(agents[0].id)
       }
-    } catch {
-      set({ serverUp: false, mlxUp: null, backendStatus: await readBackendStatus() })
+    } catch (e) {
+      // 401/403은 서버가 살아 있다는 뜻이다 — "백엔드 시작 중"으로 숨기면 거짓말이 된다.
+      const authFailed = e instanceof ApiError && (e.status === 401 || e.status === 403)
+      set({
+        serverUp: false,
+        authFailed,
+        mlxUp: null,
+        backendStatus: await readBackendStatus()
+      })
     }
   },
 
@@ -290,9 +308,10 @@ export const useStore = create<State>((set, get) => ({
     const status = readBackendStatus()
     try {
       const h = await apiJson(`${BASE}/health`)
-      set({ serverUp: true, mlxUp: Boolean(h.mlx), backendStatus: await status })
-    } catch {
-      set({ serverUp: false, mlxUp: null, backendStatus: await status })
+      set({ serverUp: true, authFailed: false, mlxUp: Boolean(h.mlx), backendStatus: await status })
+    } catch (e) {
+      const authFailed = e instanceof ApiError && (e.status === 401 || e.status === 403)
+      set({ serverUp: false, authFailed, mlxUp: null, backendStatus: await status })
     }
   },
 

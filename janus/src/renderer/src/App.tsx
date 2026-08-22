@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { ReactFlowProvider } from '@xyflow/react'
-import { ChevronDown, FolderOpen, Loader2, Play, Rocket, Save, FlaskConical, Square } from 'lucide-react'
+import { ChevronDown, FolderOpen, Loader2, Play, Rocket, Save, FlaskConical, ShieldAlert, Square } from 'lucide-react'
 import { useStore } from './store'
 import Canvas from './components/Canvas'
 import Inspector from './components/Inspector'
@@ -152,6 +152,7 @@ export default function App() {
   const boot = useStore((s) => s.boot)
   const serverUp = useStore((s) => s.serverUp)
   const backendStatus = useStore((s) => s.backendStatus)
+  const authFailed = useStore((s) => s.authFailed)
   const spec = useStore((s) => s.spec)
   const view = useStore((s) => s.view)
   const setView = useStore((s) => s.setView)
@@ -179,12 +180,38 @@ export default function App() {
   // 붙을 때까지 자동 재시도하고, 붙은 뒤엔 모델 서버 상태를 따라간다.
   useEffect(() => {
     if (serverUp === false) {
-      const t = setTimeout(boot, 2000)
+      const t = setTimeout(boot, authFailed ? 15000 : 2000)
       return () => clearTimeout(t)
     }
     const t = setInterval(pollHealth, 5000)
     return () => clearInterval(t)
-  }, [serverUp, boot, pollHealth])
+  }, [serverUp, authFailed, boot, pollHealth])
+
+  if (authFailed) {
+    // 서버는 살아 있는데 토큰/Origin이 거부됐다. 스피너를 돌리면 "곧 될 것"이라는
+    // 거짓말이 된다 — 기다려서 풀리는 상황이 아니다.
+    return (
+      <div className="grid h-full place-items-center px-8 text-center">
+        <div className="max-w-[560px]">
+          <ShieldAlert size={28} className="mx-auto mb-3 text-warn" />
+          <p className="mb-2 text-[14px]">인증이 거부됐습니다 (백엔드는 정상)</p>
+          <p className="text-[11px] leading-relaxed text-faint">
+            janus-server는 응답하고 있지만 이 창의 토큰이나 Origin을 받아들이지 않습니다.
+            <br />
+            Janus는 기동마다 토큰을 새로 만들어 Electron 창에만 전달합니다 — 브라우저에서
+            <br />
+            <code className="text-muted">localhost:5173</code>을 직접 열었거나, 앱과 따로 띄운
+            서버에 붙은 경우입니다.
+          </p>
+          <p className="mt-3 text-[11px] text-faint">
+            Janus 앱 창에서 사용하세요. 터미널에서 서버를 직접 띄우려면 앱과 같은
+            <br />
+            <code className="text-muted">JANUS_AUTH_TOKEN</code> 환경변수로 실행해야 합니다.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   if (serverUp === false) {
     const service = backendStatus?.server

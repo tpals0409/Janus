@@ -135,13 +135,6 @@ def _save_run(agent_id: str, inputs: dict, spans: list, cancelled: bool) -> None
     }, ensure_ascii=False), encoding="utf-8")
 
 app = FastAPI(title="Janus", version="0.1.0")
-# Vite 개발 서버(다른 포트)에서 부르되, 그 기동에 선택된 origin만 허용한다.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=sorted(ALLOWED_ORIGINS),
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "X-Janus-Token"],
-)
 
 
 @app.middleware("http")
@@ -154,6 +147,18 @@ async def authenticate_http(request: Request, call_next):
     if not _token_valid(request.headers.get("x-janus-token")):
         return JSONResponse({"detail": "Janus 인증 토큰이 필요합니다"}, status_code=401)
     return await call_next(request)
+
+
+# CORS를 **인증 뒤에** 등록한다 = 스택의 가장 바깥.
+# add_middleware는 앞에 끼워 넣으므로 나중에 등록한 쪽이 바깥이고, 바깥이어야
+# 401/403 응답에도 Access-Control-Allow-Origin이 붙는다. 안 그러면 브라우저가
+# 인증 실패를 CORS 오류로만 보고, UI가 "백엔드가 죽었다"로 오해한다.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=sorted(ALLOWED_ORIGINS),
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Janus-Token"],
+)
 
 
 def _path(agent_id: str) -> Path:
