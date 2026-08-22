@@ -17,7 +17,7 @@ from typing import Any
 
 from .budget import empty_usage, merge_budget, normalize_budget
 
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 
 TASK_STATUSES = frozenset({"todo", "preparing", "working", "needs_you", "review", "failed"})
 TASK_TRANSITIONS = {
@@ -219,7 +219,33 @@ ALTER TABLE dispatches ADD COLUMN usage_json TEXT NOT NULL DEFAULT
 ALTER TABLE dispatches ADD COLUMN budget_exhausted_reason TEXT;
 """
 
-MIGRATIONS = {1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3}
+MIGRATION_4 = """
+ALTER TABLE projects ADD COLUMN verification_commands_json TEXT NOT NULL DEFAULT '[]';
+
+CREATE TABLE verification_runs (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    dispatch_id TEXT REFERENCES dispatches(id) ON DELETE SET NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('acceptance','test','lint','typecheck','custom')),
+    command TEXT NOT NULL CHECK(length(trim(command)) > 0),
+    trigger TEXT NOT NULL CHECK(trigger IN ('manual','agent')),
+    agent_claim TEXT CHECK(agent_claim IN ('passed','failed','unknown')),
+    status TEXT NOT NULL CHECK(status IN ('queued','running','passed','failed','error','cancelled')),
+    head_commit TEXT NOT NULL,
+    exit_code INTEGER,
+    stdout TEXT NOT NULL DEFAULT '',
+    stderr TEXT NOT NULL DEFAULT '',
+    duration_ms REAL,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    ended_at TEXT
+);
+CREATE INDEX idx_verification_runs_task_created
+ON verification_runs(task_id, created_at DESC);
+"""
+
+MIGRATIONS = {1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3, 4: MIGRATION_4}
 
 
 class DomainStore:
@@ -347,6 +373,90 @@ class DomainStore:
             return [dict(row) for row in connection.execute(
                 f"SELECT * FROM projects {where} ORDER BY created_at"
             )]
+
+    def set_project_verification_commands(
+        self, project_id: str, commands: list[dict]
+    ) -> dict:
+        with self.transaction(immediate=True) as connection:
+            self._one(
+                connection, "SELECT * FROM projects WHERE id=?", (project_id,), "Project"
+            )
+            connection.execute(
+                "UPDATE projects SET verification_commands_json=?,updated_at=? WHERE id=?",
+                (_json(commands), _now(), project_id),
+            )
+        return self.get_project(project_id)
+
+    def create_verification_run(
+        self, *, task_id: str, kind: str, command: str, trigger: str,
+        head_commit: str, dispatch_id: str | None = None,
+        agent_claim: str | None = None, run_id: str | None = None,
+    ) -> dict:
+        run_id = run_id or _id("verification")
+        now = _now()
+        try:
+            with self.transaction(immediate=True) as connection:
+                self._one(connection, "SELECT * FROM tasks WHERE id=?", (task_id,), "Task")
+                connection.execute(
+                    "INSERT INTO verification_runs(id,task_id,dispatch_id,kind,command,trigger,"
+                    "agent_claim,status,head_commit,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (run_id, task_id, dispatch_id, kind, command.strip(), trigger,
+                     agent_claim, "queued", head_commit, now),
+                )
+        except sqlite3.IntegrityError as error:
+            raise Conflict(f"Verification run 생성 충돌: {error}") from error
+        return self.get_verification_run(run_id)
+
+    def get_verification_run(self, run_id: str) -> dict:
+        with self._connect() as connection:
+            return self._one(
+                connection, "SELECT * FROM verification_runs WHERE id=?",
+                (run_id,), "VerificationRun",
+            )
+
+    def list_verification_runs(self, task_id: str) -> list[dict]:
+        with self._connect() as connection:
+            return [dict(row) for row in connection.execute(
+                "SELECT * FROM verification_runs WHERE task_id=? "
+                "ORDER BY created_at DESC, id DESC", (task_id,),
+            )]
+
+    def start_verification_run(self, run_id: str) -> dict:
+        now = _now()
+        with self.transaction(immediate=True) as connection:
+            run = self._one(
+                connection, "SELECT * FROM verification_runs WHERE id=?",
+                (run_id,), "VerificationRun",
+            )
+            if run["status"] != "queued":
+                raise Conflict(f"실행할 수 없는 Verification 상태: {run['status']}")
+            connection.execute(
+                "UPDATE verification_runs SET status='running',started_at=? WHERE id=?",
+                (now, run_id),
+            )
+        return self.get_verification_run(run_id)
+
+    def finish_verification_run(self, run_id: str, result: dict) -> dict:
+        exit_code = result.get("exit_code")
+        error = result.get("error")
+        status = "passed" if exit_code == 0 and not error else (
+            "failed" if exit_code is not None else "error"
+        )
+        with self.transaction(immediate=True) as connection:
+            run = self._one(
+                connection, "SELECT * FROM verification_runs WHERE id=?",
+                (run_id,), "VerificationRun",
+            )
+            if run["status"] != "running":
+                raise Conflict(f"종료할 수 없는 Verification 상태: {run['status']}")
+            connection.execute(
+                "UPDATE verification_runs SET status=?,exit_code=?,stdout=?,stderr=?,"
+                "duration_ms=?,error=?,ended_at=? WHERE id=?",
+                (status, exit_code, str(result.get("stdout") or ""),
+                 str(result.get("stderr") or ""), result.get("duration_ms"),
+                 error, _now(), run_id),
+            )
+        return self.get_verification_run(run_id)
 
     def archive_project(self, project_id: str) -> dict:
         now = _now()
@@ -979,7 +1089,15 @@ class DomainStore:
                 "AND d.status='needs_you')",
                 (now,),
             ).rowcount
-        return {"sessions": sessions, "dispatches": dispatches, "tasks": tasks}
+            verifications = connection.execute(
+                "UPDATE verification_runs SET status='error',"
+                "error='server restarted during verification',ended_at=? "
+                "WHERE status IN ('queued','running')", (now,),
+            ).rowcount
+        return {
+            "sessions": sessions, "dispatches": dispatches, "tasks": tasks,
+            "verifications": verifications,
+        }
 
     def transition_session(
         self, session_id: str, target: str, *, error: str | None = None,

@@ -10,6 +10,30 @@ export interface Project {
   created_at: string
   updated_at: string
   archived_at: string | null
+  verification_commands: VerificationCommand[]
+}
+
+export interface VerificationCommand {
+  kind: 'acceptance' | 'test' | 'lint' | 'typecheck' | 'custom'
+  command: string
+}
+
+export interface VerificationRun extends VerificationCommand {
+  id: string
+  task_id: string
+  dispatch_id: string | null
+  trigger: 'manual' | 'agent'
+  agent_claim: 'passed' | 'failed' | 'unknown' | null
+  status: 'queued' | 'running' | 'passed' | 'failed' | 'error' | 'cancelled'
+  head_commit: string
+  exit_code: number | null
+  stdout: string
+  stderr: string
+  duration_ms: number | null
+  error: string | null
+  created_at: string
+  started_at: string | null
+  ended_at: string | null
 }
 
 export interface TaskWorkspace {

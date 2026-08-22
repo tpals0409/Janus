@@ -29,6 +29,7 @@ from . import scheduler as scheduler_mod
 from . import domain as D
 from . import spec as S
 from . import tools as T
+from . import verification
 from . import workspace_service as WS
 from .workspace import WorkspaceContext
 
@@ -57,6 +58,8 @@ _WORKSPACE_JOBS_LOCK = threading.Lock()
 _WORKSPACE_JOBS: dict[str, threading.Thread] = {}
 _TASK_RUNTIMES_LOCK = threading.Lock()
 _TASK_RUNTIMES: dict[str, runtime.Orchestration] = {}
+_VERIFICATION_JOBS_LOCK = threading.Lock()
+_VERIFICATION_JOBS: dict[str, threading.Thread] = {}
 
 # Electron main이 기동마다 만든 토큰을 서버/렌더러에만 나눠준다.
 # 수동 기동도 무인증으로 열리지 않도록, env가 없으면 서버가 자체적으로
@@ -331,21 +334,54 @@ def health():
 # ─────────────────────────── P1 ADE domain API ───────────────────────────
 
 
+def _project_json(project: dict) -> dict:
+    value = dict(project)
+    raw = value.pop("verification_commands_json", "[]")
+    value["verification_commands"] = json.loads(raw)
+    return value
+
+
 @app.get("/projects")
 def list_projects(include_archived: bool = False):
-    return get_domain_store().list_projects(include_archived=include_archived)
+    return [
+        _project_json(item)
+        for item in get_domain_store().list_projects(include_archived=include_archived)
+    ]
 
 
 @app.post("/projects")
 def create_project(body: dict):
-    return get_domain_store().create_project(
+    return _project_json(get_domain_store().create_project(
         name=str(body.get("name") or ""), repo_path=str(body.get("repo_path") or "")
-    )
+    ))
 
 
 @app.get("/projects/{project_id}")
 def get_project(project_id: str):
-    return get_domain_store().get_project(project_id)
+    return _project_json(get_domain_store().get_project(project_id))
+
+
+def _verification_commands(value: object) -> list[dict]:
+    if not isinstance(value, list) or len(value) > 20:
+        raise D.Conflict("verification_commands는 최대 20개의 배열이어야 합니다")
+    commands: list[dict] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise D.Conflict("verification command 항목은 객체여야 합니다")
+        kind = str(item.get("kind") or "custom")
+        command = str(item.get("command") or "").strip()
+        if kind not in {"acceptance", "test", "lint", "typecheck", "custom"} or not command:
+            raise D.Conflict("각 command에는 유효한 kind와 command가 필요합니다")
+        commands.append({"kind": kind, "command": command})
+    return commands
+
+
+@app.put("/projects/{project_id}/verification-commands")
+def set_project_verification_commands(project_id: str, body: dict):
+    commands = _verification_commands(body.get("commands"))
+    return _project_json(
+        get_domain_store().set_project_verification_commands(project_id, commands)
+    )
 
 
 @app.delete("/projects/{project_id}")
@@ -560,6 +596,112 @@ def get_task_changeset(task_id: str):
         root_path=workspace["root_path"],
         base_ref=task["base_ref"],
     )
+
+
+def _verification_workspace(task_id: str) -> tuple[dict, dict, str]:
+    store = get_domain_store()
+    task = store.get_task(task_id)
+    workspace = store.get_task_workspace(task_id)
+    if workspace is None or workspace["state"] != "ready" or not workspace.get("root_path"):
+        raise D.Conflict("ready Workspace가 있어야 verification을 실행할 수 있습니다")
+    if not workspace["owned"]:
+        raise D.Conflict("Janus가 소유한 Workspace만 verification할 수 있습니다")
+    changes = get_workspace_service().changeset(
+        repo_path=workspace["repo_path"], root_path=workspace["root_path"],
+        base_ref=task["base_ref"],
+    )
+    return task, workspace, changes["head_commit"]
+
+
+def _run_verification_job(run_id: str) -> None:
+    store = get_domain_store()
+    try:
+        item = store.start_verification_run(run_id)
+        _task, workspace, _head = _verification_workspace(item["task_id"])
+        context = WorkspaceContext(
+            root=Path(workspace["root_path"]), task_id=item["task_id"],
+            workspace_id=workspace["id"], dispatch_id=item.get("dispatch_id"),
+        )
+        result = verification.run(
+            item["command"], context, scheduler=scheduler_mod.default_scheduler()
+        )
+        store.finish_verification_run(run_id, result)
+    except Exception as error:
+        try:
+            current = store.get_verification_run(run_id)
+            if current["status"] == "running":
+                store.finish_verification_run(run_id, {
+                    "exit_code": None, "stdout": "", "stderr": "",
+                    "duration_ms": 0.0, "error": f"{type(error).__name__}: {error}",
+                })
+        except D.DomainError:
+            pass
+    finally:
+        with _VERIFICATION_JOBS_LOCK:
+            if _VERIFICATION_JOBS.get(run_id) is threading.current_thread():
+                _VERIFICATION_JOBS.pop(run_id, None)
+
+
+def _start_verification_job(run_id: str) -> None:
+    with _VERIFICATION_JOBS_LOCK:
+        thread = threading.Thread(
+            target=_run_verification_job, args=(run_id,),
+            name=f"janus-verification-{run_id}", daemon=True,
+        )
+        _VERIFICATION_JOBS[run_id] = thread
+        thread.start()
+
+
+def _create_verification_runs(task_id: str, body: dict) -> list[dict]:
+    store = get_domain_store()
+    task, _workspace, head_commit = _verification_workspace(task_id)
+    configured = body.get("commands")
+    commands = (
+        _verification_commands(configured)
+        if configured is not None
+        else [{"kind": "acceptance", "command": task["acceptance_command"]}] +
+        _verification_commands(json.loads(
+            store.get_project(task["project_id"])["verification_commands_json"]
+        ))
+    )
+    trigger = str(body.get("trigger") or "manual")
+    agent_claim = body.get("agent_claim")
+    if trigger not in {"manual", "agent"}:
+        raise D.Conflict("모르는 verification trigger입니다")
+    if agent_claim is not None and agent_claim not in {"passed", "failed", "unknown"}:
+        raise D.Conflict("모르는 agent_claim입니다")
+    latest = store.latest_dispatch(task_id)
+    runs = [
+        store.create_verification_run(
+            task_id=task_id, kind=item["kind"], command=item["command"],
+            trigger=trigger, agent_claim=agent_claim,
+            dispatch_id=latest["id"] if latest else None, head_commit=head_commit,
+        )
+        for item in commands
+    ]
+    for item in runs:
+        _start_verification_job(item["id"])
+    return runs
+
+
+@app.get("/tasks/{task_id}/verifications")
+def list_task_verifications(task_id: str):
+    get_domain_store().get_task(task_id)
+    return get_domain_store().list_verification_runs(task_id)
+
+
+@app.post("/tasks/{task_id}/verifications", status_code=202)
+def run_task_verifications(task_id: str, body: dict):
+    return _create_verification_runs(task_id, body)
+
+
+@app.post("/verifications/{run_id}/rerun", status_code=202)
+def rerun_verification(run_id: str):
+    previous = get_domain_store().get_verification_run(run_id)
+    return _create_verification_runs(previous["task_id"], {
+        "commands": [{"kind": previous["kind"], "command": previous["command"]}],
+        "trigger": "manual",
+    })[0]
 
 
 def _workspace_for_removal(task_id: str, body: dict) -> dict:

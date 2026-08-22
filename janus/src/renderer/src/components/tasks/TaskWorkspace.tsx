@@ -837,6 +837,118 @@ function ChangeSetCard() {
   )
 }
 
+function VerificationCard({ task }: { task: Task }) {
+  const projects = useStore((state) => state.projects)
+  const runs = useStore((state) => state.verificationRuns)
+  const busy = useStore((state) => state.verificationBusy)
+  const saveCommands = useStore((state) => state.setProjectVerificationCommands)
+  const runAll = useStore((state) => state.runVerifications)
+  const rerun = useStore((state) => state.rerunVerification)
+  const load = useStore((state) => state.loadVerifications)
+  const project = projects.find((item) => item.id === task.project_id)
+  const [commands, setCommands] = useState<Record<'test' | 'lint' | 'typecheck', string>>({
+    test: '', lint: '', typecheck: ''
+  })
+
+  useEffect(() => {
+    const configured = project?.verification_commands ?? []
+    setCommands({
+      test: configured.find((item) => item.kind === 'test')?.command ?? '',
+      lint: configured.find((item) => item.kind === 'lint')?.command ?? '',
+      typecheck: configured.find((item) => item.kind === 'typecheck')?.command ?? ''
+    })
+  }, [project?.id, project?.updated_at])
+
+  useEffect(() => {
+    if (!runs.some((item) => item.status === 'queued' || item.status === 'running')) return
+    const timer = window.setInterval(() => void load(), 500)
+    return () => window.clearInterval(timer)
+  }, [runs, load])
+
+  const save = async () => {
+    await saveCommands(
+      (Object.entries(commands) as Array<[keyof typeof commands, string]>)
+        .filter(([, command]) => command.trim())
+        .map(([kind, command]) => ({ kind, command: command.trim() }))
+    )
+  }
+  const latest = runs.slice(0, 8)
+  return (
+    <section className="task-card">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="task-label">Independent verification</div>
+          <h3 className="mt-1 text-[14px] font-semibold">Janus Runner</h3>
+          <p className="mt-1 text-[10.5px] text-faint">
+            Agent claims are labels only. Janus status comes from the observed exit code.
+          </p>
+        </div>
+        <button onClick={() => void runAll()} disabled={busy} className="task-primary-action">
+          {busy ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+          Run all
+        </button>
+      </div>
+      <div className="mt-4 grid grid-cols-3 gap-2">
+        {(['test', 'lint', 'typecheck'] as const).map((kind) => (
+          <label key={kind}>
+            <span className="task-label capitalize">{kind}</span>
+            <input
+              value={commands[kind]}
+              onChange={(event) => setCommands({ ...commands, [kind]: event.target.value })}
+              placeholder={`${kind} command`}
+              className="task-input mt-1 font-mono text-[9.5px]"
+            />
+          </label>
+        ))}
+      </div>
+      <div className="mt-2 flex items-center justify-between">
+        <code className="truncate text-[9.5px] text-faint">acceptance · {task.acceptance_command}</code>
+        <button onClick={() => void save()} disabled={busy} className="task-quiet-action">
+          <Check size={11} /> Save project commands
+        </button>
+      </div>
+      <div className="mt-4 space-y-2 border-t border-border pt-3">
+        {latest.map((run) => {
+          const running = run.status === 'queued' || run.status === 'running'
+          const color = run.status === 'passed'
+            ? 'var(--color-ok)'
+            : running ? 'var(--color-warn)' : 'var(--color-danger)'
+          return (
+            <div key={run.id} className="rounded-md border border-border bg-raised/40 px-3 py-2">
+              <div className="flex items-center gap-2 text-[10.5px]">
+                {running && <Loader2 size={11} className="animate-spin" style={{ color }} />}
+                <span className="font-semibold uppercase" style={{ color }}>{run.status}</span>
+                <span className="rounded bg-panel px-1.5 py-0.5 font-mono text-[9px] text-muted">{run.kind}</span>
+                <span className="min-w-0 flex-1 truncate font-mono text-[9.5px] text-faint">{run.command}</span>
+                <span className="font-mono text-[9px] text-faint">
+                  {run.duration_ms == null ? '—' : `${Math.round(run.duration_ms)}ms`} · exit {run.exit_code ?? '—'}
+                </span>
+                {!running && (
+                  <button onClick={() => void rerun(run.id)} disabled={busy} className="task-quiet-action">
+                    <RotateCcw size={10} /> Rerun
+                  </button>
+                )}
+              </div>
+              <div className="mt-1 flex gap-4 text-[9.5px] text-faint">
+                <span>Agent claim: {run.agent_claim ?? 'not recorded'}</span>
+                <span>Janus result: <b style={{ color }}>{run.status}</b></span>
+              </div>
+              {(run.stdout || run.stderr || run.error) && (
+                <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap rounded bg-[#08080d] p-2 font-mono text-[9px] leading-4 text-muted">
+                  {[run.stdout, run.stderr, run.error].filter(Boolean).join('\n')}
+                </pre>
+              )}
+            </div>
+          )
+        })}
+        {latest.length === 0 && (
+          <div className="py-3 text-center text-[10.5px] text-faint">No independent verification runs yet.</div>
+        )}
+      </div>
+    </section>
+  )
+}
+
 function TaskDetail({ task }: { task: Task }) {
   const archiveTask = useStore((state) => state.archiveSelectedTask)
   const busy = useStore((state) => state.taskBusy)
@@ -893,6 +1005,7 @@ function TaskDetail({ task }: { task: Task }) {
             </section>
             <WorkspaceCard task={task} />
             {task.workspace?.state === 'ready' && <ChangeSetCard />}
+            {task.workspace?.state === 'ready' && <VerificationCard task={task} />}
           </div>
 
           <aside className="space-y-4">

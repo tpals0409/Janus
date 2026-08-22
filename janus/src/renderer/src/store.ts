@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type {
   AgentEvent, AgentProfile, AgentSessionDetail, AgentSummary, ApprovalRequest, ChangeSet,
   BackendStatus, ModelProfile, Project, RunDetail, RunSummary, SessionEvent, Span,
-  Spec, Task, ToolInfo, TreeEntry,
+  Spec, Task, ToolInfo, TreeEntry, VerificationCommand, VerificationRun,
   WorkspaceInspection
 } from './types'
 
@@ -78,6 +78,8 @@ interface State {
   modelProfiles: ModelProfile[]
   workspaceInspection: WorkspaceInspection | null
   changeSet: ChangeSet | null
+  verificationRuns: VerificationRun[]
+  verificationBusy: boolean
   taskBusy: boolean
   taskActionError: string | null
   taskSession: AgentSessionDetail | null
@@ -144,6 +146,10 @@ interface State {
   prepareWorkspace(): Promise<void>
   retryWorkspace(): Promise<void>
   inspectWorkspace(): Promise<void>
+  loadVerifications(): Promise<void>
+  setProjectVerificationCommands(commands: VerificationCommand[]): Promise<void>
+  runVerifications(): Promise<void>
+  rerunVerification(id: string): Promise<void>
   archiveWorkspace(force?: boolean): Promise<void>
   deleteWorkspaceBranch(): Promise<void>
   archiveSelectedTask(): Promise<void>
@@ -214,6 +220,8 @@ export const useStore = create<State>((set, get) => ({
   modelProfiles: [],
   workspaceInspection: null,
   changeSet: null,
+  verificationRuns: [],
+  verificationBusy: false,
   taskBusy: false,
   taskActionError: null,
   taskSession: null,
@@ -350,6 +358,7 @@ export const useStore = create<State>((set, get) => ({
       taskApprovals: [],
       workspaceInspection: null,
       changeSet: null,
+      verificationRuns: [],
       taskActionError: null
     })
     try {
@@ -371,6 +380,7 @@ export const useStore = create<State>((set, get) => ({
       task: null,
       workspaceInspection: null,
       changeSet: null,
+      verificationRuns: [],
       taskActionError: null,
       taskSession: null,
       taskSessionEvents: [],
@@ -385,6 +395,7 @@ export const useStore = create<State>((set, get) => ({
       if (sequence !== openTaskSequence) return
       set({ task })
       await get().loadLatestTaskSession()
+      await get().loadVerifications()
       if (task.workspace?.state === 'ready') await get().inspectWorkspace()
     } catch (error) {
       if (sequence === openTaskSequence) set({ taskActionError: errorMessage(error) })
@@ -508,6 +519,63 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
+  async loadVerifications() {
+    const taskId = get().taskId
+    if (!taskId) return
+    try {
+      const runs = await apiJson(`${BASE}/tasks/${taskId}/verifications`) as VerificationRun[]
+      if (get().taskId === taskId) set({ verificationRuns: runs })
+    } catch (error) {
+      if (get().taskId === taskId) set({ taskActionError: errorMessage(error) })
+    }
+  },
+
+  async setProjectVerificationCommands(commands) {
+    const projectId = get().projectId
+    if (!projectId) return
+    set({ verificationBusy: true, taskActionError: null })
+    try {
+      const project = await apiJson(`${BASE}/projects/${projectId}/verification-commands`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commands })
+      }) as Project
+      set({ projects: get().projects.map((item) => item.id === project.id ? project : item) })
+    } catch (error) {
+      set({ taskActionError: errorMessage(error) })
+    } finally {
+      set({ verificationBusy: false })
+    }
+  },
+
+  async runVerifications() {
+    const taskId = get().taskId
+    if (!taskId) return
+    set({ verificationBusy: true, taskActionError: null })
+    try {
+      await apiJson(`${BASE}/tasks/${taskId}/verifications`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
+      })
+      await get().loadVerifications()
+    } catch (error) {
+      set({ taskActionError: errorMessage(error) })
+    } finally {
+      set({ verificationBusy: false })
+    }
+  },
+
+  async rerunVerification(id) {
+    set({ verificationBusy: true, taskActionError: null })
+    try {
+      await apiJson(`${BASE}/verifications/${id}/rerun`, { method: 'POST' })
+      await get().loadVerifications()
+    } catch (error) {
+      set({ taskActionError: errorMessage(error) })
+    } finally {
+      set({ verificationBusy: false })
+    }
+  },
+
   async archiveWorkspace(force = false) {
     const task = get().task
     const workspace = task?.workspace
@@ -522,7 +590,7 @@ export const useStore = create<State>((set, get) => ({
           body: JSON.stringify({ confirm_workspace_id: workspace.id })
         }
       )
-      set({ workspaceInspection: null, changeSet: null })
+      set({ workspaceInspection: null, changeSet: null, verificationRuns: [] })
       await get().refreshSelectedTask()
     } catch (error) {
       set({ taskActionError: errorMessage(error) })
@@ -558,7 +626,7 @@ export const useStore = create<State>((set, get) => ({
     try {
       await apiJson(`${BASE}/tasks/${taskId}`, { method: 'DELETE' })
       const tasks = (await apiJson(`${BASE}/projects/${projectId}/tasks`)) as Task[]
-      set({ tasks, taskId: null, task: null, workspaceInspection: null, changeSet: null })
+      set({ tasks, taskId: null, task: null, workspaceInspection: null, changeSet: null, verificationRuns: [] })
       if (tasks[0]) await get().selectTask(tasks[0].id)
     } catch (error) {
       set({ taskActionError: errorMessage(error) })
