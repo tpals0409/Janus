@@ -379,6 +379,24 @@ def get_project(project_id: str):
     return _project_json(get_domain_store().get_project(project_id))
 
 
+@app.post("/projects/{project_id}/agent-profile/promote")
+def promote_project_agent_profile(project_id: str, body: dict):
+    store = get_domain_store()
+    comparison = _evaluation_comparison_json(
+        store.get_evaluation_comparison(str(body.get("comparison_id") or ""))
+    )
+    project = store.promote_project_agent_profile(
+        project_id, comparison_id=comparison["id"]
+    )
+    profile_id = project["default_agent_profile_id"]
+    return {
+        "project": _project_json(project),
+        "agent_profile": _agent_profile_json(store.get_agent_profile(profile_id)),
+        "comparison_id": comparison["id"],
+        "verdict": comparison["result"].get("verdict"),
+    }
+
+
 def _verification_commands(value: object) -> list[dict]:
     if not isinstance(value, list) or len(value) > 20:
         raise D.Conflict("verification_commands는 최대 20개의 배열이어야 합니다")
@@ -1379,9 +1397,14 @@ def start_task_session(task_id: str, body: dict):
     workspace = store.get_task_workspace(task_id)
     if workspace is None:
         raise D.Conflict("Task Workspace를 먼저 준비하세요")
-    profile_id = str(body.get("agent_profile_id") or "agent_default")
+    task = store.get_task(task_id)
+    project = store.get_project(task["project_id"])
+    profile_id = str(
+        body.get("agent_profile_id")
+        or project.get("default_agent_profile_id")
+        or "agent_default"
+    )
     try:
-        task = store.get_task(task_id)
         profile = _agent_profile_json(store.get_agent_profile(profile_id))
         previous = store.latest_dispatch(task_id)
         decision = adaptive.decide(

@@ -187,6 +187,76 @@ class EvaluationApiTests(unittest.TestCase):
             f"{self.temp.name}/evaluations/.{item['id']}-profile.json"
         ))
 
+    def test_improved_runner_candidate_can_be_promoted_with_provenance(self):
+        store = server.get_domain_store()
+        project = store.create_project(name="Promoted", repo_path=f"{self.temp.name}/repo")
+        candidate_profile = store.create_agent_profile(
+            name="Measured candidate", system_prompt="Measured candidate",
+            tools=["read_file"], worker_policy="none", max_steps=12,
+            model_profile_id="model_qwen38_27b_4bit",
+        )
+        baseline_report = report("baseline", [True, True], 100, 1000)
+        candidate_report = report("candidate", [True, True], 70, 800)
+        baseline = store.create_evaluation_experiment(
+            role="baseline", label="baseline", source="runner", status="completed",
+            agent_profile_id="agent_default", report=baseline_report,
+            conditions=baseline_report["conditions"],
+        )
+        candidate = store.create_evaluation_experiment(
+            role="candidate", label="candidate", source="runner", status="completed",
+            agent_profile_id=candidate_profile["id"], report=candidate_report,
+            conditions=candidate_report["conditions"],
+        )
+        comparison = self.client.post(
+            "/evaluations/comparisons", headers=self.headers, json={
+                "baseline_id": baseline["id"], "candidate_id": candidate["id"],
+            },
+        ).json()
+        promoted = self.client.post(
+            f"/projects/{project['id']}/agent-profile/promote",
+            headers=self.headers, json={"comparison_id": comparison["id"]},
+        )
+        self.assertEqual(200, promoted.status_code, promoted.text)
+        payload = promoted.json()
+        self.assertEqual(candidate_profile["id"], payload["agent_profile"]["id"])
+        self.assertEqual("improved", payload["verdict"])
+        saved = self.client.get(
+            f"/projects/{project['id']}", headers=self.headers
+        ).json()
+        self.assertEqual(candidate_profile["id"], saved["default_agent_profile_id"])
+        self.assertEqual(comparison["id"], saved["promoted_comparison_id"])
+        self.assertIsNotNone(saved["profile_promoted_at"])
+
+    def test_regression_and_unlinked_import_cannot_be_promoted(self):
+        store = server.get_domain_store()
+        project = store.create_project(name="Guarded", repo_path=f"{self.temp.name}/guarded")
+        baseline = self._import("baseline", report("baseline", [True, True], 100, 1000))
+        regression = self._import("candidate", report("regression", [True, False], 50, 500))
+        rejected_comparison = self.client.post(
+            "/evaluations/comparisons", headers=self.headers, json={
+                "baseline_id": baseline["id"], "candidate_id": regression["id"],
+            },
+        ).json()
+        rejected = self.client.post(
+            f"/projects/{project['id']}/agent-profile/promote",
+            headers=self.headers, json={"comparison_id": rejected_comparison["id"]},
+        )
+        self.assertEqual(409, rejected.status_code)
+
+        improved_import = self._import(
+            "candidate", report("import-improved", [True, True], 50, 500)
+        )
+        unlinked_comparison = self.client.post(
+            "/evaluations/comparisons", headers=self.headers, json={
+                "baseline_id": baseline["id"], "candidate_id": improved_import["id"],
+            },
+        ).json()
+        unlinked = self.client.post(
+            f"/projects/{project['id']}/agent-profile/promote",
+            headers=self.headers, json={"comparison_id": unlinked_comparison["id"]},
+        )
+        self.assertEqual(409, unlinked.status_code)
+
 
 if __name__ == "__main__":
     unittest.main()

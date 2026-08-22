@@ -91,7 +91,7 @@ Dashboard다.
 
 2026-08-22 현재 체크아웃에서 직접 확인:
 
-- Python 테스트 111개 통과
+- Python 테스트 114개 통과
 - Node lifecycle 테스트 7개 통과(실제 분리 프로세스 그룹 3회 start/stop 포함)
 - 도구 자체 검사 통과
 - 오케스트레이터 spec 검사 통과

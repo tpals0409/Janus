@@ -11,6 +11,9 @@ export interface Project {
   updated_at: string
   archived_at: string | null
   verification_commands: VerificationCommand[]
+  default_agent_profile_id: string | null
+  promoted_comparison_id: string | null
+  profile_promoted_at: string | null
 }
 
 export interface VerificationCommand {

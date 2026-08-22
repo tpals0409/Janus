@@ -244,6 +244,34 @@ class TaskRuntimeTests(unittest.TestCase):
         self.assertEqual(["researcher"], spec["worker_roles"])
         self.assertEqual(["researcher"], spec["worker_role_sequence"])
 
+    def test_project_promoted_profile_is_used_when_session_omits_profile(self):
+        task = self.create_ready_task("Project default profile")
+        profile = self.store.create_agent_profile(
+            name="Promoted", system_prompt="Promoted default", tools=["read_file"],
+            worker_policy="none", max_steps=9,
+            model_profile_id="model_qwen38_27b_4bit",
+        )
+        baseline = self.store.create_evaluation_experiment(
+            role="baseline", label="base", source="runner", status="completed",
+            agent_profile_id="agent_default",
+        )
+        candidate = self.store.create_evaluation_experiment(
+            role="candidate", label="candidate", source="runner", status="completed",
+            agent_profile_id=profile["id"],
+        )
+        comparison = self.store.create_evaluation_comparison(
+            baseline_experiment_id=baseline["id"], candidate_experiment_id=candidate["id"],
+            thresholds={}, result={"verdict": "improved"},
+        )
+        self.store.promote_project_agent_profile(
+            self.project["id"], comparison_id=comparison["id"],
+        )
+        response = self.client.post(
+            f"/tasks/{task['id']}/sessions", headers=self.headers, json={},
+        )
+        self.assertEqual(200, response.status_code, response.text)
+        self.assertEqual(profile["id"], response.json()["agent_profile_id"])
+
     def test_dispatch_step_budget_exhaustion_is_persisted_and_fails_only_attempt(self):
         task = self.create_ready_task("Budgeted")
         other_task = self.create_ready_task("Unaffected")

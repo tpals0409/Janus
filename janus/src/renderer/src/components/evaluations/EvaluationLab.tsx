@@ -1,6 +1,6 @@
 import { ChangeEvent, useEffect, useMemo, useState } from 'react'
 import {
-  AlertTriangle, Check, Download, FlaskConical, Loader2, Play, Square, Upload
+  AlertTriangle, Check, CheckCircle2, Download, FlaskConical, Loader2, Play, Square, Upload
 } from 'lucide-react'
 import { useStore } from '../../store'
 import type { EvaluationExperiment } from '../../types'
@@ -130,6 +130,9 @@ function ComparisonLedger() {
   const comparisons = useStore((state) => state.evaluationComparisons)
   const compare = useStore((state) => state.compareEvaluations)
   const exportResult = useStore((state) => state.exportEvaluation)
+  const promote = useStore((state) => state.promoteEvaluation)
+  const projectId = useStore((state) => state.projectId)
+  const project = useStore((state) => state.projects.find((item) => item.id === state.projectId))
   const busy = useStore((state) => state.evaluationBusy)
   const baselines = experiments.filter((item) => item.role === 'baseline' && item.status === 'completed')
   const candidates = experiments.filter((item) => item.role === 'candidate' && item.status === 'completed')
@@ -200,6 +203,17 @@ function ComparisonLedger() {
               </div>
             </div>
             <div className="flex gap-1">
+              {(verdict === 'improved' || verdict === 'equivalent') && (
+                <button
+                  disabled={busy || !projectId}
+                  onClick={() => void promote(latest.id)}
+                  className="task-quiet-action"
+                  title={projectId ? 'Use this measured candidate for new Task attempts' : 'Select a Project first'}
+                >
+                  <CheckCircle2 size={10} />
+                  {project?.promoted_comparison_id === latest.id ? 'Project default' : 'Promote default'}
+                </button>
+              )}
               {(['json', 'csv', 'markdown'] as const).map((format) => (
                 <button key={format} onClick={() => void exportResult(latest.id, format)} className="task-quiet-action uppercase">
                   <Download size={10} /> {format === 'markdown' ? 'md' : format}

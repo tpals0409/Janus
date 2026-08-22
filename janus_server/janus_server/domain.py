@@ -17,7 +17,7 @@ from typing import Any
 
 from .budget import empty_usage, merge_budget, normalize_budget
 
-CURRENT_SCHEMA_VERSION = 8
+CURRENT_SCHEMA_VERSION = 9
 
 TASK_STATUSES = frozenset({"todo", "preparing", "working", "needs_you", "review", "failed"})
 TASK_TRANSITIONS = {
@@ -326,9 +326,16 @@ MIGRATION_8 = """
 ALTER TABLE dispatches ADD COLUMN adaptive_decision_json TEXT NOT NULL DEFAULT '{}';
 """
 
+MIGRATION_9 = """
+ALTER TABLE projects ADD COLUMN default_agent_profile_id TEXT REFERENCES agent_profiles(id) ON DELETE SET NULL;
+ALTER TABLE projects ADD COLUMN promoted_comparison_id TEXT REFERENCES evaluation_comparisons(id) ON DELETE SET NULL;
+ALTER TABLE projects ADD COLUMN profile_promoted_at TEXT;
+"""
+
 MIGRATIONS = {
     1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3, 4: MIGRATION_4,
     5: MIGRATION_5, 6: MIGRATION_6, 7: MIGRATION_7, 8: MIGRATION_8,
+    9: MIGRATION_9,
 }
 
 
@@ -450,6 +457,48 @@ class DomainStore:
     def get_project(self, project_id: str) -> dict:
         with self._connect() as connection:
             return self._one(connection, "SELECT * FROM projects WHERE id=?", (project_id,), "Project")
+
+    def promote_project_agent_profile(
+        self, project_id: str, *, comparison_id: str,
+    ) -> dict:
+        """Set the measured default and retain the comparison that authorized it."""
+        with self.transaction(immediate=True) as connection:
+            project = self._one(
+                connection, "SELECT * FROM projects WHERE id=?", (project_id,), "Project"
+            )
+            if project["archived_at"] is not None:
+                raise Conflict("archive된 Project의 기본 AgentProfile은 바꿀 수 없습니다")
+            comparison = self._one(
+                connection, "SELECT * FROM evaluation_comparisons WHERE id=?",
+                (comparison_id,), "EvaluationComparison",
+            )
+            verdict = json.loads(comparison["result_json"]).get("verdict")
+            if verdict not in {"improved", "equivalent"}:
+                raise Conflict(
+                    f"improved/equivalent 비교만 기본값으로 승격할 수 있습니다: {verdict}"
+                )
+            candidate = self._one(
+                connection, "SELECT * FROM evaluation_experiments WHERE id=?",
+                (comparison["candidate_experiment_id"],), "EvaluationExperiment",
+            )
+            agent_profile_id = candidate["agent_profile_id"]
+            if not agent_profile_id:
+                raise Conflict(
+                    "실행한 AgentProfile과 연결된 candidate만 기본값으로 승격할 수 있습니다"
+                )
+            profile = self._one(
+                connection, "SELECT * FROM agent_profiles WHERE id=?",
+                (agent_profile_id,), "AgentProfile",
+            )
+            if profile["archived_at"] is not None:
+                raise Conflict("archive된 AgentProfile은 기본값으로 승격할 수 없습니다")
+            now = _now()
+            connection.execute(
+                "UPDATE projects SET default_agent_profile_id=?,promoted_comparison_id=?,"
+                "profile_promoted_at=?,updated_at=? WHERE id=?",
+                (agent_profile_id, comparison_id, now, now, project_id),
+            )
+        return self.get_project(project_id)
 
     def list_projects(self, *, include_archived: bool = False) -> list[dict]:
         where = "" if include_archived else "WHERE archived_at IS NULL"

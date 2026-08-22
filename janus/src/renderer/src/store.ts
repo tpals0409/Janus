@@ -183,6 +183,7 @@ interface State {
   compareEvaluations(input: {
     baseline_id: string; candidate_id: string; thresholds: Record<string, number>
   }): Promise<void>
+  promoteEvaluation(comparisonId: string): Promise<void>
   exportEvaluation(id: string, format: 'json' | 'csv' | 'markdown'): Promise<void>
   archiveWorkspace(force?: boolean): Promise<void>
   deleteWorkspaceBranch(): Promise<void>
@@ -384,6 +385,8 @@ export const useStore = create<State>((set, get) => ({
 
   async selectProject(id) {
     const sequence = ++openProjectSequence
+    const projectDefault = get().projects.find((project) => project.id === id)
+      ?.default_agent_profile_id
     get().taskWs?.close()
     set({
       projectId: id,
@@ -403,8 +406,10 @@ export const useStore = create<State>((set, get) => ({
       review: null,
       shipments: [],
       shipHandoff: null,
-      taskActionError: null
+      taskActionError: null,
+      ...(projectDefault ? { selectedAgentProfileId: projectDefault } : {})
     })
+    if (projectDefault) localStorage.setItem('janus.agentProfile', projectDefault)
     try {
       const tasks = (await apiJson(`${BASE}/projects/${id}/tasks`)) as Task[]
       if (sequence !== openProjectSequence) return
@@ -807,6 +812,32 @@ export const useStore = create<State>((set, get) => ({
         body: JSON.stringify(input)
       })
       await get().loadEvaluations()
+    } catch (error) {
+      set({ evaluationError: errorMessage(error) })
+    } finally {
+      set({ evaluationBusy: false })
+    }
+  },
+
+  async promoteEvaluation(comparisonId) {
+    const projectId = get().projectId
+    if (!projectId) {
+      set({ evaluationError: 'Select a Project before promoting a profile.' })
+      return
+    }
+    set({ evaluationBusy: true, evaluationError: null })
+    try {
+      const result = await apiJson(`${BASE}/projects/${projectId}/agent-profile/promote`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comparison_id: comparisonId })
+      }) as { project: Project; agent_profile: AgentProfile }
+      set((state) => ({
+        projects: state.projects.map((project) =>
+          project.id === result.project.id ? result.project : project
+        ),
+        selectedAgentProfileId: result.agent_profile.id
+      }))
+      localStorage.setItem('janus.agentProfile', result.agent_profile.id)
     } catch (error) {
       set({ evaluationError: errorMessage(error) })
     } finally {

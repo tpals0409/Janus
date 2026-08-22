@@ -290,7 +290,7 @@ Janus가 Task 특성과 현재 자원 상태에 따라 worker 수, 컨텍스트,
 - [x] worker 사용이 없는 baseline 대비 개선 또는 악화가 자동 판정된다.
 - [x] prompt/profile 변경이 acceptance를 악화시키면 regression으로 표시된다.
 - [x] 모든 결과에 hardware, model, quantization, budget 조건이 기록된다.
-- [ ] 선택한 정책이 실제 Task 실행의 기본 AgentProfile로 승격된다.
+- [x] 선택한 정책이 실제 Task 실행의 기본 AgentProfile로 승격된다.
 - [ ] 10개 Task의 queue와 attention 상태를 각 화면에 들어가지 않고 감독할 수 있다.
 
 ---
