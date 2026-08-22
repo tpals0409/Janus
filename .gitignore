@@ -14,3 +14,4 @@ out/
 /janus_server/janus_server/workspace/
 # 실행 기록 — 로컬 산출물, 커밋 안 함
 /janus_server/janus_server/runs/
+/.serena/

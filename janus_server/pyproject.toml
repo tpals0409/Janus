@@ -14,5 +14,12 @@ dependencies = [
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
     "websockets>=16.1.1",
 ]
+
+[tool.pytest.ini_options]
+# 패키지를 설치하지 않고 리포에서 바로 테스트를 돌린다 (uv init --bare 프로젝트)
+pythonpath = ["."]
+asyncio_mode = "auto"
