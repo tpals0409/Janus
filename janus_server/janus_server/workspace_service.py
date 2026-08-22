@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 import subprocess
+import hashlib
+import json
 from datetime import datetime, timezone
 from collections.abc import Callable
 from pathlib import Path
@@ -346,6 +348,16 @@ class WorkspaceService:
             })
 
         status = self.inspect(repo, root)
+        revision_payload = {
+            "base_commit": base_commit, "head_commit": head_commit,
+            "sections": sections, "unmerged": status["unmerged"],
+        }
+        revision = hashlib.sha256(
+            json.dumps(
+                revision_payload, sort_keys=True, ensure_ascii=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
         return {
             "source": "git",
             "derived_at": datetime.now(timezone.utc).isoformat(),
@@ -353,6 +365,7 @@ class WorkspaceService:
             "base_commit": base_commit,
             "merge_base": merge_base,
             "head_commit": head_commit,
+            "revision": revision,
             "branch_name": registered.get("branch_name"),
             "sections": sections,
             "counts": {name: len(items) for name, items in sections.items()},
@@ -383,6 +396,23 @@ class WorkspaceService:
             "removed": True,
             "branch_name": status.get("branch_name"),
             "branch_preserved": self._branch_exists(repo, str(status.get("branch_name"))),
+        }
+
+    def discard_changes(self, *, repo_path: str | Path, root_path: str | Path) -> dict:
+        """Discard only a registered Janus worktree; never erase an unmerged state."""
+        repo = Path(self.validate_repo(repo_path, "HEAD")["repo_path"])
+        root = self._owned_root(root_path)
+        status = self.inspect(repo, root)
+        if status["unmerged"]:
+            raise UnsafeWorkspace(
+                "unmerged 변경은 자동 discard하지 않습니다. 충돌을 먼저 해결하세요"
+            )
+        self._git(root, "reset", "--hard", "HEAD")
+        self._git(root, "clean", "-fd")
+        refreshed = self.inspect(repo, root)
+        return {
+            "discarded": status["dirty"], "clean": not refreshed["dirty"],
+            "branch_name": status.get("branch_name"),
         }
 
     def force_remove(self, *, repo_path: str | Path, root_path: str | Path) -> dict:

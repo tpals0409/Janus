@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type {
   AgentEvent, AgentProfile, AgentSessionDetail, AgentSummary, ApprovalRequest, ChangeSet,
   BackendStatus, ModelProfile, Project, RunDetail, RunSummary, SessionEvent, Span,
-  Spec, Task, ToolInfo, TreeEntry, VerificationCommand, VerificationRun,
+  ReviewSnapshot, Spec, Task, ToolInfo, TreeEntry, VerificationCommand, VerificationRun,
   WorkspaceInspection
 } from './types'
 
@@ -80,6 +80,7 @@ interface State {
   changeSet: ChangeSet | null
   verificationRuns: VerificationRun[]
   verificationBusy: boolean
+  review: ReviewSnapshot | null
   taskBusy: boolean
   taskActionError: string | null
   taskSession: AgentSessionDetail | null
@@ -150,6 +151,16 @@ interface State {
   setProjectVerificationCommands(commands: VerificationCommand[]): Promise<void>
   runVerifications(): Promise<void>
   rerunVerification(id: string): Promise<void>
+  loadReview(): Promise<void>
+  addReviewComment(input: {
+    revision: string; layer: string; file_path: string; old_line: number | null
+    new_line: number | null; hunk_header: string | null; body: string
+  }): Promise<void>
+  resolveReviewComment(id: string, resolved: boolean): Promise<void>
+  decideReview(input: {
+    decision: 'accept' | 'request_changes' | 'discard'; message?: string
+    confirm_workspace_id?: string; confirm_discard?: string
+  }): Promise<void>
   archiveWorkspace(force?: boolean): Promise<void>
   deleteWorkspaceBranch(): Promise<void>
   archiveSelectedTask(): Promise<void>
@@ -222,6 +233,7 @@ export const useStore = create<State>((set, get) => ({
   changeSet: null,
   verificationRuns: [],
   verificationBusy: false,
+  review: null,
   taskBusy: false,
   taskActionError: null,
   taskSession: null,
@@ -359,6 +371,7 @@ export const useStore = create<State>((set, get) => ({
       workspaceInspection: null,
       changeSet: null,
       verificationRuns: [],
+      review: null,
       taskActionError: null
     })
     try {
@@ -381,6 +394,7 @@ export const useStore = create<State>((set, get) => ({
       workspaceInspection: null,
       changeSet: null,
       verificationRuns: [],
+      review: null,
       taskActionError: null,
       taskSession: null,
       taskSessionEvents: [],
@@ -396,6 +410,7 @@ export const useStore = create<State>((set, get) => ({
       set({ task })
       await get().loadLatestTaskSession()
       await get().loadVerifications()
+      if (task.workspace?.state === 'ready') await get().loadReview()
       if (task.workspace?.state === 'ready') await get().inspectWorkspace()
     } catch (error) {
       if (sequence === openTaskSequence) set({ taskActionError: errorMessage(error) })
@@ -514,6 +529,7 @@ export const useStore = create<State>((set, get) => ({
         apiJson(`${BASE}/tasks/${taskId}/changeset`) as Promise<ChangeSet>
       ])
       if (get().taskId === taskId) set({ workspaceInspection: inspection, changeSet })
+      if (get().taskId === taskId) await get().loadReview()
     } catch (error) {
       if (get().taskId === taskId) set({ taskActionError: errorMessage(error) })
     }
@@ -576,6 +592,65 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
+  async loadReview() {
+    const taskId = get().taskId
+    if (!taskId) return
+    try {
+      const review = await apiJson(`${BASE}/tasks/${taskId}/review`) as ReviewSnapshot
+      if (get().taskId === taskId) set({ review })
+    } catch (error) {
+      if (get().taskId === taskId) set({ taskActionError: errorMessage(error) })
+    }
+  },
+
+  async addReviewComment(input) {
+    const taskId = get().taskId
+    if (!taskId) return
+    set({ taskActionError: null })
+    try {
+      await apiJson(`${BASE}/tasks/${taskId}/review/comments`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input)
+      })
+      await get().loadReview()
+    } catch (error) {
+      set({ taskActionError: errorMessage(error) })
+    }
+  },
+
+  async resolveReviewComment(id, resolved) {
+    try {
+      await apiJson(`${BASE}/review/comments/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resolved })
+      })
+      await get().loadReview()
+    } catch (error) {
+      set({ taskActionError: errorMessage(error) })
+    }
+  },
+
+  async decideReview(input) {
+    const taskId = get().taskId
+    const revision = get().changeSet?.revision
+    if (!taskId || !revision) return
+    set({ taskBusy: true, taskActionError: null })
+    try {
+      const unresolved = get().review?.comments
+        .filter((item) => !item.resolved_at).map((item) => item.id) ?? []
+      await apiJson(`${BASE}/tasks/${taskId}/review/decision`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...input, revision, comment_ids: unresolved })
+      })
+      await get().refreshSelectedTask()
+      await get().loadReview()
+    } catch (error) {
+      set({ taskActionError: errorMessage(error) })
+    } finally {
+      set({ taskBusy: false })
+    }
+  },
+
   async archiveWorkspace(force = false) {
     const task = get().task
     const workspace = task?.workspace
@@ -590,7 +665,7 @@ export const useStore = create<State>((set, get) => ({
           body: JSON.stringify({ confirm_workspace_id: workspace.id })
         }
       )
-      set({ workspaceInspection: null, changeSet: null, verificationRuns: [] })
+      set({ workspaceInspection: null, changeSet: null, verificationRuns: [], review: null })
       await get().refreshSelectedTask()
     } catch (error) {
       set({ taskActionError: errorMessage(error) })
@@ -626,7 +701,7 @@ export const useStore = create<State>((set, get) => ({
     try {
       await apiJson(`${BASE}/tasks/${taskId}`, { method: 'DELETE' })
       const tasks = (await apiJson(`${BASE}/projects/${projectId}/tasks`)) as Task[]
-      set({ tasks, taskId: null, task: null, workspaceInspection: null, changeSet: null, verificationRuns: [] })
+      set({ tasks, taskId: null, task: null, workspaceInspection: null, changeSet: null, verificationRuns: [], review: null })
       if (tasks[0]) await get().selectTask(tasks[0].id)
     } catch (error) {
       set({ taskActionError: errorMessage(error) })

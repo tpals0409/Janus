@@ -148,6 +148,92 @@ class VerificationApiTests(unittest.TestCase):
         self.assertEqual("failed", repeated["status"])
         self.assertIsNone(repeated["agent_claim"])
 
+    def test_review_comments_batch_decisions_stale_guard_accept_and_discard(self):
+        workspace = self.client.get(
+            f"/tasks/{self.task_id}/workspace", headers=self.headers
+        ).json()
+        root = Path(workspace["root_path"])
+        changed = root / "review.txt"
+        changed.write_text("one\ntwo\n", encoding="utf-8")
+        change_set = self.client.get(
+            f"/tasks/{self.task_id}/changeset", headers=self.headers
+        ).json()
+        revision = change_set["revision"]
+
+        first = self.client.post(
+            f"/tasks/{self.task_id}/review/comments", headers=self.headers, json={
+                "revision": revision, "layer": "untracked", "file_path": "review.txt",
+                "new_line": 1, "hunk_header": "@@ -0,0 +1,2 @@", "body": "Rename this",
+            },
+        )
+        self.assertEqual(200, first.status_code, first.text)
+        second = self.client.post(
+            f"/tasks/{self.task_id}/review/comments", headers=self.headers, json={
+                "revision": revision, "layer": "untracked", "file_path": "review.txt",
+                "new_line": 2, "hunk_header": "@@ -0,0 +1,2 @@", "body": "Add a test",
+            },
+        )
+        self.assertEqual(200, second.status_code, second.text)
+
+        changed.write_text("one\ntwo\nthree\n", encoding="utf-8")
+        stale = self.client.post(
+            f"/tasks/{self.task_id}/review/comments", headers=self.headers, json={
+                "revision": revision, "layer": "untracked", "file_path": "review.txt",
+                "new_line": 3, "body": "stale",
+            },
+        )
+        self.assertEqual(409, stale.status_code)
+        refreshed = self.client.get(
+            f"/tasks/{self.task_id}/changeset", headers=self.headers
+        ).json()
+        self.assertNotEqual(revision, refreshed["revision"])
+
+        requested = self.client.post(
+            f"/tasks/{self.task_id}/review/decision", headers=self.headers, json={
+                "revision": refreshed["revision"], "decision": "request_changes",
+                "comment_ids": [first.json()["id"], second.json()["id"]],
+                "message": "Address both comments",
+            },
+        )
+        self.assertEqual(200, requested.status_code, requested.text)
+        self.assertEqual("working", requested.json()["task"]["status"])
+        self.assertEqual(2, len(requested.json()["decision"]["comment_ids"]))
+
+        for comment in (first.json(), second.json()):
+            resolved = self.client.patch(
+                f"/review/comments/{comment['id']}", headers=self.headers,
+                json={"resolved": True},
+            )
+            self.assertIsNotNone(resolved.json()["resolved_at"])
+
+        self.client.post(
+            f"/tasks/{self.task_id}/verifications", headers=self.headers, json={}
+        )
+        self._wait_runs(1)
+        accepted = self.client.post(
+            f"/tasks/{self.task_id}/review/decision", headers=self.headers, json={
+                "revision": refreshed["revision"], "decision": "accept",
+            },
+        )
+        self.assertEqual(200, accepted.status_code, accepted.text)
+        self.assertEqual("review", accepted.json()["task"]["status"])
+
+        (root / "discard-me.txt").write_text("temporary\n", encoding="utf-8")
+        discard_revision = self.client.get(
+            f"/tasks/{self.task_id}/changeset", headers=self.headers
+        ).json()["revision"]
+        discarded = self.client.post(
+            f"/tasks/{self.task_id}/review/decision", headers=self.headers, json={
+                "revision": discard_revision, "decision": "discard",
+                "confirm_workspace_id": workspace["id"],
+                "confirm_discard": self.task_id,
+            },
+        )
+        self.assertEqual(200, discarded.status_code, discarded.text)
+        self.assertEqual("todo", discarded.json()["task"]["status"])
+        self.assertFalse((root / "review.txt").exists())
+        self.assertFalse((root / "discard-me.txt").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

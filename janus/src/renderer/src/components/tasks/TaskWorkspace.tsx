@@ -749,17 +749,54 @@ function TaskRuntimeCard({ task }: { task: Task }) {
 
 const CHANGE_LAYERS: ChangeLayer[] = ['committed', 'staged', 'unstaged', 'untracked']
 
+function diffLines(diff: string | null) {
+  let oldLine = 0
+  let newLine = 0
+  let hunk: string | null = null
+  return (diff ?? '').split('\n').map((text, index) => {
+    const header = text.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
+    if (header) {
+      oldLine = Number(header[1])
+      newLine = Number(header[2])
+      hunk = text
+      return { index, text, oldLine: null, newLine: null, hunk, header: true }
+    }
+    if (text.startsWith('+') && !text.startsWith('+++')) {
+      return { index, text, oldLine: null, newLine: newLine++, hunk, header: false }
+    }
+    if (text.startsWith('-') && !text.startsWith('---')) {
+      return { index, text, oldLine: oldLine++, newLine: null, hunk, header: false }
+    }
+    if (text.startsWith(' ')) {
+      return { index, text, oldLine: oldLine++, newLine: newLine++, hunk, header: false }
+    }
+    return { index, text, oldLine: null, newLine: null, hunk, header: false }
+  })
+}
+
 function ChangeSetCard() {
   const changeSet = useStore((state) => state.changeSet)
   const refresh = useStore((state) => state.inspectWorkspace)
   const [layer, setLayer] = useState<ChangeLayer>('unstaged')
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  const [commentLine, setCommentLine] = useState<ReturnType<typeof diffLines>[number] | null>(null)
+  const [commentBody, setCommentBody] = useState('')
+  const review = useStore((state) => state.review)
+  const addComment = useStore((state) => state.addReviewComment)
+  const resolveComment = useStore((state) => state.resolveReviewComment)
   const files = changeSet?.sections[layer] ?? []
   const selected: ChangeSetFile | undefined =
     files.find((item) => item.path === selectedPath) ?? files[0]
+  const lines = useMemo(() => diffLines(selected?.diff ?? null), [selected?.diff])
+  const hunks = lines.filter((item) => item.header)
+  const comments = review?.comments.filter(
+    (item) => item.layer === layer && item.file_path === selected?.path
+  ) ?? []
 
   useEffect(() => {
     setSelectedPath(null)
+    setCommentLine(null)
+    setCommentBody('')
   }, [layer, changeSet?.head_commit, changeSet?.derived_at])
 
   if (!changeSet) return null
@@ -823,9 +860,83 @@ function ChangeSetCard() {
                 {selected.large && (
                   <div className="mb-2 text-[10px] text-warn">Large diff · preview truncated</div>
                 )}
-                <pre className="whitespace-pre-wrap break-words font-mono text-[9.5px] leading-4 text-muted">
-                  {selected.diff || 'No textual diff.'}
-                </pre>
+                {hunks.length > 0 && (
+                  <div className="sticky top-0 z-10 mb-2 flex gap-1 bg-[#08080d] pb-2">
+                    {hunks.map((item, index) => (
+                      <button
+                        key={item.index}
+                        onClick={() => document.getElementById(`diff-${layer}-${item.index}`)?.scrollIntoView({ block: 'nearest' })}
+                        className="rounded border border-border px-1.5 py-0.5 font-mono text-[8.5px] text-faint hover:text-fg"
+                      >
+                        Hunk {index + 1}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="min-w-max font-mono text-[9.5px] leading-4 text-muted">
+                  {lines.map((item) => (
+                    <button
+                      id={`diff-${layer}-${item.index}`}
+                      key={item.index}
+                      onClick={() => {
+                        if (item.oldLine || item.newLine) setCommentLine(item)
+                      }}
+                      className="block w-full whitespace-pre text-left hover:bg-[#ffffff0a]"
+                      style={{
+                        color: item.text.startsWith('+') ? 'var(--color-ok)'
+                          : item.text.startsWith('-') ? 'var(--color-danger)' : undefined
+                      }}
+                    >
+                      <span className="mr-3 inline-block w-16 select-none text-right text-faint">
+                        {item.oldLine ?? '·'} {item.newLine ?? '·'}
+                      </span>{item.text || ' '}
+                    </button>
+                  ))}
+                </div>
+                {commentLine && (
+                  <div className="sticky bottom-0 mt-3 flex gap-2 border border-accent/40 bg-panel p-2">
+                    <input
+                      autoFocus value={commentBody}
+                      onChange={(event) => setCommentBody(event.target.value)}
+                      placeholder={`Comment on line ${commentLine.newLine ?? commentLine.oldLine}`}
+                      className="task-input mt-0 min-w-0 flex-1"
+                    />
+                    <button
+                      disabled={!commentBody.trim()}
+                      onClick={async () => {
+                        await addComment({
+                          revision: changeSet.revision, layer, file_path: selected.path,
+                          old_line: commentLine.oldLine, new_line: commentLine.newLine,
+                          hunk_header: commentLine.hunk, body: commentBody.trim()
+                        })
+                        setCommentLine(null)
+                        setCommentBody('')
+                      }}
+                      className="task-primary-action"
+                    >
+                      <MessageSquare size={11} /> Add
+                    </button>
+                    <button onClick={() => setCommentLine(null)} className="task-quiet-action">Cancel</button>
+                  </div>
+                )}
+                {comments.length > 0 && (
+                  <div className="mt-3 space-y-1 border-t border-border pt-2">
+                    {comments.map((comment) => (
+                      <div key={comment.id} className="flex items-center gap-2 rounded bg-panel px-2 py-1.5 text-[9.5px]">
+                        <span className="font-mono text-faint">L{comment.new_line ?? comment.old_line}</span>
+                        <span className={comment.resolved_at ? 'flex-1 line-through text-faint' : 'flex-1 text-fg'}>
+                          {comment.body}
+                        </span>
+                        <button
+                          onClick={() => void resolveComment(comment.id, !comment.resolved_at)}
+                          className="task-quiet-action"
+                        >
+                          {comment.resolved_at ? 'Reopen' : 'Resolve'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </>
             )
           ) : (
@@ -949,6 +1060,75 @@ function VerificationCard({ task }: { task: Task }) {
   )
 }
 
+function ReviewDecisionCard({ task }: { task: Task }) {
+  const review = useStore((state) => state.review)
+  const decide = useStore((state) => state.decideReview)
+  const busy = useStore((state) => state.taskBusy)
+  const [message, setMessage] = useState('')
+  const unresolved = review?.comments.filter((item) => !item.resolved_at) ?? []
+  const unmerged = review?.unmerged.length ?? 0
+
+  return (
+    <section className="task-card border-accent/30">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="task-label">Review decision</div>
+          <h3 className="mt-1 text-[14px] font-semibold">
+            {unresolved.length} unresolved · {unmerged} unmerged
+          </h3>
+          <p className="mt-1 text-[10.5px] text-faint">
+            Accept is gated by the current revision's independent verification.
+          </p>
+        </div>
+        <span className="font-mono text-[9px] text-faint">{review?.revision.slice(0, 10) ?? 'loading'}</span>
+      </div>
+      <textarea
+        value={message}
+        onChange={(event) => setMessage(event.target.value)}
+        placeholder="Batch revision instructions"
+        rows={2}
+        className="task-input mt-3 resize-none"
+      />
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          onClick={() => void decide({ decision: 'accept', message })}
+          disabled={busy || unresolved.length > 0 || unmerged > 0}
+          className="task-primary-action"
+        >
+          <Check size={11} /> Accept
+        </button>
+        <button
+          onClick={() => void decide({ decision: 'request_changes', message })}
+          disabled={busy || unresolved.length === 0 || unmerged > 0}
+          className="task-quiet-action"
+        >
+          <MessageSquare size={11} /> Request changes ({unresolved.length})
+        </button>
+        <button
+          onClick={() => {
+            const confirmation = window.prompt(`Type the Task ID to discard all uncommitted changes:\n${task.id}`)
+            if (confirmation !== task.id || !task.workspace) return
+            void decide({
+              decision: 'discard', message,
+              confirm_workspace_id: task.workspace.id, confirm_discard: confirmation
+            })
+          }}
+          disabled={busy || unmerged > 0}
+          className="task-danger-link ml-auto"
+          title={unmerged ? 'Resolve unmerged changes manually first' : 'Discard uncommitted changes'}
+        >
+          <X size={11} /> Discard changes…
+        </button>
+      </div>
+      {review?.decisions.length ? (
+        <div className="mt-3 border-t border-border pt-2 text-[9.5px] text-faint">
+          Latest: {review.decisions[review.decisions.length - 1].decision.replace('_', ' ')}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
 function TaskDetail({ task }: { task: Task }) {
   const archiveTask = useStore((state) => state.archiveSelectedTask)
   const busy = useStore((state) => state.taskBusy)
@@ -1006,6 +1186,7 @@ function TaskDetail({ task }: { task: Task }) {
             <WorkspaceCard task={task} />
             {task.workspace?.state === 'ready' && <ChangeSetCard />}
             {task.workspace?.state === 'ready' && <VerificationCard task={task} />}
+            {task.workspace?.state === 'ready' && <ReviewDecisionCard task={task} />}
           </div>
 
           <aside className="space-y-4">

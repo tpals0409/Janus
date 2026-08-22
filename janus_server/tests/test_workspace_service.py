@@ -135,6 +135,8 @@ class WorkspaceServiceTests(unittest.TestCase):
         status = self.service.inspect(self.repo, two_root)
         self.assertTrue(status["dirty"])
         self.assertTrue(status["unmerged"])
+        with self.assertRaises(UnsafeWorkspace):
+            self.service.discard_changes(repo_path=self.repo, root_path=two_root)
         forced = self.service.force_remove(repo_path=self.repo, root_path=two_root)
         self.assertTrue(forced["removed"])
         self.assertTrue(forced["branch_preserved"])

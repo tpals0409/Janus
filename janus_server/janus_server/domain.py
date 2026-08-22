@@ -17,14 +17,14 @@ from typing import Any
 
 from .budget import empty_usage, merge_budget, normalize_budget
 
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 
 TASK_STATUSES = frozenset({"todo", "preparing", "working", "needs_you", "review", "failed"})
 TASK_TRANSITIONS = {
-    "todo": {"preparing", "working"},
+    "todo": {"preparing", "working", "review"},
     "preparing": {"todo", "working", "failed"},
     "working": {"todo", "needs_you", "review", "failed"},
-    "needs_you": {"working", "failed"},
+    "needs_you": {"todo", "working", "review", "failed"},
     "review": {"working", "todo"},
     "failed": {"todo", "preparing", "working"},
 }
@@ -245,7 +245,40 @@ CREATE INDEX idx_verification_runs_task_created
 ON verification_runs(task_id, created_at DESC);
 """
 
-MIGRATIONS = {1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3, 4: MIGRATION_4}
+MIGRATION_5 = """
+ALTER TABLE verification_runs ADD COLUMN revision TEXT NOT NULL DEFAULT '';
+
+CREATE TABLE review_comments (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    revision TEXT NOT NULL,
+    layer TEXT NOT NULL CHECK(layer IN ('committed','staged','unstaged','untracked')),
+    file_path TEXT NOT NULL,
+    old_line INTEGER,
+    new_line INTEGER,
+    hunk_header TEXT,
+    body TEXT NOT NULL CHECK(length(trim(body)) > 0),
+    created_at TEXT NOT NULL,
+    resolved_at TEXT
+);
+CREATE INDEX idx_review_comments_task ON review_comments(task_id, created_at);
+
+CREATE TABLE review_decisions (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    revision TEXT NOT NULL,
+    decision TEXT NOT NULL CHECK(decision IN ('accept','request_changes','discard')),
+    comment_ids_json TEXT NOT NULL DEFAULT '[]',
+    message TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX idx_review_decisions_task ON review_decisions(task_id, created_at);
+"""
+
+MIGRATIONS = {
+    1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3, 4: MIGRATION_4,
+    5: MIGRATION_5,
+}
 
 
 class DomainStore:
@@ -389,7 +422,7 @@ class DomainStore:
 
     def create_verification_run(
         self, *, task_id: str, kind: str, command: str, trigger: str,
-        head_commit: str, dispatch_id: str | None = None,
+        head_commit: str, revision: str, dispatch_id: str | None = None,
         agent_claim: str | None = None, run_id: str | None = None,
     ) -> dict:
         run_id = run_id or _id("verification")
@@ -399,9 +432,10 @@ class DomainStore:
                 self._one(connection, "SELECT * FROM tasks WHERE id=?", (task_id,), "Task")
                 connection.execute(
                     "INSERT INTO verification_runs(id,task_id,dispatch_id,kind,command,trigger,"
-                    "agent_claim,status,head_commit,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    "agent_claim,status,head_commit,revision,created_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (run_id, task_id, dispatch_id, kind, command.strip(), trigger,
-                     agent_claim, "queued", head_commit, now),
+                     agent_claim, "queued", head_commit, revision, now),
                 )
         except sqlite3.IntegrityError as error:
             raise Conflict(f"Verification run 생성 충돌: {error}") from error
@@ -457,6 +491,93 @@ class DomainStore:
                  error, _now(), run_id),
             )
         return self.get_verification_run(run_id)
+
+    def create_review_comment(
+        self, *, task_id: str, revision: str, layer: str, file_path: str,
+        body: str, old_line: int | None = None, new_line: int | None = None,
+        hunk_header: str | None = None, comment_id: str | None = None,
+    ) -> dict:
+        comment_id = comment_id or _id("comment")
+        try:
+            with self.transaction(immediate=True) as connection:
+                self._one(connection, "SELECT * FROM tasks WHERE id=?", (task_id,), "Task")
+                connection.execute(
+                    "INSERT INTO review_comments(id,task_id,revision,layer,file_path,old_line,"
+                    "new_line,hunk_header,body,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (comment_id, task_id, revision, layer, file_path, old_line, new_line,
+                     hunk_header, body.strip(), _now()),
+                )
+        except sqlite3.IntegrityError as error:
+            raise Conflict(f"Review comment 생성 충돌: {error}") from error
+        return self.get_review_comment(comment_id)
+
+    def get_review_comment(self, comment_id: str) -> dict:
+        with self._connect() as connection:
+            return self._one(
+                connection, "SELECT * FROM review_comments WHERE id=?",
+                (comment_id,), "ReviewComment",
+            )
+
+    def list_review_comments(self, task_id: str) -> list[dict]:
+        with self._connect() as connection:
+            return [dict(row) for row in connection.execute(
+                "SELECT * FROM review_comments WHERE task_id=? ORDER BY created_at,id",
+                (task_id,),
+            )]
+
+    def resolve_review_comment(self, comment_id: str, *, resolved: bool) -> dict:
+        with self.transaction(immediate=True) as connection:
+            self._one(
+                connection, "SELECT * FROM review_comments WHERE id=?",
+                (comment_id,), "ReviewComment",
+            )
+            connection.execute(
+                "UPDATE review_comments SET resolved_at=? WHERE id=?",
+                (_now() if resolved else None, comment_id),
+            )
+        return self.get_review_comment(comment_id)
+
+    def create_review_decision(
+        self, *, task_id: str, revision: str, decision: str,
+        comment_ids: list[str], message: str = "", decision_id: str | None = None,
+    ) -> dict:
+        decision_id = decision_id or _id("decision")
+        try:
+            with self.transaction(immediate=True) as connection:
+                self._one(connection, "SELECT * FROM tasks WHERE id=?", (task_id,), "Task")
+                if comment_ids:
+                    marks = ",".join("?" for _ in comment_ids)
+                    rows = connection.execute(
+                        f"SELECT id FROM review_comments WHERE task_id=? AND id IN ({marks})",
+                        (task_id, *comment_ids),
+                    ).fetchall()
+                    if len(rows) != len(set(comment_ids)):
+                        raise Conflict("다른 Task이거나 없는 review comment가 있습니다")
+                connection.execute(
+                    "INSERT INTO review_decisions(id,task_id,revision,decision,"
+                    "comment_ids_json,message,created_at) VALUES (?,?,?,?,?,?,?)",
+                    (decision_id, task_id, revision, decision, _json(comment_ids),
+                     message.strip(), _now()),
+                )
+        except sqlite3.IntegrityError as error:
+            raise Conflict(f"Review decision 생성 충돌: {error}") from error
+        with self._connect() as connection:
+            item = self._one(
+                connection, "SELECT * FROM review_decisions WHERE id=?",
+                (decision_id,), "ReviewDecision",
+            )
+        item["comment_ids"] = json.loads(item.pop("comment_ids_json"))
+        return item
+
+    def list_review_decisions(self, task_id: str) -> list[dict]:
+        with self._connect() as connection:
+            rows = [dict(row) for row in connection.execute(
+                "SELECT * FROM review_decisions WHERE task_id=? ORDER BY created_at,id",
+                (task_id,),
+            )]
+        for item in rows:
+            item["comment_ids"] = json.loads(item.pop("comment_ids_json"))
+        return rows
 
     def archive_project(self, project_id: str) -> dict:
         now = _now()

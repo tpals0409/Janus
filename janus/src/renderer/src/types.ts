@@ -26,6 +26,7 @@ export interface VerificationRun extends VerificationCommand {
   agent_claim: 'passed' | 'failed' | 'unknown' | null
   status: 'queued' | 'running' | 'passed' | 'failed' | 'error' | 'cancelled'
   head_commit: string
+  revision: string
   exit_code: number | null
   stdout: string
   stderr: string
@@ -176,11 +177,44 @@ export interface ChangeSet {
   base_commit: string
   merge_base: string
   head_commit: string
+  revision: string
   branch_name: string | null
   sections: Record<ChangeLayer, ChangeSetFile[]>
   counts: Record<ChangeLayer, number>
   dirty: boolean
   unmerged: string[]
+}
+
+export interface ReviewComment {
+  id: string
+  task_id: string
+  revision: string
+  layer: ChangeLayer
+  file_path: string
+  old_line: number | null
+  new_line: number | null
+  hunk_header: string | null
+  body: string
+  created_at: string
+  resolved_at: string | null
+}
+
+export interface ReviewDecision {
+  id: string
+  task_id: string
+  revision: string
+  decision: 'accept' | 'request_changes' | 'discard'
+  comment_ids: string[]
+  message: string
+  created_at: string
+}
+
+export interface ReviewSnapshot {
+  task_status: TaskStatus
+  revision: string
+  unmerged: string[]
+  comments: ReviewComment[]
+  decisions: ReviewDecision[]
 }
 
 /** 에이전트 = 오케스트레이터 1개의 평평한 설정. 워커는 런타임에 만들어져 트레이스에만 존재한다. */
