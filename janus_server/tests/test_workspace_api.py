@@ -211,6 +211,30 @@ class WorkspaceApiTests(unittest.TestCase):
             release.set()
             self.wait_workspace(task["id"], "ready")
 
+    def test_changeset_endpoint_reads_current_git_state(self):
+        task = self.create_task(title="Review changes")
+        self.client.post(
+            f"/tasks/{task['id']}/workspace/prepare", headers=self.headers
+        )
+        ready = self.wait_workspace(task["id"], "ready")
+        root = Path(ready["root_path"])
+        (root / "first.txt").write_text("first\n", encoding="utf-8")
+
+        first = self.client.get(
+            f"/tasks/{task['id']}/changeset", headers=self.headers
+        )
+        self.assertEqual(200, first.status_code, first.text)
+        self.assertEqual(["first.txt"], [
+            item["path"] for item in first.json()["sections"]["untracked"]
+        ])
+
+        (root / "second.txt").write_text("second\n", encoding="utf-8")
+        second = self.client.get(
+            f"/tasks/{task['id']}/changeset", headers=self.headers
+        )
+        self.assertEqual(2, second.json()["counts"]["untracked"])
+        self.assert_main_unchanged()
+
 
 if __name__ == "__main__":
     unittest.main()

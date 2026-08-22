@@ -21,7 +21,7 @@ import {
   X
 } from 'lucide-react'
 import { useStore } from '../../store'
-import type { Project, Task, TaskStatus } from '../../types'
+import type { ChangeLayer, ChangeSetFile, Project, Task, TaskStatus } from '../../types'
 
 const STATUS: Record<TaskStatus, { label: string; color: string; short: string }> = {
   todo: { label: 'Todo', color: 'var(--color-muted)', short: 'TO' },
@@ -747,6 +747,96 @@ function TaskRuntimeCard({ task }: { task: Task }) {
   )
 }
 
+const CHANGE_LAYERS: ChangeLayer[] = ['committed', 'staged', 'unstaged', 'untracked']
+
+function ChangeSetCard() {
+  const changeSet = useStore((state) => state.changeSet)
+  const refresh = useStore((state) => state.inspectWorkspace)
+  const [layer, setLayer] = useState<ChangeLayer>('unstaged')
+  const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  const files = changeSet?.sections[layer] ?? []
+  const selected: ChangeSetFile | undefined =
+    files.find((item) => item.path === selectedPath) ?? files[0]
+
+  useEffect(() => {
+    setSelectedPath(null)
+  }, [layer, changeSet?.head_commit, changeSet?.derived_at])
+
+  if (!changeSet) return null
+  return (
+    <section className="task-card">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="task-label">Git ChangeSet</div>
+          <div className="mt-1 font-mono text-[10px] text-faint">
+            {changeSet.base_ref}…{changeSet.head_commit.slice(0, 8)} · derived from Git
+          </div>
+        </div>
+        <button onClick={() => void refresh()} className="task-quiet-action">
+          <RefreshCw size={12} /> Refresh diff
+        </button>
+      </div>
+      {changeSet.unmerged.length > 0 && (
+        <div className="mt-3 rounded-md border border-[#f8717140] bg-[#f8717112] px-3 py-2 text-[10.5px] text-danger">
+          <AlertTriangle size={12} className="mr-1.5 inline" />
+          {changeSet.unmerged.length} unmerged change(s) block review and shipping.
+        </div>
+      )}
+      <div className="mt-4 flex gap-1 border-b border-border">
+        {CHANGE_LAYERS.map((item) => (
+          <button
+            key={item}
+            onClick={() => setLayer(item)}
+            className="border-b-2 px-2.5 py-2 text-[10.5px] capitalize"
+            style={{
+              borderColor: item === layer ? 'var(--color-accent)' : 'transparent',
+              color: item === layer ? 'var(--color-fg)' : 'var(--color-faint)'
+            }}
+          >
+            {item} <span className="ml-1 font-mono">{changeSet.counts[item]}</span>
+          </button>
+        ))}
+      </div>
+      <div className="grid min-h-[240px] grid-cols-[220px_minmax(0,1fr)] border-x border-b border-border">
+        <div className="border-r border-border bg-raised/40 p-2">
+          {files.map((file) => (
+            <button
+              key={`${file.status}:${file.old_path ?? ''}:${file.path}`}
+              onClick={() => setSelectedPath(file.path)}
+              className="mb-1 flex w-full items-start gap-2 rounded px-2 py-1.5 text-left hover:bg-panel"
+              style={{ background: selected?.path === file.path ? 'var(--color-accent-soft)' : undefined }}
+            >
+              <span className="w-7 shrink-0 font-mono text-[9.5px] text-accent-fg">{file.status}</span>
+              <span className="min-w-0 truncate font-mono text-[9.5px] text-muted" title={file.path}>
+                {file.old_path ? `${file.old_path} → ${file.path}` : file.path}
+              </span>
+            </button>
+          ))}
+          {files.length === 0 && <div className="p-3 text-[10.5px] text-faint">No {layer} changes.</div>}
+        </div>
+        <div className="min-w-0 overflow-auto bg-[#08080d] p-3">
+          {selected ? (
+            selected.binary ? (
+              <div className="text-[11px] text-faint">Binary file · {selected.diff_bytes} bytes</div>
+            ) : (
+              <>
+                {selected.large && (
+                  <div className="mb-2 text-[10px] text-warn">Large diff · preview truncated</div>
+                )}
+                <pre className="whitespace-pre-wrap break-words font-mono text-[9.5px] leading-4 text-muted">
+                  {selected.diff || 'No textual diff.'}
+                </pre>
+              </>
+            )
+          ) : (
+            <div className="text-[10.5px] text-faint">Select a changed file.</div>
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function TaskDetail({ task }: { task: Task }) {
   const archiveTask = useStore((state) => state.archiveSelectedTask)
   const busy = useStore((state) => state.taskBusy)
@@ -802,6 +892,7 @@ function TaskDetail({ task }: { task: Task }) {
               </div>
             </section>
             <WorkspaceCard task={task} />
+            {task.workspace?.state === 'ready' && <ChangeSetCard />}
           </div>
 
           <aside className="space-y-4">

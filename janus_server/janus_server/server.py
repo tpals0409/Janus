@@ -544,6 +544,24 @@ def inspect_task_workspace(task_id: str):
     }
 
 
+@app.get("/tasks/{task_id}/changeset")
+def get_task_changeset(task_id: str):
+    store = get_domain_store()
+    task = store.get_task(task_id)
+    workspace = store.get_task_workspace(task_id)
+    if workspace is None:
+        raise D.NotFound(f"Task의 Workspace가 없습니다: {task_id}")
+    if workspace["state"] != "ready" or not workspace.get("root_path"):
+        raise D.Conflict("ready Workspace가 있어야 ChangeSet을 읽을 수 있습니다")
+    if not workspace["owned"]:
+        raise D.Conflict("Janus가 소유한 Workspace만 ChangeSet을 읽을 수 있습니다")
+    return get_workspace_service().changeset(
+        repo_path=workspace["repo_path"],
+        root_path=workspace["root_path"],
+        base_ref=task["base_ref"],
+    )
+
+
 def _workspace_for_removal(task_id: str, body: dict) -> dict:
     store = get_domain_store()
     workspace = store.get_task_workspace(task_id)

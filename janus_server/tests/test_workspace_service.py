@@ -149,6 +149,57 @@ class WorkspaceServiceTests(unittest.TestCase):
             self.service.force_remove(repo_path=self.repo, root_path=self.repo)
         self.assert_main_unchanged()
 
+    def test_changeset_is_git_derived_across_all_layers(self):
+        (self.repo / "stage.txt").write_text("base\n", encoding="utf-8")
+        (self.repo / "delete.txt").write_text("delete me\n", encoding="utf-8")
+        git(self.repo, "add", "stage.txt", "delete.txt")
+        git(self.repo, "commit", "-m", "fixtures")
+        self.main_head = git(self.repo, "rev-parse", "HEAD").stdout.strip()
+
+        prepared = self.service.prepare(
+            workspace_id="workspace_changes", task_id="task_changes", title="Changes",
+            repo_path=self.repo, base_ref="main",
+        )
+        root = Path(prepared["root_path"])
+        git(root, "mv", "conflict.txt", "renamed.txt")
+        git(root, "commit", "-m", "rename", "--", "conflict.txt", "renamed.txt")
+        (root / "stage.txt").write_text("staged\n", encoding="utf-8")
+        git(root, "add", "stage.txt")
+        (root / "stage.txt").write_text("staged\nunstaged\n", encoding="utf-8")
+        (root / "delete.txt").unlink()
+        (root / "binary.dat").write_bytes(b"\x00\x01\x02")
+        (root / "large.txt").write_text("x" * 80, encoding="utf-8")
+
+        changes = self.service.changeset(
+            repo_path=self.repo, root_path=root, base_ref="main", max_diff_bytes=32,
+        )
+        self.assertEqual("git", changes["source"])
+        self.assertEqual(prepared["branch_name"], changes["branch_name"])
+        committed = changes["sections"]["committed"]
+        self.assertEqual("R100", committed[0]["status"])
+        self.assertEqual("conflict.txt", committed[0]["old_path"])
+        self.assertEqual("renamed.txt", committed[0]["path"])
+        self.assertEqual(["stage.txt"], [item["path"] for item in changes["sections"]["staged"]])
+        self.assertEqual(
+            {"delete.txt", "stage.txt"},
+            {item["path"] for item in changes["sections"]["unstaged"]},
+        )
+        untracked = {item["path"]: item for item in changes["sections"]["untracked"]}
+        self.assertTrue(untracked["binary.dat"]["binary"])
+        self.assertIsNone(untracked["binary.dat"]["diff"])
+        self.assertTrue(untracked["large.txt"]["large"])
+        self.assertTrue(untracked["large.txt"]["truncated"])
+
+        # No cache: a second call reflects the current Git state immediately.
+        (root / "fresh.txt").write_text("fresh\n", encoding="utf-8")
+        refreshed = self.service.changeset(
+            repo_path=self.repo, root_path=root, base_ref="main"
+        )
+        self.assertIn(
+            "fresh.txt", {item["path"] for item in refreshed["sections"]["untracked"]}
+        )
+        self.assert_main_unchanged()
+
 
 if __name__ == "__main__":
     unittest.main()

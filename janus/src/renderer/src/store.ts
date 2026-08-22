@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type {
-  AgentEvent, AgentProfile, AgentSessionDetail, AgentSummary, ApprovalRequest,
+  AgentEvent, AgentProfile, AgentSessionDetail, AgentSummary, ApprovalRequest, ChangeSet,
   BackendStatus, ModelProfile, Project, RunDetail, RunSummary, SessionEvent, Span,
   Spec, Task, ToolInfo, TreeEntry,
   WorkspaceInspection
@@ -77,6 +77,7 @@ interface State {
   agentProfiles: AgentProfile[]
   modelProfiles: ModelProfile[]
   workspaceInspection: WorkspaceInspection | null
+  changeSet: ChangeSet | null
   taskBusy: boolean
   taskActionError: string | null
   taskSession: AgentSessionDetail | null
@@ -212,6 +213,7 @@ export const useStore = create<State>((set, get) => ({
   agentProfiles: [],
   modelProfiles: [],
   workspaceInspection: null,
+  changeSet: null,
   taskBusy: false,
   taskActionError: null,
   taskSession: null,
@@ -347,6 +349,7 @@ export const useStore = create<State>((set, get) => ({
       taskRuntimeError: null,
       taskApprovals: [],
       workspaceInspection: null,
+      changeSet: null,
       taskActionError: null
     })
     try {
@@ -367,6 +370,7 @@ export const useStore = create<State>((set, get) => ({
       taskId: id,
       task: null,
       workspaceInspection: null,
+      changeSet: null,
       taskActionError: null,
       taskSession: null,
       taskSessionEvents: [],
@@ -494,10 +498,11 @@ export const useStore = create<State>((set, get) => ({
     const taskId = get().taskId
     if (!taskId) return
     try {
-      const inspection = (await apiJson(
-        `${BASE}/tasks/${taskId}/workspace/status`
-      )) as WorkspaceInspection
-      if (get().taskId === taskId) set({ workspaceInspection: inspection })
+      const [inspection, changeSet] = await Promise.all([
+        apiJson(`${BASE}/tasks/${taskId}/workspace/status`) as Promise<WorkspaceInspection>,
+        apiJson(`${BASE}/tasks/${taskId}/changeset`) as Promise<ChangeSet>
+      ])
+      if (get().taskId === taskId) set({ workspaceInspection: inspection, changeSet })
     } catch (error) {
       if (get().taskId === taskId) set({ taskActionError: errorMessage(error) })
     }
@@ -517,7 +522,7 @@ export const useStore = create<State>((set, get) => ({
           body: JSON.stringify({ confirm_workspace_id: workspace.id })
         }
       )
-      set({ workspaceInspection: null })
+      set({ workspaceInspection: null, changeSet: null })
       await get().refreshSelectedTask()
     } catch (error) {
       set({ taskActionError: errorMessage(error) })
@@ -553,7 +558,7 @@ export const useStore = create<State>((set, get) => ({
     try {
       await apiJson(`${BASE}/tasks/${taskId}`, { method: 'DELETE' })
       const tasks = (await apiJson(`${BASE}/projects/${projectId}/tasks`)) as Task[]
-      set({ tasks, taskId: null, task: null, workspaceInspection: null })
+      set({ tasks, taskId: null, task: null, workspaceInspection: null, changeSet: null })
       if (tasks[0]) await get().selectTask(tasks[0].id)
     } catch (error) {
       set({ taskActionError: errorMessage(error) })

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+from datetime import datetime, timezone
 from collections.abc import Callable
 from pathlib import Path
 
@@ -230,6 +231,133 @@ class WorkspaceService:
             "untracked": untracked,
             "unmerged": unmerged,
             "porcelain": lines,
+        }
+
+    @staticmethod
+    def _parse_name_status(value: str) -> list[tuple[str, str | None, str]]:
+        """Parse ``git diff --name-status -z`` without losing odd filenames."""
+        fields = value.split("\0")
+        if fields and fields[-1] == "":
+            fields.pop()
+        changes: list[tuple[str, str | None, str]] = []
+        index = 0
+        while index < len(fields):
+            status = fields[index]
+            index += 1
+            if not status or index >= len(fields):
+                raise WorkspaceServiceError("Git name-status 출력을 파싱할 수 없습니다")
+            if status[0] in {"R", "C"}:
+                if index + 1 >= len(fields):
+                    raise WorkspaceServiceError("Git rename/copy 출력이 불완전합니다")
+                old_path, path = fields[index], fields[index + 1]
+                index += 2
+            else:
+                old_path, path = None, fields[index]
+                index += 1
+            changes.append((status, old_path, path))
+        return changes
+
+    def _diff_entries(
+        self, root: Path, *, layer: str, diff_args: tuple[str, ...],
+        max_diff_bytes: int,
+    ) -> list[dict]:
+        names = self._git(
+            root, "diff", "--name-status", "-z", "-M", *diff_args
+        ).stdout
+        entries: list[dict] = []
+        for status, old_path, path in self._parse_name_status(names):
+            pathspecs = tuple(item for item in (old_path, path) if item is not None)
+            raw_diff = self._git(
+                root, "diff", "--no-ext-diff", "--no-color", "--unified=3",
+                "-M", *diff_args, "--", *pathspecs,
+            ).stdout
+            diff_bytes = raw_diff.encode("utf-8", errors="replace")
+            binary = "Binary files " in raw_diff or "GIT binary patch" in raw_diff
+            large = len(diff_bytes) > max_diff_bytes
+            rendered = diff_bytes[:max_diff_bytes].decode("utf-8", errors="replace")
+            entries.append({
+                "layer": layer,
+                "status": status,
+                "path": path,
+                "old_path": old_path,
+                "binary": binary,
+                "large": large,
+                "diff_bytes": len(diff_bytes),
+                "diff": None if binary else rendered,
+                "truncated": large,
+            })
+        return entries
+
+    def changeset(
+        self, *, repo_path: str | Path, root_path: str | Path, base_ref: str,
+        max_diff_bytes: int = 512_000,
+    ) -> dict:
+        """Derive the complete Task change set directly from Git on every call."""
+        if max_diff_bytes < 1:
+            raise WorkspaceServiceError("max_diff_bytes는 1 이상이어야 합니다")
+        repo = Path(self.validate_repo(repo_path, base_ref)["repo_path"])
+        root = self._owned_root(root_path)
+        registered = self._registered(repo, root)
+        if registered is None:
+            raise WorkspaceConflict(f"등록된 worktree가 아닙니다: {root}")
+
+        base_commit = self._git(root, "rev-parse", f"{base_ref}^{{commit}}").stdout.strip()
+        head_commit = self._git(root, "rev-parse", "HEAD^{commit}").stdout.strip()
+        merge_base = self._git(root, "merge-base", base_commit, head_commit).stdout.strip()
+        sections = {
+            "committed": self._diff_entries(
+                root, layer="committed", diff_args=(f"{base_commit}...{head_commit}",),
+                max_diff_bytes=max_diff_bytes,
+            ),
+            "staged": self._diff_entries(
+                root, layer="staged", diff_args=("--cached",),
+                max_diff_bytes=max_diff_bytes,
+            ),
+            "unstaged": self._diff_entries(
+                root, layer="unstaged", diff_args=(), max_diff_bytes=max_diff_bytes,
+            ),
+            "untracked": [],
+        }
+
+        untracked_output = self._git(
+            root, "ls-files", "--others", "--exclude-standard", "-z"
+        ).stdout
+        for path in [item for item in untracked_output.split("\0") if item]:
+            candidate = (root / path).resolve()
+            if not candidate.is_relative_to(root) or not candidate.is_file():
+                continue
+            size = candidate.stat().st_size
+            sample = candidate.read_bytes()[:max_diff_bytes + 1]
+            binary = b"\0" in sample
+            large = size > max_diff_bytes
+            if binary:
+                rendered = None
+            else:
+                text = sample[:max_diff_bytes].decode("utf-8", errors="replace")
+                rendered = "".join(
+                    [f"diff --git a/{path} b/{path}\n", "new file mode 100644\n",
+                     "--- /dev/null\n", f"+++ b/{path}\n"]
+                    + [f"+{line}" for line in text.splitlines(keepends=True)]
+                )
+            sections["untracked"].append({
+                "layer": "untracked", "status": "?", "path": path,
+                "old_path": None, "binary": binary, "large": large,
+                "diff_bytes": size, "diff": rendered, "truncated": large,
+            })
+
+        status = self.inspect(repo, root)
+        return {
+            "source": "git",
+            "derived_at": datetime.now(timezone.utc).isoformat(),
+            "base_ref": base_ref,
+            "base_commit": base_commit,
+            "merge_base": merge_base,
+            "head_commit": head_commit,
+            "branch_name": registered.get("branch_name"),
+            "sections": sections,
+            "counts": {name: len(items) for name, items in sections.items()},
+            "dirty": status["dirty"],
+            "unmerged": status["unmerged"],
         }
 
     def archive(self, *, repo_path: str | Path, root_path: str | Path) -> dict:

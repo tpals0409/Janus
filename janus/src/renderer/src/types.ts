@@ -131,6 +131,34 @@ export interface WorkspaceInspection extends TaskWorkspace {
   }
 }
 
+export type ChangeLayer = 'committed' | 'staged' | 'unstaged' | 'untracked'
+
+export interface ChangeSetFile {
+  layer: ChangeLayer
+  status: string
+  path: string
+  old_path: string | null
+  binary: boolean
+  large: boolean
+  diff_bytes: number
+  diff: string | null
+  truncated: boolean
+}
+
+export interface ChangeSet {
+  source: 'git'
+  derived_at: string
+  base_ref: string
+  base_commit: string
+  merge_base: string
+  head_commit: string
+  branch_name: string | null
+  sections: Record<ChangeLayer, ChangeSetFile[]>
+  counts: Record<ChangeLayer, number>
+  dirty: boolean
+  unmerged: string[]
+}
+
 /** 에이전트 = 오케스트레이터 1개의 평평한 설정. 워커는 런타임에 만들어져 트레이스에만 존재한다. */
 export interface Spec {
   name: string
