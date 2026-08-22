@@ -19,12 +19,12 @@ CURRENT_SCHEMA_VERSION = 2
 
 TASK_STATUSES = frozenset({"todo", "preparing", "working", "needs_you", "review", "failed"})
 TASK_TRANSITIONS = {
-    "todo": {"preparing"},
+    "todo": {"preparing", "working"},
     "preparing": {"todo", "working", "failed"},
     "working": {"todo", "needs_you", "review", "failed"},
     "needs_you": {"working", "failed"},
     "review": {"working", "todo"},
-    "failed": {"todo", "preparing"},
+    "failed": {"todo", "preparing", "working"},
 }
 WORKSPACE_STATES = frozenset({"preparing", "ready", "failed", "archived"})
 WORKSPACE_TRANSITIONS = {
@@ -62,6 +62,10 @@ class NotFound(DomainError):
 
 class Conflict(DomainError):
     pass
+
+
+class StaleDispatch(Conflict):
+    """A newer attempt owns the Task, so this Dispatch may not mutate it."""
 
 
 class InvalidTransition(DomainError):
@@ -505,6 +509,13 @@ class DomainStore:
                 "SELECT * FROM model_profiles ORDER BY created_at"
             )]
 
+    def get_model_profile(self, profile_id: str) -> dict:
+        with self._connect() as connection:
+            return self._one(
+                connection, "SELECT * FROM model_profiles WHERE id=?",
+                (profile_id,), "ModelProfile",
+            )
+
     def create_model_profile(
         self, *, name: str, model_key: str, quantization: str,
         config: dict | None = None, profile_id: str | None = None,
@@ -625,6 +636,94 @@ class DomainStore:
             raise Conflict(f"Dispatch 생성 충돌: {error}") from error
         return self.get_dispatch(dispatch_id)
 
+    def create_execution(
+        self, *, task_id: str, workspace_id: str, agent_profile_id: str,
+        dispatch_id: str | None = None, session_id: str | None = None,
+    ) -> dict:
+        """Create one Dispatch attempt and its AgentSession atomically.
+
+        Starting a newer attempt retires resumable state from the previous attempt.
+        Runtime threads are cancelled by the server; this transaction is the durable
+        ownership gate that makes any late events from them stale.
+        """
+        dispatch_id = dispatch_id or _id("dispatch")
+        session_id = session_id or _id("session")
+        now = _now()
+        try:
+            with self.transaction(immediate=True) as connection:
+                task = self._one(
+                    connection, "SELECT * FROM tasks WHERE id=?", (task_id,), "Task"
+                )
+                workspace = self._one(
+                    connection, "SELECT * FROM workspaces WHERE id=?",
+                    (workspace_id,), "Workspace",
+                )
+                profile = self._one(
+                    connection, "SELECT * FROM agent_profiles WHERE id=?",
+                    (agent_profile_id,), "AgentProfile",
+                )
+                if workspace["task_id"] != task_id:
+                    raise Conflict("Dispatch의 Workspace가 다른 Task에 속합니다")
+                if workspace["state"] != "ready" or not workspace["root_path"]:
+                    raise Conflict("ready Workspace가 있어야 Task를 시작할 수 있습니다")
+                if profile["archived_at"] is not None:
+                    raise Conflict("archive된 AgentProfile은 선택할 수 없습니다")
+                if task["archived_at"] is not None:
+                    raise Conflict("archive된 Task는 시작할 수 없습니다")
+                if task["status"] == "preparing":
+                    raise Conflict("Workspace 준비 중에는 Task를 시작할 수 없습니다")
+
+                # A newer attempt owns the Task immediately. Old threads may still emit,
+                # but append_session_event(require_latest=True) rejects those events.
+                old_dispatch_ids = [
+                    row["id"] for row in connection.execute(
+                        "SELECT id FROM dispatches WHERE task_id=? "
+                        "AND status IN ('queued','running','needs_you')",
+                        (task_id,),
+                    )
+                ]
+                if old_dispatch_ids:
+                    marks = ",".join("?" for _ in old_dispatch_ids)
+                    connection.execute(
+                        f"UPDATE dispatches SET status='cancelled',ended_at=?,"
+                        f"error='superseded by a newer attempt' WHERE id IN ({marks})",
+                        (now, *old_dispatch_ids),
+                    )
+                    connection.execute(
+                        f"UPDATE agent_sessions SET status='stopped',stopped_at=?,updated_at=?,"
+                        f"error='superseded by a newer attempt' WHERE dispatch_id IN ({marks}) "
+                        "AND status IN ('created','running','idle')",
+                        (now, now, *old_dispatch_ids),
+                    )
+
+                attempt = int(connection.execute(
+                    "SELECT COALESCE(MAX(attempt),0)+1 FROM dispatches WHERE task_id=?",
+                    (task_id,),
+                ).fetchone()[0])
+                connection.execute(
+                    "INSERT INTO dispatches(id,task_id,workspace_id,agent_profile_id,attempt,status,"
+                    "objective_snapshot,acceptance_snapshot,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (
+                        dispatch_id, task_id, workspace_id, agent_profile_id, attempt, "queued",
+                        task["objective"], task["acceptance_command"], now,
+                    ),
+                )
+                connection.execute(
+                    "INSERT INTO agent_sessions(id,task_id,dispatch_id,agent_profile_id,status,"
+                    "created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
+                    (session_id, task_id, dispatch_id, agent_profile_id, "created", now, now),
+                )
+                connection.execute(
+                    "UPDATE tasks SET status='working',updated_at=? WHERE id=?",
+                    (now, task_id),
+                )
+        except sqlite3.IntegrityError as error:
+            raise Conflict(f"Task 실행 생성 충돌: {error}") from error
+        return {
+            "dispatch": self.get_dispatch(dispatch_id),
+            "session": self.get_session(session_id),
+        }
+
     def get_dispatch(self, dispatch_id: str) -> dict:
         with self._connect() as connection:
             return self._one(
@@ -636,6 +735,14 @@ class DomainStore:
             return [dict(row) for row in connection.execute(
                 "SELECT * FROM dispatches WHERE task_id=? ORDER BY attempt", (task_id,)
             )]
+
+    def latest_dispatch(self, task_id: str) -> dict | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM dispatches WHERE task_id=? ORDER BY attempt DESC LIMIT 1",
+                (task_id,),
+            ).fetchone()
+            return dict(row) if row is not None else None
 
     def transition_dispatch(
         self, dispatch_id: str, target: str, *, error: str | None = None,
@@ -691,6 +798,137 @@ class DomainStore:
                 connection, "SELECT * FROM agent_sessions WHERE id=?", (session_id,), "AgentSession"
             )
 
+    def list_sessions(self, task_id: str) -> list[dict]:
+        with self._connect() as connection:
+            return [dict(row) for row in connection.execute(
+                "SELECT s.* FROM agent_sessions s "
+                "JOIN dispatches d ON d.id=s.dispatch_id "
+                "WHERE s.task_id=? ORDER BY d.attempt DESC, s.created_at DESC",
+                (task_id,),
+            )]
+
+    def activate_session_turn(self, session_id: str) -> dict:
+        """Claim the latest Dispatch for one turn and mark the Task working."""
+        now = _now()
+        with self.transaction(immediate=True) as connection:
+            session = self._one(
+                connection, "SELECT * FROM agent_sessions WHERE id=?",
+                (session_id,), "AgentSession",
+            )
+            latest = connection.execute(
+                "SELECT id,status FROM dispatches WHERE task_id=? "
+                "ORDER BY attempt DESC LIMIT 1", (session["task_id"],),
+            ).fetchone()
+            if latest is None or latest["id"] != session["dispatch_id"]:
+                raise StaleDispatch(f"오래된 Dispatch의 Session입니다: {session['dispatch_id']}")
+            if session["status"] not in {"created", "idle"}:
+                raise Conflict(f"실행할 수 없는 AgentSession 상태: {session['status']}")
+            if latest["status"] not in {"queued", "needs_you"}:
+                raise Conflict(f"실행할 수 없는 Dispatch 상태: {latest['status']}")
+            connection.execute(
+                "UPDATE agent_sessions SET status='running',error=NULL,updated_at=? WHERE id=?",
+                (now, session_id),
+            )
+            connection.execute(
+                "UPDATE dispatches SET status='running',error=NULL,"
+                "started_at=COALESCE(started_at,?) WHERE id=?",
+                (now, session["dispatch_id"]),
+            )
+            connection.execute(
+                "UPDATE tasks SET status='working',updated_at=? WHERE id=?",
+                (now, session["task_id"]),
+            )
+        return self.get_session(session_id)
+
+    def settle_session_turn(
+        self, session_id: str, *, failed: bool = False, error: str | None = None,
+    ) -> dict:
+        """Persist the post-turn resumable state, guarded by latest Dispatch."""
+        now = _now()
+        with self.transaction(immediate=True) as connection:
+            session = self._one(
+                connection, "SELECT * FROM agent_sessions WHERE id=?",
+                (session_id,), "AgentSession",
+            )
+            if session["status"] == "stopped":
+                return session
+            if session["status"] != "running":
+                raise Conflict(f"정리할 수 없는 AgentSession 상태: {session['status']}")
+            latest = connection.execute(
+                "SELECT id FROM dispatches WHERE task_id=? ORDER BY attempt DESC LIMIT 1",
+                (session["task_id"],),
+            ).fetchone()
+            if latest is None or latest["id"] != session["dispatch_id"]:
+                raise StaleDispatch(f"오래된 Dispatch의 결과입니다: {session['dispatch_id']}")
+            session_status = "failed" if failed else "idle"
+            dispatch_status = "failed" if failed else "needs_you"
+            task_status = "failed" if failed else "needs_you"
+            connection.execute(
+                "UPDATE agent_sessions SET status=?,error=?,updated_at=?,"
+                "stopped_at=CASE WHEN ?='failed' THEN ? ELSE NULL END WHERE id=?",
+                (session_status, error, now, session_status, now, session_id),
+            )
+            connection.execute(
+                "UPDATE dispatches SET status=?,error=?,"
+                "ended_at=CASE WHEN ?='failed' THEN ? ELSE NULL END WHERE id=?",
+                (dispatch_status, error, dispatch_status, now, session["dispatch_id"]),
+            )
+            connection.execute(
+                "UPDATE tasks SET status=?,updated_at=? WHERE id=?",
+                (task_status, now, session["task_id"]),
+            )
+        return self.get_session(session_id)
+
+    def stop_execution(self, session_id: str, *, reason: str = "stopped by user") -> dict:
+        now = _now()
+        with self.transaction(immediate=True) as connection:
+            session = self._one(
+                connection, "SELECT * FROM agent_sessions WHERE id=?",
+                (session_id,), "AgentSession",
+            )
+            latest = connection.execute(
+                "SELECT id FROM dispatches WHERE task_id=? ORDER BY attempt DESC LIMIT 1",
+                (session["task_id"],),
+            ).fetchone()
+            if latest is None or latest["id"] != session["dispatch_id"]:
+                raise StaleDispatch(f"오래된 Dispatch의 Session입니다: {session['dispatch_id']}")
+            if session["status"] not in {"created", "running", "idle"}:
+                raise Conflict(f"중지할 수 없는 AgentSession 상태: {session['status']}")
+            connection.execute(
+                "UPDATE agent_sessions SET status='stopped',error=?,stopped_at=?,updated_at=? "
+                "WHERE id=?", (reason, now, now, session_id),
+            )
+            connection.execute(
+                "UPDATE dispatches SET status='cancelled',error=?,ended_at=? WHERE id=?",
+                (reason, now, session["dispatch_id"]),
+            )
+            connection.execute(
+                "UPDATE tasks SET status='todo',updated_at=? WHERE id=?",
+                (now, session["task_id"]),
+            )
+        return self.get_session(session_id)
+
+    def recover_interrupted_runtime(self) -> dict[str, int]:
+        """Make process-crash `running` rows explicitly resumable on server restart."""
+        now = _now()
+        with self.transaction(immediate=True) as connection:
+            sessions = connection.execute(
+                "UPDATE agent_sessions SET status='idle',updated_at=?,"
+                "error='server restarted during a turn' WHERE status='running'",
+                (now,),
+            ).rowcount
+            dispatches = connection.execute(
+                "UPDATE dispatches SET status='needs_you',"
+                "error='server restarted during a turn' WHERE status='running'",
+            ).rowcount
+            tasks = connection.execute(
+                "UPDATE tasks SET status='needs_you',updated_at=? WHERE status='working' "
+                "AND EXISTS (SELECT 1 FROM dispatches d WHERE d.task_id=tasks.id "
+                "AND d.status='needs_you')",
+                (now,),
+            ).rowcount
+        return {"sessions": sessions, "dispatches": dispatches, "tasks": tasks}
+
     def transition_session(
         self, session_id: str, target: str, *, error: str | None = None,
     ) -> dict:
@@ -713,6 +951,7 @@ class DomainStore:
     def append_session_event(
         self, session_id: str, *, kind: str, payload: dict,
         task_id: str, dispatch_id: str, workspace_id: str | None,
+        require_latest: bool = False, require_active: bool = True,
     ) -> dict:
         with self.transaction(immediate=True) as connection:
             session = self._one(
@@ -721,6 +960,16 @@ class DomainStore:
             )
             if session["task_id"] != task_id or session["dispatch_id"] != dispatch_id:
                 raise Conflict("Session event의 Task/Dispatch 귀속이 Session과 다릅니다")
+            if require_latest:
+                latest = connection.execute(
+                    "SELECT id,status FROM dispatches WHERE task_id=? ORDER BY attempt DESC LIMIT 1",
+                    (task_id,),
+                ).fetchone()
+                if latest is None or latest["id"] != dispatch_id or (
+                    require_active
+                    and latest["status"] not in {"queued", "running", "needs_you"}
+                ):
+                    raise StaleDispatch(f"오래된 Dispatch 이벤트입니다: {dispatch_id}")
             seq = int(connection.execute(
                 "SELECT COALESCE(MAX(seq),0)+1 FROM session_events WHERE session_id=?",
                 (session_id,),
@@ -745,6 +994,9 @@ class DomainStore:
             rows = connection.execute(
                 "SELECT * FROM session_events WHERE session_id=? ORDER BY seq", (session_id,)
             )
-            return [
-                {**dict(row), "payload": json.loads(row["payload_json"])} for row in rows
-            ]
+            events = []
+            for row in rows:
+                item = dict(row)
+                payload_json = item.pop("payload_json")
+                events.append({**item, "payload": json.loads(payload_json)})
+            return events

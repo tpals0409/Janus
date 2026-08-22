@@ -8,10 +8,16 @@ import {
   FolderGit2,
   GitBranch,
   Loader2,
+  MessageSquare,
+  Play,
   Plus,
   RefreshCw,
   RotateCcw,
+  Send,
   ShieldCheck,
+  Square,
+  Wifi,
+  WifiOff,
   X
 } from 'lucide-react'
 import { useStore } from '../../store'
@@ -482,9 +488,194 @@ function WorkspaceCard({ task }: { task: Task }) {
   )
 }
 
+function TaskRuntimeCard({ task }: { task: Task }) {
+  const profiles = useStore((state) => state.agentProfiles)
+  const selectedProfileId = useStore((state) => state.selectedAgentProfileId)
+  const selectProfile = useStore((state) => state.selectAgentProfile)
+  const session = useStore((state) => state.taskSession)
+  const events = useStore((state) => state.taskSessionEvents)
+  const connected = useStore((state) => state.taskConnected)
+  const active = useStore((state) => state.taskTurnActive)
+  const busy = useStore((state) => state.taskBusy)
+  const runtimeError = useStore((state) => state.taskRuntimeError)
+  const approvals = useStore((state) => state.taskApprovals)
+  const startSession = useStore((state) => state.startTaskSession)
+  const resumeSession = useStore((state) => state.resumeTaskSession)
+  const sendMessage = useStore((state) => state.sendTaskMessage)
+  const cancelTurn = useStore((state) => state.cancelTaskTurn)
+  const stopSession = useStore((state) => state.stopTaskSession)
+  const respondApproval = useStore((state) => state.respondTaskApproval)
+  const [message, setMessage] = useState('')
+  const ready = task.workspace?.state === 'ready'
+  const resumable = session?.status === 'created' || session?.status === 'idle'
+
+  const transcript = useMemo(() => {
+    const persisted = events.filter((event) => event.kind === 'transcript')
+    const lastTranscriptSeq = persisted.at(-1)?.seq ?? 0
+    const live = events.filter((event) => {
+      if (event.seq <= lastTranscriptSeq || event.kind !== 'agent_event') return false
+      const kind = String(event.payload.kind ?? '')
+      return kind === 'user' || kind === 'assistant'
+    })
+    return [...persisted, ...live].map((event) => {
+      const payload = event.kind === 'transcript' ? event.payload : event.payload
+      return {
+        key: `${event.seq}-${event.kind}`,
+        role: String(payload.kind ?? 'event'),
+        content: String(payload.content ?? payload.text ?? '')
+      }
+    }).filter((item) => item.content)
+  }, [events])
+
+  const activity = events.filter((event) => event.kind !== 'transcript').slice(-7)
+  const submit = (event: FormEvent) => {
+    event.preventDefault()
+    if (!message.trim()) return
+    sendMessage(message)
+    setMessage('')
+  }
+
+  return (
+    <section className="task-card task-runtime-card">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="task-label">Agent session</div>
+          <div className="mt-1 flex items-center gap-2">
+            <MessageSquare size={14} className="text-accent-fg" />
+            <h3 className="text-[14px] font-semibold">
+              {session ? `Attempt ${session.dispatch.attempt}` : 'No runtime attempt'}
+            </h3>
+            {session && (
+              <span className="rounded-full border border-border-strong px-2 py-0.5 font-mono text-[9px] uppercase text-muted">
+                {session.status}
+              </span>
+            )}
+            <span className={`flex items-center gap-1 text-[9.5px] ${connected ? 'text-ok' : 'text-faint'}`}>
+              {connected ? <Wifi size={10} /> : <WifiOff size={10} />}
+              {connected ? 'connected' : 'offline'}
+            </span>
+          </div>
+        </div>
+        <div className="flex items-end gap-2">
+          <label>
+            <span className="task-label">Agent profile</span>
+            <select
+              value={selectedProfileId}
+              onChange={(event) => selectProfile(event.target.value)}
+              disabled={busy}
+              className="task-select mt-1"
+            >
+              {profiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>{profile.name}</option>
+              ))}
+            </select>
+          </label>
+          <button
+            onClick={() => {
+              if (session && resumable && !window.confirm('Start a new attempt and stop the resumable one?')) return
+              void startSession()
+            }}
+            disabled={!ready || busy || active}
+            className="task-primary-action"
+            title={ready ? 'Create a new persisted Dispatch attempt' : 'Prepare the workspace first'}
+          >
+            <Play size={12} /> {session ? 'New attempt' : 'Start'}
+          </button>
+        </div>
+      </div>
+
+      {session && (
+        <div className="mt-3 grid grid-cols-3 gap-2 border-t border-border pt-3 font-mono text-[9px] text-faint">
+          <span className="truncate" title={session.id}>SESSION · {session.id}</span>
+          <span className="truncate" title={session.dispatch_id}>DISPATCH · {session.dispatch_id}</span>
+          <span className="truncate" title={session.agent_profile_id}>PROFILE · {session.agent_profile_id}</span>
+        </div>
+      )}
+
+      {runtimeError && (
+        <div className="mt-3 rounded-md border border-[#f8717140] bg-[#f8717112] px-3 py-2 text-[10.5px] text-danger">
+          {runtimeError}
+        </div>
+      )}
+
+      <div className="task-session-console mt-4">
+        <div className="task-transcript">
+          {transcript.length === 0 ? (
+            <div className="grid h-full place-items-center px-6 text-center text-[10.5px] leading-relaxed text-faint">
+              {session
+                ? 'Connect this persisted session, then send the next instruction.'
+                : 'Choose a profile and start an attempt. Runtime logs remain after restart.'}
+            </div>
+          ) : transcript.map((item) => (
+            <div key={item.key} className="task-message" data-role={item.role}>
+              <span>{item.role === 'user' ? 'YOU' : 'JANUS'}</span>
+              <p>{item.content}</p>
+            </div>
+          ))}
+        </div>
+        <div className="task-activity">
+          <div className="task-label mb-2">Live activity</div>
+          {activity.length === 0 ? (
+            <div className="text-[9.5px] text-faint">No events</div>
+          ) : activity.map((event) => (
+            <div key={`${event.seq}-${event.kind}`} className="task-activity-row">
+              <span>{event.seq}</span>
+              <strong>{event.kind}</strong>
+              <em>{String(event.payload.kind ?? event.payload.type ?? '')}</em>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {approvals.map((approval) => (
+        <div key={approval.id} className="mt-3 flex items-center justify-between gap-4 rounded-md border border-[#fbbf2440] bg-[#fbbf240d] px-3 py-2">
+          <div className="min-w-0 text-[10.5px] text-warn">
+            Approve <code className="font-mono">{approval.tool}</code> in this Task workspace?
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <button onClick={() => respondApproval(approval.id, false)} className="task-quiet-action">Deny</button>
+            <button onClick={() => respondApproval(approval.id, true)} className="task-primary-action">Approve</button>
+          </div>
+        </div>
+      ))}
+
+      <form onSubmit={submit} className="mt-3 flex gap-2 border-t border-border pt-3">
+        {!connected && resumable && (
+          <button type="button" onClick={() => void resumeSession()} disabled={busy} className="task-quiet-action">
+            <Play size={11} /> Resume
+          </button>
+        )}
+        <input
+          value={message}
+          onChange={(event) => setMessage(event.target.value)}
+          disabled={!connected || active || !resumable}
+          placeholder={connected ? 'Send the next Task instruction…' : 'Resume the session to continue'}
+          className="task-input mt-0 min-w-0 flex-1"
+        />
+        {active ? (
+          <button type="button" onClick={cancelTurn} className="task-danger-link border border-[#f8717140]">
+            <Square size={11} /> Cancel turn
+          </button>
+        ) : (
+          <button disabled={!connected || !message.trim() || !resumable} className="task-primary-action">
+            <Send size={11} /> Send
+          </button>
+        )}
+        {session && ['created', 'running', 'idle'].includes(session.status) && (
+          <button type="button" onClick={() => void stopSession()} className="task-quiet-action">
+            Stop session
+          </button>
+        )}
+      </form>
+    </section>
+  )
+}
+
 function TaskDetail({ task }: { task: Task }) {
   const archiveTask = useStore((state) => state.archiveSelectedTask)
   const busy = useStore((state) => state.taskBusy)
+  const session = useStore((state) => state.taskSession)
+  const connected = useStore((state) => state.taskConnected)
   const canArchiveTask = !task.workspace || task.workspace.state === 'archived'
 
   return (
@@ -548,7 +739,13 @@ function TaskDetail({ task }: { task: Task }) {
                     : task.workspace.state === 'failed'
                       ? 'Repair preparation'
                       : task.workspace.state === 'ready'
-                        ? 'Workspace is ready'
+                        ? !session
+                          ? 'Start an agent session'
+                          : connected
+                            ? 'Send the next instruction'
+                            : session.status === 'idle' || session.status === 'created'
+                              ? 'Resume the session'
+                              : 'Start a new attempt'
                         : 'Workspace archived'}
               </h3>
               <p className="mt-2 text-[11px] leading-relaxed text-faint">
@@ -559,11 +756,13 @@ function TaskDetail({ task }: { task: Task }) {
                     : task.workspace.state === 'failed'
                       ? 'Fix the repository or base ref, then retry without losing recorded ownership.'
                       : task.workspace.state === 'ready'
-                        ? 'Task runtime controls arrive in the next integration step.'
+                        ? !session
+                          ? 'Choose an AgentProfile. Janus will persist the Dispatch, transcript, and runtime log.'
+                          : `Attempt ${session.dispatch.attempt} · ${session.status} · ${session.agent_profile_id}`
                         : 'The branch remains available until you explicitly delete it.'}
               </p>
               <div className="mt-4 flex items-center gap-1.5 text-[10px] text-faint">
-                <ChevronRight size={11} /> Runtime connection is P1-10
+                <ChevronRight size={11} /> Latest Dispatch owns all runtime events
               </div>
             </section>
             <section className="task-card">
@@ -581,9 +780,16 @@ function TaskDetail({ task }: { task: Task }) {
                   <dt className="text-faint">Attempts</dt>
                   <dd className="font-mono text-muted">{task.dispatches?.length ?? 0}</dd>
                 </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-faint">Session</dt>
+                  <dd className="truncate font-mono text-muted">{session?.id ?? 'not-started'}</dd>
+                </div>
               </dl>
             </section>
           </aside>
+          <div className="col-span-2">
+            <TaskRuntimeCard task={task} />
+          </div>
         </div>
       </div>
     </main>

@@ -1,12 +1,19 @@
 import { create } from 'zustand'
 import type {
-  AgentEvent, AgentProfile, AgentSummary, ApprovalRequest, BackendStatus, ModelProfile,
-  Project, RunDetail, RunSummary, Span, Spec, Task, ToolInfo, TreeEntry,
+  AgentEvent, AgentProfile, AgentSessionDetail, AgentSummary, ApprovalRequest,
+  BackendStatus, ModelProfile, Project, RunDetail, RunSummary, SessionEvent, Span,
+  Spec, Task, ToolInfo, TreeEntry,
   WorkspaceInspection
 } from './types'
 
 const BASE = import.meta.env.VITE_JANUS_BASE ?? 'http://localhost:8765'
 const TOKEN = window.janus?.authToken ?? import.meta.env.VITE_JANUS_TOKEN ?? ''
+
+function websocketUrl(path: string): string {
+  const url = new URL(path, BASE)
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  return url.toString()
+}
 let openAgentSequence = 0
 let openProjectSequence = 0
 let openTaskSequence = 0
@@ -72,6 +79,14 @@ interface State {
   workspaceInspection: WorkspaceInspection | null
   taskBusy: boolean
   taskActionError: string | null
+  taskSession: AgentSessionDetail | null
+  taskSessionEvents: SessionEvent[]
+  selectedAgentProfileId: string
+  taskWs: WebSocket | null
+  taskConnected: boolean
+  taskTurnActive: boolean
+  taskRuntimeError: string | null
+  taskApprovals: ApprovalRequest[]
 
   agentId: string | null
   spec: Spec | null
@@ -132,6 +147,15 @@ interface State {
   deleteWorkspaceBranch(): Promise<void>
   archiveSelectedTask(): Promise<void>
   clearTaskError(): void
+  loadLatestTaskSession(): Promise<void>
+  selectAgentProfile(id: string): void
+  startTaskSession(): Promise<void>
+  resumeTaskSession(): Promise<void>
+  connectTaskSession(session: AgentSessionDetail): void
+  sendTaskMessage(text: string): void
+  cancelTaskTurn(): void
+  stopTaskSession(): Promise<void>
+  respondTaskApproval(id: string, approved: boolean): void
   pickWorkspace(): Promise<void>
   setWorkspaceTo(path: string): Promise<void>
   setSidebarTab(t: 'config' | 'files'): void
@@ -190,6 +214,14 @@ export const useStore = create<State>((set, get) => ({
   workspaceInspection: null,
   taskBusy: false,
   taskActionError: null,
+  taskSession: null,
+  taskSessionEvents: [],
+  selectedAgentProfileId: localStorage.getItem('janus.agentProfile') ?? 'agent_default',
+  taskWs: null,
+  taskConnected: false,
+  taskTurnActive: false,
+  taskRuntimeError: null,
+  taskApprovals: [],
   agentId: null,
   spec: null,
   yaml: '',
@@ -242,6 +274,10 @@ export const useStore = create<State>((set, get) => ({
         projects,
         agentProfiles,
         modelProfiles,
+        selectedAgentProfileId:
+          agentProfiles.some((profile: AgentProfile) => profile.id === get().selectedAgentProfileId)
+            ? get().selectedAgentProfileId
+            : agentProfiles[0]?.id ?? 'agent_default',
         workspace: ws.path,
         ...(workspaceChanged
           ? {
@@ -297,11 +333,19 @@ export const useStore = create<State>((set, get) => ({
 
   async selectProject(id) {
     const sequence = ++openProjectSequence
+    get().taskWs?.close()
     set({
       projectId: id,
       tasks: [],
       taskId: null,
       task: null,
+      taskSession: null,
+      taskSessionEvents: [],
+      taskWs: null,
+      taskConnected: false,
+      taskTurnActive: false,
+      taskRuntimeError: null,
+      taskApprovals: [],
       workspaceInspection: null,
       taskActionError: null
     })
@@ -318,11 +362,25 @@ export const useStore = create<State>((set, get) => ({
 
   async selectTask(id) {
     const sequence = ++openTaskSequence
-    set({ taskId: id, task: null, workspaceInspection: null, taskActionError: null })
+    get().taskWs?.close()
+    set({
+      taskId: id,
+      task: null,
+      workspaceInspection: null,
+      taskActionError: null,
+      taskSession: null,
+      taskSessionEvents: [],
+      taskWs: null,
+      taskConnected: false,
+      taskTurnActive: false,
+      taskRuntimeError: null,
+      taskApprovals: []
+    })
     try {
       const task = (await apiJson(`${BASE}/tasks/${id}`)) as Task
       if (sequence !== openTaskSequence) return
       set({ task })
+      await get().loadLatestTaskSession()
       if (task.workspace?.state === 'ready') await get().inspectWorkspace()
     } catch (error) {
       if (sequence === openTaskSequence) set({ taskActionError: errorMessage(error) })
@@ -506,6 +564,178 @@ export const useStore = create<State>((set, get) => ({
 
   clearTaskError() {
     set({ taskActionError: null })
+  },
+
+  async loadLatestTaskSession() {
+    const taskId = get().taskId
+    if (!taskId) return
+    try {
+      const response = await apiFetch(`${BASE}/tasks/${taskId}/sessions/latest`)
+      if (get().taskId !== taskId) return
+      if (response.status === 404) {
+        set({ taskSession: null, taskSessionEvents: [] })
+        return
+      }
+      if (!response.ok) throw new ApiError(response.status, await response.text())
+      const session = (await response.json()) as AgentSessionDetail
+      set({ taskSession: session, taskSessionEvents: session.events })
+    } catch (error) {
+      if (get().taskId === taskId) set({ taskRuntimeError: errorMessage(error) })
+    }
+  },
+
+  selectAgentProfile(id) {
+    localStorage.setItem('janus.agentProfile', id)
+    set({ selectedAgentProfileId: id })
+  },
+
+  async startTaskSession() {
+    const { taskId, selectedAgentProfileId } = get()
+    if (!taskId) return
+    set({ taskBusy: true, taskRuntimeError: null })
+    try {
+      const session = (await apiJson(`${BASE}/tasks/${taskId}/sessions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_profile_id: selectedAgentProfileId })
+      })) as AgentSessionDetail
+      set({ taskSession: session, taskSessionEvents: session.events })
+      get().connectTaskSession(session)
+      await get().refreshSelectedTask()
+    } catch (error) {
+      set({ taskRuntimeError: errorMessage(error) })
+    } finally {
+      set({ taskBusy: false })
+    }
+  },
+
+  async resumeTaskSession() {
+    const session = get().taskSession
+    if (!session) return
+    set({ taskBusy: true, taskRuntimeError: null })
+    try {
+      const resumed = (await apiJson(`${BASE}/sessions/${session.id}/resume`, {
+        method: 'POST'
+      })) as AgentSessionDetail
+      set({ taskSession: resumed, taskSessionEvents: resumed.events })
+      get().connectTaskSession(resumed)
+    } catch (error) {
+      set({ taskRuntimeError: errorMessage(error) })
+    } finally {
+      set({ taskBusy: false })
+    }
+  },
+
+  connectTaskSession(session) {
+    get().taskWs?.close()
+    const socket = new WebSocket(
+      websocketUrl(`/tasks/${session.task_id}/sessions/${session.id}`),
+      ['janus', TOKEN]
+    )
+    set({
+      taskWs: socket,
+      taskConnected: false,
+      taskTurnActive: false,
+      taskRuntimeError: null,
+      taskApprovals: []
+    })
+
+    socket.onopen = () => {
+      if (get().taskWs === socket) set({ taskConnected: true })
+    }
+    socket.onmessage = (message) => {
+      if (get().taskWs !== socket) return
+      const payload = JSON.parse(message.data) as Record<string, unknown>
+      const current = get().taskSessionEvents
+      const liveEvent: SessionEvent = {
+        session_id: session.id,
+        seq: (current.at(-1)?.seq ?? 0) + 1,
+        kind: String(payload.type ?? 'runtime'),
+        payload,
+        task_id: session.task_id,
+        dispatch_id: session.dispatch_id,
+        workspace_id: session.workspace_id,
+        created_at: new Date().toISOString()
+      }
+      set({ taskSessionEvents: [...current, liveEvent] })
+
+      if (payload.type === 'run_error') {
+        set({ taskRuntimeError: String(payload.error ?? 'Task runtime failed') })
+      } else if (payload.type === 'approval_request') {
+        const request = payload as unknown as ApprovalRequest
+        if (!get().taskApprovals.some((item) => item.id === request.id)) {
+          set({ taskApprovals: [...get().taskApprovals, request] })
+        }
+      } else if (payload.type === 'stale_dispatch') {
+        set({
+          taskRuntimeError: String(payload.error ?? 'This Dispatch is stale'),
+          taskTurnActive: false
+        })
+      } else if (payload.type === 'turn_end') {
+        set({ taskTurnActive: false, taskApprovals: [] })
+        void get().refreshSelectedTask()
+        void get().loadLatestTaskSession()
+      } else if (payload.type === 'session_stopped') {
+        set({ taskTurnActive: false, taskApprovals: [] })
+        void get().refreshSelectedTask()
+        void get().loadLatestTaskSession()
+      }
+    }
+    socket.onerror = () => {
+      if (get().taskWs === socket) {
+        set({ taskRuntimeError: 'Task runtime에 연결할 수 없습니다', taskTurnActive: false })
+      }
+    }
+    socket.onclose = () => {
+      if (get().taskWs === socket) {
+        set({ taskWs: null, taskConnected: false, taskTurnActive: false })
+      }
+    }
+  },
+
+  sendTaskMessage(text) {
+    const socket = get().taskWs
+    const trimmed = text.trim()
+    if (!trimmed || !socket || socket.readyState !== WebSocket.OPEN || get().taskTurnActive) return
+    socket.send(JSON.stringify({ type: 'message', text: trimmed }))
+    set({ taskTurnActive: true, taskRuntimeError: null })
+  },
+
+  cancelTaskTurn() {
+    const socket = get().taskWs
+    if (socket?.readyState === WebSocket.OPEN && get().taskTurnActive) {
+      socket.send(JSON.stringify({ type: 'cancel' }))
+      set({ taskApprovals: [] })
+    }
+  },
+
+  respondTaskApproval(id, approved) {
+    const socket = get().taskWs
+    if (!socket || socket.readyState !== WebSocket.OPEN) return
+    socket.send(JSON.stringify({ type: 'approval_response', id, approved }))
+    set({ taskApprovals: get().taskApprovals.filter((item) => item.id !== id) })
+  },
+
+  async stopTaskSession() {
+    const session = get().taskSession
+    if (!session) return
+    const socket = get().taskWs
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: 'stop' }))
+      return
+    }
+    set({ taskBusy: true, taskRuntimeError: null })
+    try {
+      const stopped = (await apiJson(`${BASE}/sessions/${session.id}/stop`, {
+        method: 'POST'
+      })) as AgentSessionDetail
+      set({ taskSession: stopped, taskSessionEvents: stopped.events })
+      await get().refreshSelectedTask()
+    } catch (error) {
+      set({ taskRuntimeError: errorMessage(error) })
+    } finally {
+      set({ taskBusy: false })
+    }
   },
 
   async pickWorkspace() {

@@ -103,6 +103,8 @@ function ProjectButton() {
 }
 
 export default function App() {
+  const visualFixture =
+    import.meta.env.DEV && new URLSearchParams(window.location.search).get('fixture') === 'task-runtime'
   const boot = useStore((s) => s.boot)
   const serverUp = useStore((s) => s.serverUp)
   const backendStatus = useStore((s) => s.backendStatus)
@@ -130,19 +132,20 @@ export default function App() {
   const pollHealth = useStore((s) => s.pollHealth)
 
   useEffect(() => {
-    boot()
-  }, [boot])
+    if (!visualFixture) boot()
+  }, [boot, visualFixture])
 
   // 앱이 백엔드를 직접 띄우므로(main process) 처음 몇 초는 연결이 안 되는 게 정상.
   // 붙을 때까지 자동 재시도하고, 붙은 뒤엔 모델 서버 상태를 따라간다.
   useEffect(() => {
+    if (visualFixture) return
     if (serverUp === false) {
       const t = setTimeout(boot, authFailed ? 15000 : 2000)
       return () => clearTimeout(t)
     }
     const t = setInterval(pollHealth, 5000)
     return () => clearInterval(t)
-  }, [serverUp, authFailed, boot, pollHealth])
+  }, [serverUp, authFailed, boot, pollHealth, visualFixture])
 
   if (authFailed) {
     // 서버는 살아 있는데 토큰/Origin이 거부됐다. 스피너를 돌리면 "곧 될 것"이라는

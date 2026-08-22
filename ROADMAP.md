@@ -109,12 +109,12 @@ Janus가 느린 이유와 worker가 도움 되는지를 숫자로 볼 수 있다
 
 ### 출구 조건
 
-- [ ] 실제 27B smoke가 한 명령으로 반복 실행된다.
-- [ ] 멀티턴, worker spawn, stop, cancel 후 재개 결과가 자동 판정된다.
-- [ ] 모델 queue/generation/tool/verification 시간이 분리되어 기록된다.
-- [ ] 같은 TaskSuite를 5회 실행해 성공률과 wall-time 분산을 볼 수 있다.
-- [ ] worker 없음/고정 worker/자율 worker baseline 표가 생성된다.
-- [ ] 종료 후 Janus가 시작한 backend/model orphan process가 남지 않는다.
+- [x] 실제 27B smoke가 한 명령으로 반복 실행된다.
+- [x] 멀티턴, worker spawn, stop, cancel 후 재개 결과가 자동 판정된다.
+- [x] 모델 queue/generation/tool/verification 시간이 분리되어 기록된다.
+- [x] 같은 TaskSuite를 5회 실행해 성공률과 wall-time 분산을 볼 수 있다.
+- [x] worker 없음/고정 worker/자율 worker baseline 표가 생성된다.
+- [x] 종료 후 Janus가 시작한 backend/model orphan process가 남지 않는다.
 
 ---
 
@@ -160,12 +160,12 @@ Janus가 느린 이유와 worker가 도움 되는지를 숫자로 볼 수 있다
 
 ### 출구 조건
 
-- [ ] 동일 프로젝트의 Task 두 개가 서로 다른 worktree/branch를 가진다.
-- [ ] 두 WorkspaceContext의 도구를 병렬 실행해도 파일이 섞이지 않는다.
-- [ ] main checkout은 agent 실행으로 수정되지 않는다.
-- [ ] 앱 재시작 후 Project, Task, Workspace 상태가 복원된다.
-- [ ] dirty 또는 미병합 workspace 삭제는 기본 거부된다.
-- [ ] 생성 실패가 `preparing`에 영구 고착되지 않고 복구 동작을 제공한다.
+- [x] 동일 프로젝트의 Task 두 개가 서로 다른 worktree/branch를 가진다.
+- [x] 두 WorkspaceContext의 도구를 병렬 실행해도 파일이 섞이지 않는다.
+- [x] main checkout은 agent 실행으로 수정되지 않는다.
+- [x] 앱 재시작 후 Project, Task, Workspace 상태가 복원된다.
+- [x] dirty 또는 미병합 workspace 삭제는 기본 거부된다.
+- [x] 생성 실패가 `preparing`에 영구 고착되지 않고 복구 동작을 제공한다.
 
 ---
 

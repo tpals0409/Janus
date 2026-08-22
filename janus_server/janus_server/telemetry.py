@@ -108,9 +108,9 @@ class ExecutionTelemetry:
             **data,
         }
 
-    def begin_turn(self) -> str:
+    def begin_turn(self, dispatch_id: str | None = None) -> str:
         now = self.clock()
-        dispatch_id = self.new_dispatch_id()
+        dispatch_id = dispatch_id or self.new_dispatch_id()
         with self.lock:
             if self._active_turn is not None:
                 raise RuntimeError("active turn이 이미 있습니다")

@@ -10,13 +10,14 @@
 
 ## 현재 판정
 
-**측정 가능한 로컬 runtime(R1/P0)과 ADE의 영속 Task·Workspace 백엔드
-(R2/P1 6~8)는 완성됐다. Task 중심 UI와 Task–Runtime 연결(P1 9~10)이 남았다.**
+**측정 가능한 로컬 runtime(R1/P0)과 Task·worktree·영속 AgentSession 기반
+ADE 작업 경계(R2/P1)는 완성됐다. 다음 우선순위는 로컬 ResourceScheduler(R3/P2)다.**
 
 현재 앱은 로컬 MLX 오케스트레이터와 런타임 워커를 실행하고 trace를 보여주는 검증된 세로
-조각이다. Project/Task/Workspace/Dispatch/AgentSession 스키마와 Task별 Git worktree는
-구현됐지만, Task 중심 UI, runtime 연결, local resource scheduler, Git diff review,
-평가 loop가 없으므로 완성된 ADE로 부르기에는 이르다.
+조각이다. Project/Task 중심 화면에서 별도 Git worktree를 준비하고, AgentProfile을 선택해
+고유 Dispatch attempt와 AgentSession을 시작·재개·취소·중지할 수 있다. Session 상태,
+transcript와 runtime event는 SQLite에 영속화되고 최신 Dispatch만 Task 이벤트를 쓸 수 있다.
+local resource scheduler, Git diff review, 평가 loop가 없으므로 완성된 ADE로 부르기에는 이르다.
 
 기존 “오케스트레이터-워커 전환으로 원래 계획과 일치했다”는 평가는 제품 목표가 런타임일 때만
 맞았다. ADE를 목표로 확정했으므로 현재 런타임은 제품 전체가 아니라 Task를 수행하는 핵심
@@ -57,28 +58,28 @@
 
 | 영역 | 현재 | 목표 |
 |---|---|---|
-| 최상위 객체 | Project/Task 도메인·API | Task 중심 UI |
-| 실행 경계 | Task별 WorkspaceContext/worktree 백엔드 | Task UI와 runtime의 완전한 연결 |
+| 최상위 객체 | Project/Task 도메인·API·Task 중심 UI | queue와 Needs You/Review 운영 |
+| 실행 경계 | Task별 WorkspaceContext/worktree와 영속 runtime | ResourceLease 기반 실행 권한 |
 | 에이전트 | 단일 Janus Local 설정 | 측정·비교 가능한 로컬 Agent/Model Profile |
-| 실행 시도 | Dispatch/AgentSession 저장 스키마 | runtime에 연결된 영속 실행 |
+| 실행 시도 | Dispatch/AgentSession 영속 실행·resume·stale 거부 | 예산·lease·완료 판정 |
 | 자원 제어 | 모델 서버에 즉시 요청 | generation lease + tool/verification scheduler |
 | 결과 | 답변과 trace | Git ChangeSet + Verification |
 | 최적화 | token/latency 표시 | 고정 TaskSuite의 품질·시간·token·개입 비교 |
 | 완료 | 턴 종료 | review 수락과 ship |
-| 기본 화면 | agent/trace | Task 상태와 Needs You/Review |
+| 기본 화면 | Task 상태·Workspace·AgentSession | ChangeSet review와 ship |
 
 `tools.WORKSPACE` 전역 mutable 상태는 제거됐다. 파일·셸·검증은 불변
 `WorkspaceContext`(소유 Task/Workspace/Dispatch ID 포함)를 받고, 두 context의 병렬 파일
 격리와 다른 workspace 경로 거부를 회귀 테스트로 고정했다.
 
-현재 가장 큰 제품 공백은 Task UI와 영속 runtime이 아직 분리됐다는 점이다.
-계측된 queue/lease를 ResourceScheduler 정책으로 연결하는 작업은 P1 통합 후 R3에서 진행한다.
+Task UI와 영속 runtime의 분리는 해소됐다. 현재 가장 큰 제품 공백은 계측용으로만 존재하는
+queue/lease 이벤트가 실제 ResourceScheduler 정책과 자원 cap을 강제하지 않는다는 점이다.
 
 ## 현재 검증
 
 2026-08-22 현재 체크아웃에서 직접 확인:
 
-- Python 테스트 53개 통과
+- Python 테스트 60개 통과
 - Node lifecycle 테스트 7개 통과(실제 분리 프로세스 그룹 3회 start/stop 포함)
 - 도구 자체 검사 통과
 - 오케스트레이터 spec 검사 통과
@@ -91,9 +92,16 @@
 
 아직 검증하지 못한 것:
 
-- Task 중심 UI에서 생성→worktree 준비→runtime 실행→review까지의 전체 흐름
-- 두 Task의 영속 AgentSession을 동시 실행·취소하는 runtime 격리
+- 실제 27B를 Task UI에서 시작해 ChangeSet review까지 끝내는 전체 흐름
 - scheduler/lease/budget 적용 후 baseline 대비 개선
+
+P1에서 추가로 검증한 것:
+
+- Task 생성 계약과 AgentSession 패널의 1280×720 실제 React 렌더링, 콘솔 오류 0
+- Task Session의 start/send/cancel/stop/resume와 transcript/runtime log 영속화
+- 서버 재시작 중 running Session을 idle/needs_you로 복구한 뒤 멀티턴 resume
+- 새 Dispatch 이후 오래된 WebSocket/event 거부
+- 두 Task 동시 실행에서 한 Task 취소가 다른 Task 완료에 영향을 주지 않음
 
 ## 완료한 마일스톤: R1 실제 27B Baseline과 계측
 
@@ -109,11 +117,11 @@
 각각 34.79초, 109.93초, 44.63초였다. 자율 정책은 15회 모두 worker 0을 선택했다. 상세 표는
 `janus_server/artifacts/p0/tasksuite/20260822-115844/baseline.md`에 있다.
 
-## 다음 마일스톤: R2 Task/worktree/WorkspaceContext
+## 완료한 마일스톤: R2 Task/worktree/WorkspaceContext
 
-영속 도메인 모델, WorkspaceContext, WorkspaceService는 완료됐다. 다음은 Task 중심 UI와
-Task–Runtime 연결이다.
-R3에서 model generation 1-slot scheduler, ResourceLease와 token/time/worker budget을 도입한다.
+영속 도메인 모델, WorkspaceContext, WorkspaceService, Task 중심 UI와 Task–Runtime 연결을
+완료했다. 다음 R3에서 model generation 1-slot scheduler, ResourceLease와
+token/time/worker budget을 도입한다.
 
 R1의 상세 출구 조건은 [ROADMAP.md](ROADMAP.md#r1-실제-27b-baseline과-계측--최적화의-기준선)를
 단일 기준으로 사용한다.

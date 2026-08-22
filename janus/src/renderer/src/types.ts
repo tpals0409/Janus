@@ -51,6 +51,35 @@ export interface Dispatch {
   error: string | null
 }
 
+export type AgentSessionStatus = 'created' | 'running' | 'idle' | 'stopped' | 'failed'
+
+export interface SessionEvent {
+  session_id: string
+  seq: number
+  kind: string
+  payload: Record<string, unknown>
+  task_id: string
+  dispatch_id: string
+  workspace_id: string | null
+  created_at: string
+}
+
+export interface AgentSessionDetail {
+  id: string
+  task_id: string
+  dispatch_id: string
+  agent_profile_id: string
+  status: AgentSessionStatus
+  created_at: string
+  updated_at: string
+  stopped_at: string | null
+  error: string | null
+  dispatch: Dispatch
+  workspace_id: string
+  workspace_root: string
+  events: SessionEvent[]
+}
+
 export interface AgentProfile {
   id: string
   name: string

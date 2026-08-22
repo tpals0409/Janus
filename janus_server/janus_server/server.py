@@ -15,6 +15,7 @@ import sys
 import tempfile
 import threading
 import uuid
+from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 
@@ -47,11 +48,14 @@ _LEGACY_WORKSPACE_ROOT = (Path(__file__).parent / "workspace").resolve()
 _DOMAIN_LOCK = threading.Lock()
 _DOMAIN_STORE: D.DomainStore | None = None
 _DOMAIN_STORE_PATH: Path | None = None
+_DOMAIN_RECOVERED_PATH: Path | None = None
 _WORKSPACE_SERVICE_LOCK = threading.Lock()
 _WORKSPACE_SERVICE: WS.WorkspaceService | None = None
 _WORKSPACE_SERVICE_PATH: Path | None = None
 _WORKSPACE_JOBS_LOCK = threading.Lock()
 _WORKSPACE_JOBS: dict[str, threading.Thread] = {}
+_TASK_RUNTIMES_LOCK = threading.Lock()
+_TASK_RUNTIMES: dict[str, runtime.Orchestration] = {}
 
 # Electron main이 기동마다 만든 토큰을 서버/렌더러에만 나눠준다.
 # 수동 기동도 무인증으로 열리지 않도록, env가 없으면 서버가 자체적으로
@@ -161,12 +165,15 @@ _restore_workspace()
 
 def get_domain_store() -> D.DomainStore:
     """DB 경로는 호출 시점에 해석한다 — 테스트와 앱 data dir 전환을 격리한다."""
-    global _DOMAIN_STORE, _DOMAIN_STORE_PATH
+    global _DOMAIN_STORE, _DOMAIN_STORE_PATH, _DOMAIN_RECOVERED_PATH
     path = Path(os.environ.get("JANUS_DB_FILE", str(DOMAIN_DB_FILE))).expanduser().resolve()
     with _DOMAIN_LOCK:
         if _DOMAIN_STORE is None or _DOMAIN_STORE_PATH != path:
             _DOMAIN_STORE = D.DomainStore(path)
             _DOMAIN_STORE_PATH = path
+        if _DOMAIN_RECOVERED_PATH != path:
+            _DOMAIN_STORE.recover_interrupted_runtime()
+            _DOMAIN_RECOVERED_PATH = path
         return _DOMAIN_STORE
 
 
@@ -512,7 +519,8 @@ def inspect_task_workspace(task_id: str):
 
 
 def _workspace_for_removal(task_id: str, body: dict) -> dict:
-    workspace = get_domain_store().get_task_workspace(task_id)
+    store = get_domain_store()
+    workspace = store.get_task_workspace(task_id)
     if workspace is None:
         raise D.NotFound(f"Task의 Workspace가 없습니다: {task_id}")
     if str(body.get("confirm_workspace_id") or "") != workspace["id"]:
@@ -521,6 +529,9 @@ def _workspace_for_removal(task_id: str, body: dict) -> dict:
         raise D.Conflict("Janus가 소유하지 않은 Workspace는 제거할 수 없습니다")
     if _workspace_job_active(workspace["id"]):
         raise D.Conflict("준비 중인 Workspace는 제거할 수 없습니다")
+    latest = store.latest_dispatch(task_id)
+    if latest is not None and latest["status"] in {"queued", "running", "needs_you"}:
+        raise D.Conflict("활성 AgentSession을 먼저 중지해야 Workspace를 제거할 수 있습니다")
     return workspace
 
 
@@ -602,6 +613,112 @@ def create_agent_profile(body: dict):
 def update_agent_profile(profile_id: str, body: dict):
     profile = get_domain_store().update_agent_profile(profile_id, **body)
     return _agent_profile_json(profile)
+
+
+# ─────────────────────────── Task AgentSession runtime ───────────────────────────
+
+
+def _task_runtime_spec(store: D.DomainStore, agent_profile_id: str) -> dict:
+    profile = _agent_profile_json(store.get_agent_profile(agent_profile_id))
+    model = _model_profile_json(store.get_model_profile(profile["model_profile_id"]))
+    return {
+        "name": profile["name"],
+        "description": profile["description"],
+        "model": model["model_key"],
+        "system_prompt": profile["system_prompt"],
+        "tools": profile["tools"],
+        "approval": profile["approval"],
+        "worker_policy": profile["worker_policy"],
+        "max_steps": profile["max_steps"],
+    }
+
+
+def _task_session_detail(store: D.DomainStore, session_id: str) -> dict:
+    session = store.get_session(session_id)
+    dispatch = store.get_dispatch(session["dispatch_id"])
+    workspace = store.get_workspace(dispatch["workspace_id"])
+    return {
+        **session,
+        "dispatch": dispatch,
+        "workspace_id": workspace["id"],
+        "workspace_root": workspace["root_path"],
+        "events": store.list_session_events(session_id),
+    }
+
+
+def _cancel_live_task_runtimes(task_id: str, *, except_session_id: str | None = None) -> None:
+    with _TASK_RUNTIMES_LOCK:
+        live = [
+            orch for session_id, orch in _TASK_RUNTIMES.items()
+            if session_id != except_session_id and orch.workspace_context.task_id == task_id
+        ]
+    for orch in live:
+        orch.cancel_all()
+
+
+@app.post("/tasks/{task_id}/sessions")
+def start_task_session(task_id: str, body: dict):
+    store = get_domain_store()
+    workspace = store.get_task_workspace(task_id)
+    if workspace is None:
+        raise D.Conflict("Task Workspace를 먼저 준비하세요")
+    profile_id = str(body.get("agent_profile_id") or "agent_default")
+    execution = store.create_execution(
+        task_id=task_id,
+        workspace_id=workspace["id"],
+        agent_profile_id=profile_id,
+    )
+    _cancel_live_task_runtimes(task_id)
+    return _task_session_detail(store, execution["session"]["id"])
+
+
+@app.get("/tasks/{task_id}/sessions")
+def list_task_sessions(task_id: str):
+    store = get_domain_store()
+    store.get_task(task_id)
+    return [
+        _task_session_detail(store, item["id"])
+        for item in store.list_sessions(task_id)
+    ]
+
+
+@app.get("/tasks/{task_id}/sessions/latest")
+def latest_task_session(task_id: str):
+    store = get_domain_store()
+    store.get_task(task_id)
+    sessions = store.list_sessions(task_id)
+    if not sessions:
+        raise D.NotFound(f"Task의 AgentSession이 없습니다: {task_id}")
+    return _task_session_detail(store, sessions[0]["id"])
+
+
+@app.get("/sessions/{session_id}")
+def get_agent_session(session_id: str):
+    return _task_session_detail(get_domain_store(), session_id)
+
+
+@app.post("/sessions/{session_id}/resume")
+def resume_agent_session(session_id: str):
+    store = get_domain_store()
+    detail = _task_session_detail(store, session_id)
+    latest = store.latest_dispatch(detail["task_id"])
+    if latest is None or latest["id"] != detail["dispatch_id"]:
+        raise D.StaleDispatch(f"오래된 Dispatch의 Session입니다: {detail['dispatch_id']}")
+    if detail["status"] not in {"created", "idle"}:
+        raise D.Conflict(f"resume할 수 없는 AgentSession 상태: {detail['status']}")
+    if detail["dispatch"]["status"] not in {"queued", "needs_you"}:
+        raise D.Conflict(f"resume할 수 없는 Dispatch 상태: {detail['dispatch']['status']}")
+    return detail
+
+
+@app.post("/sessions/{session_id}/stop")
+def stop_agent_session(session_id: str):
+    session = get_domain_store().get_session(session_id)
+    _cancel_live_task_runtimes(session["task_id"])
+    return _task_session_detail(
+        get_domain_store(),
+        get_domain_store().stop_execution(session_id)["id"],
+    )
 
 
 @app.get("/agents")
@@ -830,6 +947,316 @@ def list_models():
 
 
 APPROVAL_TIMEOUT = 300  # 초. 무응답은 거부로 친다.
+
+
+@app.websocket("/tasks/{task_id}/sessions/{session_id}")
+async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
+    """Stream one persisted AgentSession inside its Task Workspace.
+
+    The Dispatch row is the ownership fence. Every runtime event is appended to
+    SQLite only while that Dispatch is the latest non-terminal attempt for the Task.
+    Reconnecting reconstructs the model transcript from persisted `transcript` events.
+    """
+    origin = ws.headers.get("origin")
+    protocols = {
+        p.strip() for p in ws.headers.get("sec-websocket-protocol", "").split(",") if p.strip()
+    }
+    if not _origin_allowed(origin) or "janus" not in protocols or not any(
+        _token_valid(p) for p in protocols if p != "janus"
+    ):
+        await ws.close(code=1008)
+        return
+
+    store = get_domain_store()
+    try:
+        session = store.get_session(session_id)
+        if session["task_id"] != task_id:
+            raise D.Conflict("AgentSession이 다른 Task에 속합니다")
+        dispatch = store.get_dispatch(session["dispatch_id"])
+        latest = store.latest_dispatch(task_id)
+        if latest is None or latest["id"] != dispatch["id"]:
+            raise D.StaleDispatch(f"오래된 Dispatch의 Session입니다: {dispatch['id']}")
+        if session["status"] not in {"created", "idle"}:
+            raise D.Conflict(f"연결할 수 없는 AgentSession 상태: {session['status']}")
+        workspace = store.get_workspace(dispatch["workspace_id"])
+        if workspace["state"] != "ready" or not workspace["root_path"]:
+            raise D.Conflict("ready Workspace가 있어야 Session을 실행할 수 있습니다")
+        spec = _task_runtime_spec(store, session["agent_profile_id"])
+    except D.DomainError:
+        await ws.close(code=1008)
+        return
+
+    await ws.accept(subprotocol="janus")
+    loop = asyncio.get_running_loop()
+    pending: dict[str, list] = {}
+    pending_lock = threading.Lock()
+    turn_task: asyncio.Task | None = None
+    orch: runtime.Orchestration | None = None
+    stop_requested = False
+    stale_notified = threading.Event()
+    transcript_events = [
+        item["payload"] for item in store.list_session_events(session_id)
+        if item["kind"] == "transcript"
+    ]
+    transcript_count = len(transcript_events)
+    context = WorkspaceContext(
+        root=Path(workspace["root_path"]),
+        task_id=task_id,
+        workspace_id=workspace["id"],
+        dispatch_id=dispatch["id"],
+    )
+
+    async def _safe_send(payload: dict) -> None:
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            pass
+
+    def _direct_send(payload: dict) -> None:
+        with suppress(RuntimeError):
+            asyncio.run_coroutine_threadsafe(_safe_send(payload), loop)
+
+    def _payload_with_ids(event: dict) -> dict:
+        return {
+            **event,
+            "task_id": task_id,
+            "workspace_id": workspace["id"],
+            "dispatch_id": dispatch["id"],
+            "session_id": session_id,
+        }
+
+    def send(event: dict) -> None:
+        """Persist before delivery and reject any event that lost Dispatch ownership."""
+        payload = _payload_with_ids(event)
+        try:
+            store.append_session_event(
+                session_id,
+                kind=str(payload.get("type") or "runtime"),
+                payload=payload,
+                task_id=task_id,
+                dispatch_id=dispatch["id"],
+                workspace_id=workspace["id"],
+                require_latest=True,
+            )
+        except D.StaleDispatch:
+            if not stale_notified.is_set():
+                stale_notified.set()
+                if orch is not None:
+                    orch.cancel_all()
+                _direct_send(_payload_with_ids({
+                    "type": "stale_dispatch",
+                    "error": "더 최신 Dispatch가 이 Task의 실행 권한을 소유합니다",
+                }))
+            return
+        _direct_send(payload)
+
+    def persist_final(event: dict) -> dict | None:
+        """Persist a terminal event only if this is still the latest Dispatch."""
+        payload = _payload_with_ids(event)
+        try:
+            store.append_session_event(
+                session_id,
+                kind=str(payload.get("type") or "runtime"),
+                payload=payload,
+                task_id=task_id,
+                dispatch_id=dispatch["id"],
+                workspace_id=workspace["id"],
+                require_latest=True,
+                require_active=False,
+            )
+        except D.StaleDispatch:
+            return None
+        return payload
+
+    async def send_final(event: dict) -> None:
+        """Flush earlier worker sends, then deliver the persisted terminal event."""
+        payload = persist_final(event)
+        if payload is None:
+            return
+        await asyncio.sleep(0)
+        await _safe_send(payload)
+
+    def approver(
+        node_id: str, tool: str, args: dict, approval_context: WorkspaceContext
+    ) -> bool:
+        req_id = uuid.uuid4().hex[:12]
+        event = threading.Event()
+        with pending_lock:
+            pending[req_id] = [event, False]
+        send({
+            "type": "approval_request",
+            "id": req_id,
+            "node_id": node_id,
+            "tool": tool,
+            "args": args,
+            **approval_context.identifiers(),
+        })
+        if not event.wait(timeout=APPROVAL_TIMEOUT):
+            with pending_lock:
+                pending.pop(req_id, None)
+            return False
+        with pending_lock:
+            slot = pending.pop(req_id, None)
+        return bool(slot and slot[1])
+
+    def ensure_orchestration() -> runtime.Orchestration:
+        nonlocal orch
+        if orch is None:
+            orch = runtime.Orchestration(
+                spec,
+                send=send,
+                approver=approver,
+                workspace_context=context,
+                task_id=task_id,
+                session_id=session_id,
+            )
+            orch.session.events = [dict(item) for item in transcript_events]
+            with _TASK_RUNTIMES_LOCK:
+                existing = _TASK_RUNTIMES.get(session_id)
+                if existing is not None and existing is not orch:
+                    raise D.Conflict("AgentSession이 이미 다른 연결에서 실행 중입니다")
+                _TASK_RUNTIMES[session_id] = orch
+        return orch
+
+    def persist_transcript(current: runtime.Orchestration) -> None:
+        nonlocal transcript_count
+        new_events = current.session.events[transcript_count:]
+        for event in new_events:
+            store.append_session_event(
+                session_id,
+                kind="transcript",
+                payload=dict(event),
+                task_id=task_id,
+                dispatch_id=dispatch["id"],
+                workspace_id=workspace["id"],
+                require_latest=True,
+            )
+        transcript_count += len(new_events)
+
+    async def do_turn(text: str) -> None:
+        nonlocal stop_requested
+        current: runtime.Orchestration | None = None
+        failure: str | None = None
+        activated = False
+        try:
+            store.activate_session_turn(session_id)
+            activated = True
+            current = ensure_orchestration()
+            send({"type": "run_start", "agent_profile_id": session["agent_profile_id"]})
+            await asyncio.to_thread(current.turn, text, dispatch_id=dispatch["id"])
+            persist_transcript(current)
+        except D.StaleDispatch:
+            stale_notified.set()
+            if current is not None:
+                current.cancel_all()
+            _direct_send(_payload_with_ids({
+                "type": "stale_dispatch",
+                "error": "더 최신 Dispatch가 이 Task의 실행 권한을 소유합니다",
+            }))
+            return
+        except Exception as error:
+            failure = f"{type(error).__name__}: {error}"
+            if current is not None:
+                current.turn_failed = True
+            if activated:
+                send({"type": "run_error", "error": failure})
+            else:
+                _direct_send(_payload_with_ids({"type": "run_error", "error": failure}))
+        finally:
+            if stale_notified.is_set() or not activated:
+                return
+            try:
+                if current is not None and len(current.session.events) > transcript_count:
+                    persist_transcript(current)
+                persisted = store.get_session(session_id)
+                if stop_requested or persisted["status"] == "stopped":
+                    if persisted["status"] != "stopped":
+                        store.stop_execution(session_id)
+                    await send_final({"type": "session_stopped"})
+                else:
+                    store.settle_session_turn(
+                        session_id, failed=failure is not None, error=failure
+                    )
+                await send_final({
+                    "type": "turn_end",
+                    "cancelled": bool(current and current.cancelled_turn),
+                    "session_status": store.get_session(session_id)["status"],
+                })
+                if stop_requested:
+                    await asyncio.sleep(0)
+                    await ws.close(code=1000)
+            except D.StaleDispatch:
+                stale_notified.set()
+                _direct_send(_payload_with_ids({
+                    "type": "stale_dispatch",
+                    "error": "더 최신 Dispatch가 이 Task의 실행 권한을 소유합니다",
+                }))
+
+    send({
+        "type": "session_ready",
+        "agent_profile_id": session["agent_profile_id"],
+        "resumed_events": transcript_count,
+        "session_status": session["status"],
+    })
+
+    try:
+        while True:
+            message = await ws.receive_json()
+            kind = message.get("type")
+            if kind in {"message", "resume"}:
+                text = str(message.get("text") or "").strip()
+                if not text or (turn_task and not turn_task.done()) or stop_requested:
+                    continue
+                turn_task = asyncio.create_task(do_turn(text))
+            elif kind == "approval_response":
+                with pending_lock:
+                    slot = pending.get(message.get("id"))
+                if slot:
+                    slot[1] = bool(message.get("approved"))
+                    slot[0].set()
+            elif kind == "cancel":
+                if orch is not None:
+                    orch.cancel_all()
+                with pending_lock:
+                    slots = list(pending.values())
+                for slot in slots:
+                    slot[1] = False
+                    slot[0].set()
+            elif kind == "stop_worker" and orch is not None:
+                orch.stop_worker(str(message.get("node_id") or ""))
+            elif kind == "stop":
+                stop_requested = True
+                if orch is not None:
+                    orch.cancel_all()
+                with pending_lock:
+                    slots = list(pending.values())
+                for slot in slots:
+                    slot[1] = False
+                    slot[0].set()
+                if turn_task is None or turn_task.done():
+                    store.stop_execution(session_id)
+                    await send_final({"type": "session_stopped"})
+                    break
+    except WebSocketDisconnect:
+        pass
+    except Exception as error:
+        await _safe_send(_payload_with_ids({
+            "type": "run_error", "error": f"{type(error).__name__}: {error}"
+        }))
+    finally:
+        if orch is not None:
+            orch.cancel_all()
+        with pending_lock:
+            slots = list(pending.values())
+        for slot in slots:
+            slot[1] = False
+            slot[0].set()
+        if turn_task and not turn_task.done():
+            with suppress(asyncio.CancelledError, asyncio.TimeoutError):
+                await asyncio.wait_for(asyncio.shield(turn_task), timeout=10)
+        with _TASK_RUNTIMES_LOCK:
+            if orch is not None and _TASK_RUNTIMES.get(session_id) is orch:
+                _TASK_RUNTIMES.pop(session_id, None)
 
 
 @app.websocket("/run/{agent_id}")

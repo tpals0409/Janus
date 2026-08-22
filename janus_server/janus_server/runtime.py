@@ -271,12 +271,12 @@ class Orchestration:
 
     # ── 턴 실행 ──
 
-    def turn(self, text: str) -> None:
+    def turn(self, text: str, *, dispatch_id: str | None = None) -> None:
         """블로킹 — asyncio.to_thread로 호출된다. ReAct 한 턴."""
         self.cancel.clear()
         self.cancelled_turn = False
         self.turn_failed = False
-        dispatch_id = self.telemetry.begin_turn()
+        dispatch_id = self.telemetry.begin_turn(dispatch_id)
         self.current_dispatch_id = dispatch_id
         self.last_dispatch_id = dispatch_id
         context = self.workspace_context.for_dispatch(dispatch_id)

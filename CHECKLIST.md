@@ -167,22 +167,28 @@
 
 ### 9. Task 중심 UI
 
-- [ ] Project/Task sidebar
-- [ ] Task 생성: title/objective/acceptance/base ref
-- [ ] Todo/Preparing/Working/Needs You/Review/Failed 상태
-- [ ] Workspace 준비·실패·복구 표시
-- [ ] 안전한 archive/delete UI
-- [ ] 앱 첫 화면의 중심을 Agent에서 Task로 전환
+- [x] Project/Task sidebar
+- [x] Task 생성: title/objective/acceptance/base ref
+- [x] Todo/Preparing/Working/Needs You/Review/Failed 상태
+- [x] Workspace 준비·실패·복구 표시
+- [x] 안전한 archive/delete UI
+- [x] 앱 첫 화면의 중심을 Agent에서 Task로 전환
 
 ### 10. Task–Runtime 연결
 
-- [ ] 현재 오케스트레이터를 AgentSession 뒤로 이동
-- [ ] AgentProfile 선택과 저장
-- [ ] Dispatch attempt ID 도입
-- [ ] Session 상태와 로그 영속화
-- [ ] 오래된 Dispatch 이벤트 거부
-- [ ] Task 단위 start/send/cancel/stop/resume
-- [ ] 한 Task 취소가 다른 Task에 영향 없는 테스트
+발견된 분기·문제:
+
+- [x] 새 attempt 생성과 이전 실행 폐기를 한 transaction으로 묶어 늦은 이벤트의 소유권 경쟁 제거
+- [x] 서버 재시작 중 `running`이던 Session/Dispatch/Task를 resumable 상태로 원자 복구
+- [x] 활성 AgentSession이 있는 Workspace의 archive/force remove 기본 거부
+
+- [x] 현재 오케스트레이터를 AgentSession 뒤로 이동
+- [x] AgentProfile 선택과 저장
+- [x] Dispatch attempt ID 도입
+- [x] Session 상태와 로그 영속화
+- [x] 오래된 Dispatch 이벤트 거부
+- [x] Task 단위 start/send/cancel/stop/resume
+- [x] 한 Task 취소가 다른 Task에 영향 없는 테스트
 
 ---
 
