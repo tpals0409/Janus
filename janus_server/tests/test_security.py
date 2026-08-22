@@ -13,6 +13,9 @@ os.environ["JANUS_ALLOWED_ORIGINS"] = "http://localhost:5173"
 os.environ["JANUS_STATE_FILE"] = str(
     Path(tempfile.gettempdir()) / f"janus-test-state-{os.getpid()}.json"
 )
+os.environ["JANUS_DB_FILE"] = str(
+    Path(tempfile.gettempdir()) / f"janus-test-domain-{os.getpid()}.sqlite3"
+)
 
 import json
 

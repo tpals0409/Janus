@@ -121,6 +121,13 @@
 
 ### 6. 영속 도메인 모델
 
+발견된 분기·문제:
+
+- [ ] 기존 agent YAML/run JSON은 파괴적으로 이동하지 않고 P1 DB 전환 동안 legacy 호환 입력으로 유지
+- [ ] WebSocket·worker thread 동시 접근을 위해 요청별 SQLite transaction, WAL, foreign key를 강제
+- [ ] Task/Dispatch/Session 상태 전이를 route가 아닌 도메인 저장소에서 검증
+- [ ] DB 경로와 migration을 import 시점 전역 상태로 고정하지 않아 테스트·앱 재시작 격리
+
 - [ ] Project schema
 - [ ] Task schema와 상태 전이
 - [ ] Workspace schema

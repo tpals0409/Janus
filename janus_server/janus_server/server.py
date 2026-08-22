@@ -24,6 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from . import runtime
+from . import domain as D
 from . import spec as S
 from . import tools as T
 
@@ -32,7 +33,13 @@ RUNS_DIR = Path(__file__).parent / "runs"    # 실행 기록. 앱을 닫아도 �
 STATE_FILE = Path(
     os.environ.get("JANUS_STATE_FILE", str(Path.home() / ".janus" / "state.json"))
 ).expanduser()
+DOMAIN_DB_FILE = Path(
+    os.environ.get("JANUS_DB_FILE", str(Path.home() / ".janus" / "janus.sqlite3"))
+).expanduser()
 _STATE_LOCK = threading.Lock()
+_DOMAIN_LOCK = threading.Lock()
+_DOMAIN_STORE: D.DomainStore | None = None
+_DOMAIN_STORE_PATH: Path | None = None
 
 # Electron main이 기동마다 만든 토큰을 서버/렌더러에만 나눠준다.
 # 수동 기동도 무인증으로 열리지 않도록, env가 없으면 서버가 자체적으로
@@ -114,6 +121,17 @@ def _restore_workspace() -> bool:
 _restore_workspace()
 
 
+def get_domain_store() -> D.DomainStore:
+    """DB 경로는 호출 시점에 해석한다 — 테스트와 앱 data dir 전환을 격리한다."""
+    global _DOMAIN_STORE, _DOMAIN_STORE_PATH
+    path = Path(os.environ.get("JANUS_DB_FILE", str(DOMAIN_DB_FILE))).expanduser().resolve()
+    with _DOMAIN_LOCK:
+        if _DOMAIN_STORE is None or _DOMAIN_STORE_PATH != path:
+            _DOMAIN_STORE = D.DomainStore(path)
+            _DOMAIN_STORE_PATH = path
+        return _DOMAIN_STORE
+
+
 def _save_run(agent_id: str, run_id: str, inputs: dict, spans: list,
               cancelled: bool, telemetry: dict | None = None) -> None:
     """실행 하나를 단일 JSON 파일로 남긴다. run_id가 고정이라 대화가 이어질 때마다
@@ -134,6 +152,21 @@ def _save_run(agent_id: str, run_id: str, inputs: dict, spans: list,
     }, ensure_ascii=False), encoding="utf-8")
 
 app = FastAPI(title="Janus", version="0.1.0")
+
+
+@app.exception_handler(D.NotFound)
+async def domain_not_found(_request: Request, error: D.NotFound):
+    return JSONResponse({"detail": str(error)}, status_code=404)
+
+
+@app.exception_handler(D.Conflict)
+async def domain_conflict(_request: Request, error: D.Conflict):
+    return JSONResponse({"detail": str(error)}, status_code=409)
+
+
+@app.exception_handler(D.InvalidTransition)
+async def domain_transition(_request: Request, error: D.InvalidTransition):
+    return JSONResponse({"detail": str(error)}, status_code=409)
 
 
 @app.middleware("http")
@@ -179,7 +212,122 @@ def health():
             mlx = True
     except OSError:
         pass
-    return {"ok": True, "version": app.version, "mlx": mlx}
+    return {
+        "ok": True, "version": app.version, "mlx": mlx,
+        "schema_version": get_domain_store().schema_version(),
+    }
+
+
+# ─────────────────────────── P1 ADE domain API ───────────────────────────
+
+
+@app.get("/projects")
+def list_projects(include_archived: bool = False):
+    return get_domain_store().list_projects(include_archived=include_archived)
+
+
+@app.post("/projects")
+def create_project(body: dict):
+    return get_domain_store().create_project(
+        name=str(body.get("name") or ""), repo_path=str(body.get("repo_path") or "")
+    )
+
+
+@app.get("/projects/{project_id}")
+def get_project(project_id: str):
+    return get_domain_store().get_project(project_id)
+
+
+@app.delete("/projects/{project_id}")
+def archive_project(project_id: str):
+    return get_domain_store().archive_project(project_id)
+
+
+@app.get("/projects/{project_id}/tasks")
+def list_project_tasks(project_id: str, include_archived: bool = False):
+    get_domain_store().get_project(project_id)
+    return get_domain_store().list_tasks(project_id, include_archived=include_archived)
+
+
+@app.post("/projects/{project_id}/tasks")
+def create_task(project_id: str, body: dict):
+    return get_domain_store().create_task(
+        project_id=project_id,
+        title=str(body.get("title") or ""),
+        objective=str(body.get("objective") or ""),
+        acceptance_command=str(body.get("acceptance_command") or ""),
+        base_ref=str(body.get("base_ref") or "main"),
+    )
+
+
+@app.get("/tasks/{task_id}")
+def get_task(task_id: str):
+    task = get_domain_store().get_task(task_id)
+    task["workspace"] = get_domain_store().get_task_workspace(task_id)
+    task["dispatches"] = get_domain_store().list_dispatches(task_id)
+    return task
+
+
+@app.patch("/tasks/{task_id}")
+def update_task(task_id: str, body: dict):
+    fields = {
+        key: str(body[key])
+        for key in ("title", "objective", "acceptance_command", "base_ref")
+        if key in body
+    }
+    return get_domain_store().update_task(task_id, **fields)
+
+
+@app.post("/tasks/{task_id}/transition")
+def transition_task(task_id: str, body: dict):
+    return get_domain_store().transition_task(
+        task_id, str(body.get("status") or ""),
+        expected=str(body["expected"]) if body.get("expected") is not None else None,
+    )
+
+
+@app.delete("/tasks/{task_id}")
+def archive_task(task_id: str):
+    return get_domain_store().archive_task(task_id)
+
+
+def _agent_profile_json(profile: dict) -> dict:
+    return {**profile, "tools": json.loads(profile["tools_json"])}
+
+
+def _model_profile_json(profile: dict) -> dict:
+    return {**profile, "config": json.loads(profile["config_json"])}
+
+
+@app.get("/profiles/models")
+def list_model_profiles():
+    return [_model_profile_json(item) for item in get_domain_store().list_model_profiles()]
+
+
+@app.get("/profiles/agents")
+def list_agent_profiles():
+    return [_agent_profile_json(item) for item in get_domain_store().list_agent_profiles()]
+
+
+@app.post("/profiles/agents")
+def create_agent_profile(body: dict):
+    profile = get_domain_store().create_agent_profile(
+        name=str(body.get("name") or ""),
+        description=str(body.get("description") or ""),
+        system_prompt=str(body.get("system_prompt") or ""),
+        tools=[str(item) for item in body.get("tools") or []],
+        approval=str(body.get("approval") or "ask"),
+        worker_policy=str(body.get("worker_policy") or "autonomous"),
+        max_steps=int(body.get("max_steps") or 15),
+        model_profile_id=str(body.get("model_profile_id") or "model_qwen38_27b_4bit"),
+    )
+    return _agent_profile_json(profile)
+
+
+@app.put("/profiles/agents/{profile_id}")
+def update_agent_profile(profile_id: str, body: dict):
+    profile = get_domain_store().update_agent_profile(profile_id, **body)
+    return _agent_profile_json(profile)
 
 
 @app.get("/agents")

@@ -241,6 +241,8 @@ ipcMain.handle('backend-status', () => backendStatus())
 app.whenReady().then(() => {
   env.JANUS_STATE_FILE =
     process.env.JANUS_STATE_FILE ?? join(app.getPath('userData'), 'state.json')
+  env.JANUS_DB_FILE =
+    process.env.JANUS_DB_FILE ?? join(app.getPath('userData'), 'janus.sqlite3')
   startBackendSupervisor() // 창보다 먼저 시작 — 모델 로드가 제일 오래 걸린다
   createWindow()
   app.on('activate', () => {
