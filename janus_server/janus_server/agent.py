@@ -272,6 +272,7 @@ def run(
     reg = dict(T.REGISTRY)
     reg.update({t["name"]: t for t in (extra_tools or [])})
     tool_names = [n for n in tool_names if n in reg]
+    allowed_tool_names = set(tool_names)
     if session is None:
         session = Session(build_system_prompt(system_prompt, tool_names, registry=reg),
                           registry=reg)
@@ -413,6 +414,15 @@ def run(
                 args = json.loads(call["function"]["arguments"] or "{}")
             except json.JSONDecodeError as e:
                 return name, {"error": f"인자 JSON 파싱 실패: {e}"}
+            if name not in allowed_tool_names:
+                emit(
+                    "tool_rejected", name=name, args=args, call_id=call["id"],
+                    reason="tool_not_in_node_subset",
+                )
+                return name, {
+                    "error": f"tool {name!r} is not available to this agent node",
+                    "reason": "tool_not_in_node_subset",
+                }
             operation_id = uuid.uuid4().hex[:16]
             resource_class = T.resource_class_for(name, registry=reg)
             emit("resource_queue_enter", resource=resource_class, operation_id=operation_id,

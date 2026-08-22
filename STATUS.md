@@ -11,9 +11,9 @@
 ## 현재 판정
 
 **측정 가능한 로컬 runtime(R1/P0), ADE 작업 경계(R2/P1), ResourceScheduler·Lease·Budget·
-Worker Backpressure/Context 효율(R3/P2-11~14)과 처리량 재측정은 완료됐다. 후보는 40/45로
-acceptance가 회귀했으므로 기본 정책으로 승격하지 않는다. 다음 우선순위는 측정에서 드러난
-worker spawn·실패 통합 회귀를 수정하는 것이다.**
+Worker Backpressure/Context 효율(R3/P2-11~14)과 처리량 회귀 수정까지 완료됐다. 단일 model
+slot에서는 자율 worker를 기본 억제하고, 강제 fixed-one implementer는 1-step read-only scout로
+전환한다. 다음 우선순위는 P3의 Git 파생 ChangeSet·Verification·Review·Ship 흐름이다.**
 
 현재 앱은 로컬 MLX 오케스트레이터와 런타임 워커를 실행하고 trace를 보여주는 검증된 세로
 조각이다. Project/Task 중심 화면에서 별도 Git worktree를 준비하고, AgentProfile을 선택해
@@ -78,9 +78,9 @@ Git diff review와 평가 loop가 없으므로 완성된 ADE로
 Task UI와 영속 runtime의 분리는 해소됐다. 계측용이던 queue/lease 이벤트는 프로세스 공유
 ResourceScheduler의 실제 실행 권한과 연결됐다. lease는 timeout·취소·예외·앱 종료에서
 실제 반환을 기다리며 queue 원인이 Task 화면에 표시된다. Dispatch/RuntimeWorker별
-token·time·step 한도와 worker cap도 강제된다. 현재 가장 큰 효율 공백은 queue 상태를
-worker spawn 정책에 반영하고 context 전달량을 줄인 후보가 실제 TaskSuite 처리량을 얼마나
-바꾸는지 아직 재측정하지 않았다는 점이다.
+token·time·step 한도와 worker cap도 강제된다. queue 상태와 단일 model slot 비용을 worker
+정책에 반영했고 실제 TaskSuite로 재측정했다. 현재 가장 큰 제품 공백은 runtime 결과를 Git
+ChangeSet으로 검토하고 Janus가 직접 검증·승인·commit하는 P3 ADE loop다.
 
 ## 현재 검증
 
@@ -95,6 +95,9 @@ worker spawn 정책에 반영하고 context 전달량을 줄인 후보가 실제
 - 정적 그래프/LangGraph 의존성 제거 완료
 - 실제 Qwen3.8-27B smoke 4개 시나리오 통과: 멀티턴, worker spawn/stop, cancel 후 재개
 - TaskSuite 3개 × 정책 3개 × 5회 = 45회 완료, acceptance 44/45
+- P2 회귀 수정 fixed-one 15회: 독립 acceptance와 변경 파일 조건 15/15, 정책 준수 15/15,
+  정상 turn 종료 14/15. 마지막 1회는 변경·acceptance 성공 후 최종 응답 생성 중 120.12초로
+  120초 실험 제한을 0.12초 초과했으며 사용자 판단으로 P2 완료 범위에 포함
 - smoke 종료 후 owned MLX PID 종료와 orphan process 0 확인
 
 아직 검증하지 못한 것:
@@ -158,6 +161,20 @@ R3 TaskSuite 재측정 결과:
 - 짧은 단일-turn TaskSuite에서는 session compaction threshold에 도달하지 않아 절감 token 0;
   stable-prefix 후보 계측만 확인
 - 상세 비교: `janus_server/artifacts/r3/tasksuite/20260822-183500/comparison.md`
+
+P2 회귀 수정 결과:
+
+- worker token/step 소진 시 workspace 변경과 부분 결과를 상위 에이전트가 재사용하고 같은
+  subtask를 반복 spawn하지 않도록 `completed_partial` 결과로 통합
+- 모델이 광고되지 않은 쓰기 도구를 임의 호출해도 실행 경계에서 `tool_not_in_node_subset`로
+  거부해 researcher/verifier read-only 계약을 실제로 강제
+- 단일 model slot + tight fixed-one implementer는 1-step read-only scout로 명시 전환하고
+  requested/effective role과 이유를 span에 기록; 쓰기 소유자는 상위 에이전트 하나로 유지
+- 자율 worker는 사용자의 명시적 위임이나 profile override가 없으면 생성 전 억제하고, 억제
+  결과를 오류가 아닌 직접 완료 지침으로 반환
+- 최종 fixed-one 15회에서 independent acceptance·필수/허용 변경·worker 1개 정책은 15/15;
+  정상 종료는 14/15이며 마지막 1회만 acceptance 성공 후 최종 응답에서 0.12초 초과
+- 최종 요약: `janus_server/artifacts/r3/tasksuite/20260822-p2-final-fixed-one-v2/baseline.md`
 
 ## 완료한 마일스톤: R1 실제 27B Baseline과 계측
 

@@ -1,0 +1,1036 @@
+{
+  "schema_version": 1,
+  "suite": "janus-local-ade-v0",
+  "label": "p2-final-fixed-one-v2",
+  "started_at": "2026-08-22T13:09:17.917154+00:00",
+  "finished_at": "2026-08-22T13:31:23.578812+00:00",
+  "status": "completed",
+  "conditions": {
+    "model": "qwen3.8-27b",
+    "quantization": "4-bit MLX",
+    "model_generation_slots": 1,
+    "turn_timeout_seconds": 120.0,
+    "max_steps": 10,
+    "approval_mode": "automated for benchmark; requests are counted",
+    "workspace_execution": "sequential for R1 comparability; immutable WorkspaceContext isolated",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.12 (main, Mar 20 2026, 00:20:47) [Clang 22.1.1 ]",
+    "repeats": 5,
+    "policies": [
+      "fixed_one"
+    ],
+    "tasks": [
+      "single_file_bug",
+      "multi_file_refactor",
+      "investigate_code_tests"
+    ],
+    "runtime_features": [
+      "resource_scheduler",
+      "resource_lease",
+      "dispatch_worker_budget",
+      "worker_backpressure",
+      "session_compaction"
+    ]
+  },
+  "model_server": {
+    "ownership": "owned",
+    "exit_code": -15,
+    "orphan_processes": 0,
+    "owned_process_alive": false,
+    "port_open_after_stop": false
+  },
+  "runs": [
+    {
+      "schema_version": 1,
+      "task_id": "single_file_bug",
+      "category": "single-file bug fix",
+      "policy": "fixed_one",
+      "repeat": 1,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 66091.839,
+      "changed_files": [
+        "calculator.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "worker_count": 1,
+      "approval_requests": 1,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 9524,
+        "completion": 536,
+        "total": 10060
+      },
+      "budget": {
+        "scope": "dispatch",
+        "limits": {
+          "token_limit": 32768,
+          "time_limit_ms": 900000,
+          "step_limit": 10
+        },
+        "usage": {
+          "prompt_tokens": 9524,
+          "completion_tokens": 536,
+          "steps": 6,
+          "active_time_ms": 66050.259,
+          "workers_started": 1,
+          "peak_concurrent_workers": 1
+        },
+        "exhausted_reason": null
+      },
+      "timing_ms": {
+        "user_wait": 41.514,
+        "resource_queue": 0.282,
+        "model_generation": 66047.331,
+        "tool_run": 5985.409,
+        "active_turn": 66050.378,
+        "verification": 40.801
+      },
+      "efficiency": {
+        "llm_calls": 6,
+        "baseline_input_chars": 21129,
+        "sent_input_chars": 21129,
+        "saved_input_chars": 0,
+        "saved_token_estimate": 0,
+        "compacted_calls": 0,
+        "stable_prefix_reuses": 4,
+        "worker_spawn_suppressions": 0,
+        "worker_spawn_suppression_reasons": {},
+        "worker_result_reuses": 0
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "single_file_bug",
+      "category": "single-file bug fix",
+      "policy": "fixed_one",
+      "repeat": 2,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 64885.428,
+      "changed_files": [
+        "calculator.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "worker_count": 1,
+      "approval_requests": 1,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 9524,
+        "completion": 523,
+        "total": 10047
+      },
+      "budget": {
+        "scope": "dispatch",
+        "limits": {
+          "token_limit": 32768,
+          "time_limit_ms": 900000,
+          "step_limit": 10
+        },
+        "usage": {
+          "prompt_tokens": 9524,
+          "completion_tokens": 523,
+          "steps": 6,
+          "active_time_ms": 64847.862,
+          "workers_started": 1,
+          "peak_concurrent_workers": 1
+        },
+        "exhausted_reason": null
+      },
+      "timing_ms": {
+        "user_wait": 37.517,
+        "resource_queue": 0.266,
+        "model_generation": 64845.077,
+        "tool_run": 5971.964,
+        "active_turn": 64847.965,
+        "verification": 36.923
+      },
+      "efficiency": {
+        "llm_calls": 6,
+        "baseline_input_chars": 21129,
+        "sent_input_chars": 21129,
+        "saved_input_chars": 0,
+        "saved_token_estimate": 0,
+        "compacted_calls": 0,
+        "stable_prefix_reuses": 4,
+        "worker_spawn_suppressions": 0,
+        "worker_spawn_suppression_reasons": {},
+        "worker_result_reuses": 0
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "single_file_bug",
+      "category": "single-file bug fix",
+      "policy": "fixed_one",
+      "repeat": 3,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 63551.933,
+      "changed_files": [
+        "calculator.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "worker_count": 1,
+      "approval_requests": 1,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 9524,
+        "completion": 504,
+        "total": 10028
+      },
+      "budget": {
+        "scope": "dispatch",
+        "limits": {
+          "token_limit": 32768,
+          "time_limit_ms": 900000,
+          "step_limit": 10
+        },
+        "usage": {
+          "prompt_tokens": 9524,
+          "completion_tokens": 504,
+          "steps": 6,
+          "active_time_ms": 63515.613,
+          "workers_started": 1,
+          "peak_concurrent_workers": 1
+        },
+        "exhausted_reason": null
+      },
+      "timing_ms": {
+        "user_wait": 36.295,
+        "resource_queue": 0.266,
+        "model_generation": 63512.955,
+        "tool_run": 5975.851,
+        "active_turn": 63515.691,
+        "verification": 35.644
+      },
+      "efficiency": {
+        "llm_calls": 6,
+        "baseline_input_chars": 21129,
+        "sent_input_chars": 21129,
+        "saved_input_chars": 0,
+        "saved_token_estimate": 0,
+        "compacted_calls": 0,
+        "stable_prefix_reuses": 4,
+        "worker_spawn_suppressions": 0,
+        "worker_spawn_suppression_reasons": {},
+        "worker_result_reuses": 0
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "single_file_bug",
+      "category": "single-file bug fix",
+      "policy": "fixed_one",
+      "repeat": 4,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 64595.815,
+      "changed_files": [
+        "calculator.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "worker_count": 1,
+      "approval_requests": 1,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 9524,
+        "completion": 523,
+        "total": 10047
+      },
+      "budget": {
+        "scope": "dispatch",
+        "limits": {
+          "token_limit": 32768,
+          "time_limit_ms": 900000,
+          "step_limit": 10
+        },
+        "usage": {
+          "prompt_tokens": 9524,
+          "completion_tokens": 523,
+          "steps": 6,
+          "active_time_ms": 64567.864,
+          "workers_started": 1,
+          "peak_concurrent_workers": 1
+        },
+        "exhausted_reason": null
+      },
+      "timing_ms": {
+        "user_wait": 27.919,
+        "resource_queue": 0.264,
+        "model_generation": 64565.128,
+        "tool_run": 5969.009,
+        "active_turn": 64567.951,
+        "verification": 27.284
+      },
+      "efficiency": {
+        "llm_calls": 6,
+        "baseline_input_chars": 21129,
+        "sent_input_chars": 21129,
+        "saved_input_chars": 0,
+        "saved_token_estimate": 0,
+        "compacted_calls": 0,
+        "stable_prefix_reuses": 4,
+        "worker_spawn_suppressions": 0,
+        "worker_spawn_suppression_reasons": {},
+        "worker_result_reuses": 0
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "single_file_bug",
+      "category": "single-file bug fix",
+      "policy": "fixed_one",
+      "repeat": 5,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 63163.056,
+      "changed_files": [
+        "calculator.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "worker_count": 1,
+      "approval_requests": 1,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 9524,
+        "completion": 504,
+        "total": 10028
+      },
+      "budget": {
+        "scope": "dispatch",
+        "limits": {
+          "token_limit": 32768,
+          "time_limit_ms": 900000,
+          "step_limit": 10
+        },
+        "usage": {
+          "prompt_tokens": 9524,
+          "completion_tokens": 504,
+          "steps": 6,
+          "active_time_ms": 63136.789,
+          "workers_started": 1,
+          "peak_concurrent_workers": 1
+        },
+        "exhausted_reason": null
+      },
+      "timing_ms": {
+        "user_wait": 26.219,
+        "resource_queue": 0.269,
+        "model_generation": 63134.116,
+        "tool_run": 5972.399,
+        "active_turn": 63136.89,
+        "verification": 25.605
+      },
+      "efficiency": {
+        "llm_calls": 6,
+        "baseline_input_chars": 21129,
+        "sent_input_chars": 21129,
+        "saved_input_chars": 0,
+        "saved_token_estimate": 0,
+        "compacted_calls": 0,
+        "stable_prefix_reuses": 4,
+        "worker_spawn_suppressions": 0,
+        "worker_spawn_suppression_reasons": {},
+        "worker_result_reuses": 0
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "multi_file_refactor",
+      "category": "multi-file refactor",
+      "policy": "fixed_one",
+      "repeat": 1,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 96330.361,
+      "changed_files": [
+        "invoice/report.py",
+        "invoice/totals.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "worker_count": 1,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 13836,
+        "completion": 792,
+        "total": 14628
+      },
+      "budget": {
+        "scope": "dispatch",
+        "limits": {
+          "token_limit": 32768,
+          "time_limit_ms": 900000,
+          "step_limit": 10
+        },
+        "usage": {
+          "prompt_tokens": 13836,
+          "completion_tokens": 792,
+          "steps": 7,
+          "active_time_ms": 96299.472,
+          "workers_started": 1,
+          "peak_concurrent_workers": 1
+        },
+        "exhausted_reason": null
+      },
+      "timing_ms": {
+        "user_wait": 30.853,
+        "resource_queue": 0.417,
+        "model_generation": 96278.378,
+        "tool_run": 6413.186,
+        "active_turn": 96299.561,
+        "verification": 30.035
+      },
+      "efficiency": {
+        "llm_calls": 7,
+        "baseline_input_chars": 34926,
+        "sent_input_chars": 34926,
+        "saved_input_chars": 0,
+        "saved_token_estimate": 0,
+        "compacted_calls": 0,
+        "stable_prefix_reuses": 5,
+        "worker_spawn_suppressions": 0,
+        "worker_spawn_suppression_reasons": {},
+        "worker_result_reuses": 0
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "multi_file_refactor",
+      "category": "multi-file refactor",
+      "policy": "fixed_one",
+      "repeat": 2,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 89019.493,
+      "changed_files": [
+        "invoice/report.py",
+        "invoice/totals.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "worker_count": 1,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 13836,
+        "completion": 698,
+        "total": 14534
+      },
+      "budget": {
+        "scope": "dispatch",
+        "limits": {
+          "token_limit": 32768,
+          "time_limit_ms": 900000,
+          "step_limit": 10
+        },
+        "usage": {
+          "prompt_tokens": 13836,
+          "completion_tokens": 698,
+          "steps": 7,
+          "active_time_ms": 88991.93,
+          "workers_started": 1,
+          "peak_concurrent_workers": 1
+        },
+        "exhausted_reason": null
+      },
+      "timing_ms": {
+        "user_wait": 27.554,
+        "resource_queue": 0.391,
+        "model_generation": 88980.149,
+        "tool_run": 6278.63,
+        "active_turn": 88992.02,
+        "verification": 26.754
+      },
+      "efficiency": {
+        "llm_calls": 7,
+        "baseline_input_chars": 34926,
+        "sent_input_chars": 34926,
+        "saved_input_chars": 0,
+        "saved_token_estimate": 0,
+        "compacted_calls": 0,
+        "stable_prefix_reuses": 5,
+        "worker_spawn_suppressions": 0,
+        "worker_spawn_suppression_reasons": {},
+        "worker_result_reuses": 0
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "multi_file_refactor",
+      "category": "multi-file refactor",
+      "policy": "fixed_one",
+      "repeat": 3,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 92135.201,
+      "changed_files": [
+        "invoice/report.py",
+        "invoice/totals.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "worker_count": 1,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 13836,
+        "completion": 736,
+        "total": 14572
+      },
+      "budget": {
+        "scope": "dispatch",
+        "limits": {
+          "token_limit": 32768,
+          "time_limit_ms": 900000,
+          "step_limit": 10
+        },
+        "usage": {
+          "prompt_tokens": 13836,
+          "completion_tokens": 736,
+          "steps": 7,
+          "active_time_ms": 92108.065,
+          "workers_started": 1,
+          "peak_concurrent_workers": 1
+        },
+        "exhausted_reason": null
+      },
+      "timing_ms": {
+        "user_wait": 27.092,
+        "resource_queue": 0.418,
+        "model_generation": 92095.905,
+        "tool_run": 6220.128,
+        "active_turn": 92108.163,
+        "verification": 26.351
+      },
+      "efficiency": {
+        "llm_calls": 7,
+        "baseline_input_chars": 34926,
+        "sent_input_chars": 34926,
+        "saved_input_chars": 0,
+        "saved_token_estimate": 0,
+        "compacted_calls": 0,
+        "stable_prefix_reuses": 5,
+        "worker_spawn_suppressions": 0,
+        "worker_spawn_suppression_reasons": {},
+        "worker_result_reuses": 0
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "multi_file_refactor",
+      "category": "multi-file refactor",
+      "policy": "fixed_one",
+      "repeat": 4,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 98100.633,
+      "changed_files": [
+        "invoice/report.py",
+        "invoice/totals.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "worker_count": 1,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 13836,
+        "completion": 818,
+        "total": 14654
+      },
+      "budget": {
+        "scope": "dispatch",
+        "limits": {
+          "token_limit": 32768,
+          "time_limit_ms": 900000,
+          "step_limit": 10
+        },
+        "usage": {
+          "prompt_tokens": 13836,
+          "completion_tokens": 818,
+          "steps": 7,
+          "active_time_ms": 98064.542,
+          "workers_started": 1,
+          "peak_concurrent_workers": 1
+        },
+        "exhausted_reason": null
+      },
+      "timing_ms": {
+        "user_wait": 36.051,
+        "resource_queue": 0.384,
+        "model_generation": 98052.833,
+        "tool_run": 6218.266,
+        "active_turn": 98064.637,
+        "verification": 35.207
+      },
+      "efficiency": {
+        "llm_calls": 7,
+        "baseline_input_chars": 34926,
+        "sent_input_chars": 34926,
+        "saved_input_chars": 0,
+        "saved_token_estimate": 0,
+        "compacted_calls": 0,
+        "stable_prefix_reuses": 5,
+        "worker_spawn_suppressions": 0,
+        "worker_spawn_suppression_reasons": {},
+        "worker_result_reuses": 0
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "multi_file_refactor",
+      "category": "multi-file refactor",
+      "policy": "fixed_one",
+      "repeat": 5,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 92602.763,
+      "changed_files": [
+        "invoice/report.py",
+        "invoice/totals.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "worker_count": 1,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 13836,
+        "completion": 747,
+        "total": 14583
+      },
+      "budget": {
+        "scope": "dispatch",
+        "limits": {
+          "token_limit": 32768,
+          "time_limit_ms": 900000,
+          "step_limit": 10
+        },
+        "usage": {
+          "prompt_tokens": 13836,
+          "completion_tokens": 747,
+          "steps": 7,
+          "active_time_ms": 92571.934,
+          "workers_started": 1,
+          "peak_concurrent_workers": 1
+        },
+        "exhausted_reason": null
+      },
+      "timing_ms": {
+        "user_wait": 30.771,
+        "resource_queue": 0.407,
+        "model_generation": 92560.164,
+        "tool_run": 6204.761,
+        "active_turn": 92572.07,
+        "verification": 29.959
+      },
+      "efficiency": {
+        "llm_calls": 7,
+        "baseline_input_chars": 34926,
+        "sent_input_chars": 34926,
+        "saved_input_chars": 0,
+        "saved_token_estimate": 0,
+        "compacted_calls": 0,
+        "stable_prefix_reuses": 5,
+        "worker_spawn_suppressions": 0,
+        "worker_spawn_suppression_reasons": {},
+        "worker_result_reuses": 0
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "investigate_code_tests",
+      "category": "investigate then modify code and tests",
+      "policy": "fixed_one",
+      "repeat": 1,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 102260.528,
+      "changed_files": [
+        "slug.py",
+        "tests/test_slug.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "worker_count": 1,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 8470,
+        "completion": 1070,
+        "total": 9540
+      },
+      "budget": {
+        "scope": "dispatch",
+        "limits": {
+          "token_limit": 32768,
+          "time_limit_ms": 900000,
+          "step_limit": 10
+        },
+        "usage": {
+          "prompt_tokens": 8470,
+          "completion_tokens": 1070,
+          "steps": 5,
+          "active_time_ms": 102217.595,
+          "workers_started": 1,
+          "peak_concurrent_workers": 1
+        },
+        "exhausted_reason": null
+      },
+      "timing_ms": {
+        "user_wait": 42.915,
+        "resource_queue": 0.37,
+        "model_generation": 102213.811,
+        "tool_run": 9965.226,
+        "active_turn": 102217.673,
+        "verification": 42.258
+      },
+      "efficiency": {
+        "llm_calls": 5,
+        "baseline_input_chars": 20380,
+        "sent_input_chars": 20380,
+        "saved_input_chars": 0,
+        "saved_token_estimate": 0,
+        "compacted_calls": 0,
+        "stable_prefix_reuses": 3,
+        "worker_spawn_suppressions": 0,
+        "worker_spawn_suppression_reasons": {},
+        "worker_result_reuses": 0
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "investigate_code_tests",
+      "category": "investigate then modify code and tests",
+      "policy": "fixed_one",
+      "repeat": 2,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 98686.331,
+      "changed_files": [
+        "slug.py",
+        "tests/test_slug.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "worker_count": 1,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 8470,
+        "completion": 1022,
+        "total": 9492
+      },
+      "budget": {
+        "scope": "dispatch",
+        "limits": {
+          "token_limit": 32768,
+          "time_limit_ms": 900000,
+          "step_limit": 10
+        },
+        "usage": {
+          "prompt_tokens": 8470,
+          "completion_tokens": 1022,
+          "steps": 5,
+          "active_time_ms": 98644.65,
+          "workers_started": 1,
+          "peak_concurrent_workers": 1
+        },
+        "exhausted_reason": null
+      },
+      "timing_ms": {
+        "user_wait": 41.643,
+        "resource_queue": 0.344,
+        "model_generation": 98640.876,
+        "tool_run": 9990.533,
+        "active_turn": 98644.741,
+        "verification": 40.994
+      },
+      "efficiency": {
+        "llm_calls": 5,
+        "baseline_input_chars": 20380,
+        "sent_input_chars": 20380,
+        "saved_input_chars": 0,
+        "saved_token_estimate": 0,
+        "compacted_calls": 0,
+        "stable_prefix_reuses": 3,
+        "worker_spawn_suppressions": 0,
+        "worker_spawn_suppression_reasons": {},
+        "worker_result_reuses": 0
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "investigate_code_tests",
+      "category": "investigate then modify code and tests",
+      "policy": "fixed_one",
+      "repeat": 3,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 100534.929,
+      "changed_files": [
+        "slug.py",
+        "tests/test_slug.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "worker_count": 1,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 8470,
+        "completion": 1046,
+        "total": 9516
+      },
+      "budget": {
+        "scope": "dispatch",
+        "limits": {
+          "token_limit": 32768,
+          "time_limit_ms": 900000,
+          "step_limit": 10
+        },
+        "usage": {
+          "prompt_tokens": 8470,
+          "completion_tokens": 1046,
+          "steps": 5,
+          "active_time_ms": 100493.521,
+          "workers_started": 1,
+          "peak_concurrent_workers": 1
+        },
+        "exhausted_reason": null
+      },
+      "timing_ms": {
+        "user_wait": 41.351,
+        "resource_queue": 0.439,
+        "model_generation": 100489.422,
+        "tool_run": 9976.481,
+        "active_turn": 100493.641,
+        "verification": 40.606
+      },
+      "efficiency": {
+        "llm_calls": 5,
+        "baseline_input_chars": 20380,
+        "sent_input_chars": 20380,
+        "saved_input_chars": 0,
+        "saved_token_estimate": 0,
+        "compacted_calls": 0,
+        "stable_prefix_reuses": 3,
+        "worker_spawn_suppressions": 0,
+        "worker_spawn_suppression_reasons": {},
+        "worker_result_reuses": 0
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "investigate_code_tests",
+      "category": "investigate then modify code and tests",
+      "policy": "fixed_one",
+      "repeat": 4,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 110086.021,
+      "changed_files": [
+        "slug.py",
+        "tests/test_slug.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "worker_count": 1,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 11335,
+        "completion": 1071,
+        "total": 12406
+      },
+      "budget": {
+        "scope": "dispatch",
+        "limits": {
+          "token_limit": 32768,
+          "time_limit_ms": 900000,
+          "step_limit": 10
+        },
+        "usage": {
+          "prompt_tokens": 11335,
+          "completion_tokens": 1071,
+          "steps": 6,
+          "active_time_ms": 110042.53,
+          "workers_started": 1,
+          "peak_concurrent_workers": 1
+        },
+        "exhausted_reason": null
+      },
+      "timing_ms": {
+        "user_wait": 43.445,
+        "resource_queue": 0.431,
+        "model_generation": 110037.952,
+        "tool_run": 9971.54,
+        "active_turn": 110042.635,
+        "verification": 42.713
+      },
+      "efficiency": {
+        "llm_calls": 6,
+        "baseline_input_chars": 29353,
+        "sent_input_chars": 29353,
+        "saved_input_chars": 0,
+        "saved_token_estimate": 0,
+        "compacted_calls": 0,
+        "stable_prefix_reuses": 4,
+        "worker_spawn_suppressions": 0,
+        "worker_spawn_suppression_reasons": {},
+        "worker_result_reuses": 0
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "investigate_code_tests",
+      "category": "investigate then modify code and tests",
+      "policy": "fixed_one",
+      "repeat": 5,
+      "status": "failed",
+      "acceptance_passed": false,
+      "policy_conformant": true,
+      "turn_error": "turn timeout(120s)",
+      "wall_time_ms": 120119.0,
+      "changed_files": [
+        "slug.py",
+        "tests/test_slug.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "worker_count": 1,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 11351,
+        "completion": 1071,
+        "total": 12422
+      },
+      "budget": {
+        "scope": "dispatch",
+        "limits": {
+          "token_limit": 32768,
+          "time_limit_ms": 900000,
+          "step_limit": 10
+        },
+        "usage": {
+          "prompt_tokens": 11351,
+          "completion_tokens": 1071,
+          "steps": 7,
+          "active_time_ms": 120063.909,
+          "workers_started": 1,
+          "peak_concurrent_workers": 1
+        },
+        "exhausted_reason": null
+      },
+      "timing_ms": {
+        "user_wait": 55.07,
+        "resource_queue": 0.54,
+        "model_generation": 120058.787,
+        "tool_run": 10082.801,
+        "active_turn": 120063.994,
+        "verification": 54.28
+      },
+      "efficiency": {
+        "llm_calls": 7,
+        "baseline_input_chars": 39855,
+        "sent_input_chars": 39855,
+        "saved_input_chars": 0,
+        "saved_token_estimate": 0,
+        "compacted_calls": 0,
+        "stable_prefix_reuses": 5,
+        "worker_spawn_suppressions": 1,
+        "worker_spawn_suppression_reasons": {
+          "worker_policy_fixed_one": 1
+        },
+        "worker_result_reuses": 0
+      }
+    }
+  ],
+  "summary": [
+    {
+      "task_id": "investigate_code_tests",
+      "policy": "fixed_one",
+      "runs": 5,
+      "acceptance_successes": 4,
+      "policy_conformant_runs": 5,
+      "wall_mean_ms": 106337.362,
+      "wall_stdev_ms": 7909.653,
+      "prompt_tokens_mean": 9619.2,
+      "completion_tokens_mean": 1056,
+      "approval_requests_mean": 2,
+      "worker_count_mean": 1,
+      "queue_ms_mean": 0.425,
+      "saved_token_estimate_mean": 0,
+      "spawn_suppressions": 1
+    },
+    {
+      "task_id": "multi_file_refactor",
+      "policy": "fixed_one",
+      "runs": 5,
+      "acceptance_successes": 5,
+      "policy_conformant_runs": 5,
+      "wall_mean_ms": 93637.69,
+      "wall_stdev_ms": 3219.46,
+      "prompt_tokens_mean": 13836,
+      "completion_tokens_mean": 758.2,
+      "approval_requests_mean": 2,
+      "worker_count_mean": 1,
+      "queue_ms_mean": 0.403,
+      "saved_token_estimate_mean": 0,
+      "spawn_suppressions": 0
+    },
+    {
+      "task_id": "single_file_bug",
+      "policy": "fixed_one",
+      "runs": 5,
+      "acceptance_successes": 5,
+      "policy_conformant_runs": 5,
+      "wall_mean_ms": 64457.614,
+      "wall_stdev_ms": 1036.239,
+      "prompt_tokens_mean": 9524,
+      "completion_tokens_mean": 518,
+      "approval_requests_mean": 1,
+      "worker_count_mean": 1,
+      "queue_ms_mean": 0.269,
+      "saved_token_estimate_mean": 0,
+      "spawn_suppressions": 0
+    }
+  ]
+}

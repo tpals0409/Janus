@@ -250,6 +250,12 @@
 - [x] verifier가 요청한 쓰기 도구는 오케스트레이터 도구에 있어도 읽기 전용 교집합에서 제거
 - [x] prompt cache hit을 알 수 없는 MLX 경로에서 실제 hit로 표시하지 않고 stable-prefix 재사용 후보만 계측
 - [x] 샌드박스 Metal 차단 실패와 host 실모델 성공을 분리하고 owned process orphan 0 확인
+- [x] worker token/step 소진을 재사용 가능한 `completed_partial` 결과로 통합하고 반복 spawn 차단
+- [x] 모델이 schema에 없는 도구를 호출해도 node tool subset 실행 경계에서 거부
+- [x] 단일 model slot의 tight fixed-one implementer를 계측 가능한 1-step read-only scout로 전환
+- [x] 명시적 위임·profile override 없는 autonomous worker를 생성 전 억제
+- [x] fixed-one 15회에서 독립 acceptance·변경 파일·worker 정책 15/15 검증
+- [x] 120초 제한 마지막 1회의 acceptance 후 응답 0.12초 초과를 결과에서 숨기지 않음
 
 - [x] queue와 자원 상태 기반 spawn 허용
 - [x] 불필요한 worker 생성 억제

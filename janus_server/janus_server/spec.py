@@ -63,6 +63,8 @@ def validate(spec: Any) -> None:
     worker_policy = spec.get("worker_policy", "autonomous")
     if worker_policy not in WORKER_POLICIES:
         errs.append(f"worker_policy는 {sorted(WORKER_POLICIES)} 중 하나여야 합니다")
+    if not isinstance(spec.get("allow_autonomous_workers", False), bool):
+        errs.append("allow_autonomous_workers는 boolean이어야 합니다")
 
     # 거부 메커니즘이 제거된 모델에 셸/쓰기를 쥐여주는 것이므로 승인이 실제 안전장치다.
     risky = sorted(set(tools) & T.DANGEROUS)

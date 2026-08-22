@@ -147,7 +147,7 @@ class BudgetTests(unittest.TestCase):
         self.assertEqual(2, usage["workers_started"])
         self.assertEqual(1, usage["peak_concurrent_workers"])
 
-    def test_runtime_worker_token_budget_stops_only_that_worker(self):
+    def test_runtime_worker_token_budget_returns_reusable_partial_result(self):
         budget = normalize_budget({
             "worker": {"token_limit": 1, "step_limit": 2},
             "workers": {"total_limit": 1, "concurrent_limit": 1},
@@ -171,8 +171,17 @@ class BudgetTests(unittest.TestCase):
             result = orch.create_worker["handler"](
                 name="limited", task="go", tools=[], max_steps=2
             )
+            reused = orch.create_worker["handler"](
+                name="limited", task="go", tools=[], max_steps=2
+            )
 
-        self.assertIn("token_limit", result["error"])
+        self.assertTrue(result["partial"])
+        self.assertIn("token_limit", result["warning"])
+        self.assertIn("Do not spawn another worker", result["result"])
+        self.assertIn("do not invent undocumented behavior", result["result"])
+        self.assertTrue(reused["reused"])
+        self.assertEqual(result["result"], reused["result"])
+        self.assertEqual(1, orch.worker_seq)
         self.assertIsNone(orch.dispatch_budget.exhausted_reason)
 
 

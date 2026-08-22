@@ -24,11 +24,13 @@ from tests.fakes import FakeClient, text_chunk
 
 ORIGIN = "http://localhost:5173"
 SPEC = {"name": "Orch", "model": "qwen3.8-27b", "system_prompt": "orchestrate",
-        "tools": ["echo"], "approval": "auto", "max_steps": 6}
+        "tools": ["echo"], "approval": "auto", "max_steps": 6,
+        "allow_autonomous_workers": True}
 
 
 def worker_args(name="helper", tools=None, task="do it"):
     return json.dumps({"name": name, "system_prompt": "work", "task": task,
+                       "role": "researcher",
                        "tools": tools if tools is not None else ["echo"]})
 
 
@@ -195,6 +197,37 @@ class RuntimeTests(unittest.TestCase):
         if suppressed:
             self.assertEqual("duplicate_worker_running", suppressed[0]["reason"])
 
+    def test_autonomous_implementer_is_suppressed_without_explicit_delegation(self):
+        args = json.dumps({
+            "name": "coder", "role": "implementer", "system_prompt": "work",
+            "task": "implement the whole task", "tools": ["echo"],
+        })
+        fake = FakeClient([
+            {"calls": [("create_worker", args)]},
+            {"text": "completed directly"},
+        ])
+        spec = {**SPEC, "allow_autonomous_workers": False}
+        with orch_env(fake, spec), self.connect() as ws:
+            ws.send_json({"type": "message", "text": "fix this task"})
+            seen = self.drain_turn(ws)
+
+        self.assertEqual(0, sum(
+            message["type"] == "span_start"
+            and message["span"]["node_id"].startswith("w")
+            for message in seen
+        ))
+        event = next(
+            message for message in seen
+            if message["type"] == "agent_event"
+            and message["kind"] == "worker_spawn_suppressed"
+        )
+        self.assertEqual("autonomous_implementer_overhead", event["reason"])
+        tool_message = next(
+            message for message in fake.captured[1]["messages"]
+            if message["role"] == "tool"
+        )
+        self.assertIn("complete/integrate the task directly", tool_message["content"])
+
     def test_verifier_worker_is_read_only_and_receives_bounded_context(self):
         args = json.dumps({
             "name": "verify", "role": "verifier", "system_prompt": "s" * 3_000,
@@ -328,6 +361,85 @@ class RuntimeTests(unittest.TestCase):
             self.assertIn("first", history)   # 중단된 턴도 세션에 남아 있다
             self.assertIn("second", history)
 
+    def test_implementer_without_shell_is_told_to_finish_after_edits(self):
+        args = json.dumps({
+            "name": "edit", "role": "implementer", "system_prompt": "work",
+            "task": "edit the file", "tools": ["echo"],
+        })
+        fake = FakeClient([
+            {"calls": [("create_worker", args)]},
+            {"text": "worker done"},
+            {"text": "final"},
+        ])
+        with orch_env(fake), self.connect() as ws:
+            ws.send_json({"type": "message", "text": "delegate this to a worker"})
+            self.drain_turn(ws)
+
+        worker_system = fake.captured[1]["messages"][0]["content"]
+        self.assertIn("do not search for a shell", worker_system)
+        self.assertIn("Do not broaden the original contract", worker_system)
+
+    def test_tight_fixed_one_implementer_is_adapted_to_read_only_scout(self):
+        args = json.dumps({
+            "name": "scout", "role": "implementer", "system_prompt": "work",
+            "task": "inspect before editing", "tools": ["echo"],
+        })
+        fake = FakeClient([
+            {"calls": [("create_worker", args)]},
+            {"text": "evidence"},
+            {"text": "final"},
+        ])
+        spec = {**SPEC, "worker_policy": "fixed_one", "max_steps": 10}
+        with orch_env(fake, spec), self.connect() as ws:
+            ws.send_json({"type": "message", "text": "go"})
+            seen = self.drain_turn(ws)
+
+        worker_call = fake.captured[1]
+        self.assertIn("You are a read-only scout", worker_call["messages"][0]["content"])
+        self.assertNotIn("You are an implementer", worker_call["messages"][0]["content"])
+        adapted = next(
+            message for message in seen
+            if message["type"] == "agent_event"
+            and message["kind"] == "worker_role_adapted"
+        )
+        self.assertEqual("implementer", adapted["requested_role"])
+        self.assertEqual("researcher", adapted["effective_role"])
+        tool_message = next(
+            message for message in fake.captured[2]["messages"]
+            if message["role"] == "tool"
+        )
+        self.assertIn("single_slot_tight_dispatch_scout", tool_message["content"])
+
+    def test_worker_cannot_call_tool_outside_its_enforced_subset(self):
+        args = json.dumps({
+            "name": "scout", "role": "researcher", "system_prompt": "inspect",
+            "task": "inspect only", "tools": ["echo"],
+        })
+        forbidden = json.dumps({"path": "escaped.txt", "content": "no"})
+        fake = FakeClient([
+            {"calls": [("create_worker", args)]},
+            {"calls": [("write_file", forbidden)]},
+            {"text": "could not write"},
+            {"text": "final"},
+        ])
+        with orch_env(fake), self.connect() as ws:
+            ws.send_json({"type": "message", "text": "delegate this to a worker"})
+            seen = self.drain_turn(ws)
+
+        rejected = next(
+            message for message in seen
+            if message["type"] == "agent_event" and message["kind"] == "tool_rejected"
+        )
+        self.assertEqual("write_file", rejected["name"])
+        self.assertEqual("tool_not_in_node_subset", rejected["reason"])
+        rejected_result = next(
+            message for message in seen
+            if message["type"] == "agent_event"
+            and message["kind"] == "tool_result"
+            and message["node_id"].startswith("w1-")
+        )
+        self.assertIn("not available to this agent node", rejected_result["value"]["error"])
+
 
 class SessionContextTests(unittest.TestCase):
     def test_compaction_preserves_recent_objective_and_tool_pairs(self):
@@ -420,6 +532,50 @@ class SessionContextTests(unittest.TestCase):
         )
         snapshot["resources"]["model_generation"]["queued"] = 0
         self.assertIsNone(runtime.worker_spawn_pressure(snapshot))
+
+    def test_single_model_slot_reserves_tight_dispatch_steps_for_parent(self):
+        dispatch = {
+            "limits": {"step_limit": 10},
+            "usage": {"steps": 1},
+        }
+        one_slot = {
+            "resources": {"model_generation": {"cap": 1}},
+        }
+        two_slots = {
+            "resources": {"model_generation": {"cap": 2}},
+        }
+
+        self.assertEqual(
+            3,
+            runtime.effective_worker_step_limit(14, 8, dispatch, one_slot),
+        )
+        self.assertEqual(
+            8,
+            runtime.effective_worker_step_limit(14, 8, dispatch, two_slots),
+        )
+
+        roomy = {
+            "limits": {"step_limit": 30},
+            "usage": {"steps": 1},
+        }
+        self.assertEqual(
+            8,
+            runtime.effective_worker_step_limit(14, 8, roomy, one_slot),
+        )
+
+        self.assertEqual(
+            ("researcher", "single_slot_tight_dispatch_scout"),
+            runtime.effective_worker_role("fixed_one", "implementer", 10, one_slot),
+        )
+        self.assertEqual(
+            ("researcher", "single_slot_tight_dispatch_scout"),
+            runtime.effective_worker_role("fixed_one", "implementer", 15, one_slot),
+        )
+        self.assertEqual(
+            ("implementer", None),
+            runtime.effective_worker_role("fixed_one", "implementer", 30, one_slot),
+        )
+
 
 
 if __name__ == "__main__":

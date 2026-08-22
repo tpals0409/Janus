@@ -45,6 +45,13 @@ WORKER_TASK_MAX_CHARS = 6_000
 WORKER_CONTEXT_MAX_CHARS = 4_000
 WORKER_ROLES = {"implementer", "researcher", "verifier"}
 MAX_MODEL_QUEUE_FOR_SPAWN = 1
+SINGLE_SLOT_PARENT_RESERVE_NUMERATOR = 6
+SINGLE_SLOT_PARENT_RESERVE_DENOMINATOR = 10
+TIGHT_DISPATCH_STEP_LIMIT = 16
+EXPLICIT_WORKER_PHRASES = (
+    "create_worker", "spawn worker", "spawn a worker", "delegate to a worker",
+    "worker를", "워커를", "위임",
+)
 
 
 def worker_spawn_pressure(snapshot: dict, *, max_model_queue: int =
@@ -56,6 +63,83 @@ def worker_spawn_pressure(snapshot: dict, *, max_model_queue: int =
     if int(model.get("queued", 0)) >= max_model_queue:
         return "model_queue_backpressure"
     return None
+
+
+def worker_spawn_fit(
+    policy: str, user_task: str | None, *, allow_autonomous_workers: bool = False,
+) -> str | None:
+    """1-slot 로컬 모델에서 첫 worker가 중복 구현 비용을 만들지 않게 한다.
+
+    생성이 직렬인 1-slot 환경에서는 역할과 무관하게 worker가 추가 prefill/generation을
+    만든다. 사용자가 명시적으로 위임했거나 profile이 override한 경우에만 허용한다.
+    """
+    if policy != "autonomous" or user_task is None or allow_autonomous_workers:
+        return None
+    lowered = user_task.lower()
+    if any(phrase in lowered for phrase in EXPLICIT_WORKER_PHRASES):
+        return None
+    return "autonomous_implementer_overhead"
+
+
+def effective_worker_step_limit(
+    requested: object,
+    configured: int,
+    dispatch_snapshot: dict,
+    scheduler_snapshot: dict,
+) -> int:
+    """Keep enough dispatch steps for the parent to integrate worker output.
+
+    A worker on a one-slot local model is sequential work, not parallel work. On a
+    tight dispatch, letting it consume the ordinary eight-step worker allowance can
+    leave the parent unable to inspect partial edits, correct them, or even produce a
+    final response. Reserve 60% of the dispatch step budget for the parent in that
+    topology. Larger/default dispatches still retain the configured worker cap.
+    """
+    try:
+        requested_limit = max(1, min(int(requested), 50))
+    except (TypeError, ValueError):
+        requested_limit = 8
+    limit = min(int(configured), requested_limit)
+    model = scheduler_snapshot["resources"][
+        scheduler_mod.ResourceClass.MODEL_GENERATION.value
+    ]
+    if int(model.get("cap", 1)) > 1:
+        return limit
+
+    dispatch_limit = int(dispatch_snapshot["limits"]["step_limit"])
+    dispatch_used = int(dispatch_snapshot["usage"]["steps"])
+    parent_reserve = (
+        dispatch_limit * SINGLE_SLOT_PARENT_RESERVE_NUMERATOR
+        + SINGLE_SLOT_PARENT_RESERVE_DENOMINATOR - 1
+    ) // SINGLE_SLOT_PARENT_RESERVE_DENOMINATOR
+    worker_room = max(1, dispatch_limit - dispatch_used - parent_reserve)
+    return min(limit, worker_room)
+
+
+def effective_worker_role(
+    policy: str,
+    requested_role: str,
+    dispatch_step_limit: int,
+    scheduler_snapshot: dict,
+) -> tuple[str, str | None]:
+    """Turn a forced sequential implementer into a scout on tight local runs.
+
+    ``fixed_one`` is useful as a policy/control experiment, but on one generation
+    slot a second implementer duplicates the parent's full edit loop. A read-only
+    scout still satisfies the one-worker topology while leaving one owner for edits.
+    The adaptation is explicit in telemetry and tool results.
+    """
+    model = scheduler_snapshot["resources"][
+        scheduler_mod.ResourceClass.MODEL_GENERATION.value
+    ]
+    if (
+        policy == "fixed_one"
+        and requested_role == "implementer"
+        and int(model.get("cap", 1)) == 1
+        and int(dispatch_step_limit) <= TIGHT_DISPATCH_STEP_LIMIT
+    ):
+        return "researcher", "single_slot_tight_dispatch_scout"
+    return requested_role, None
 
 
 def resolve_local_model(name: str) -> str:
@@ -126,6 +210,7 @@ class Orchestration:
         self.tools = list(spec.get("tools") or [])
         self.max_steps = spec.get("max_steps", 15)
         self.worker_policy = spec.get("worker_policy", "autonomous")
+        self.allow_autonomous_workers = bool(spec.get("allow_autonomous_workers", False))
         self.worker_enabled = self.worker_policy != "none"
         if task_id is not None and task_id != workspace_context.task_id:
             raise ValueError("task_id와 WorkspaceContext.task_id가 다릅니다")
@@ -247,18 +332,41 @@ class Orchestration:
             if workspace_context is None:
                 return {"error": "active WorkspaceContext가 없습니다"}
 
-            role = str(role).lower().strip()
-            if role not in WORKER_ROLES:
-                return {"error": f"알 수 없는 worker role: {role}"}
+            requested_role = str(role).lower().strip()
+            if requested_role not in WORKER_ROLES:
+                return {"error": f"알 수 없는 worker role: {requested_role}"}
+            scheduler_state = self.scheduler.snapshot()
+            model_state = scheduler_state["resources"][
+                scheduler_mod.ResourceClass.MODEL_GENERATION.value
+            ]
+            role, role_adaptation = effective_worker_role(
+                self.worker_policy,
+                requested_role,
+                int(self.budget["dispatch"]["step_limit"]),
+                scheduler_state,
+            )
             # 부분집합 규칙: 워커 도구 ⊆ 오케스트레이터의 spec.tools.
-            # verifier는 결과를 수정하지 못하도록 읽기 전용 교집합만 받는다.
+            # researcher/verifier는 결과를 수정하지 못하도록 읽기 전용 교집합만 받는다.
             requested_tools = list(dict.fromkeys(str(t) for t in (tools or [])))
             allowed = [tool for tool in requested_tools if tool in self.tools]
-            if role == "verifier":
+            if role in {"researcher", "verifier"}:
                 allowed = [tool for tool in allowed if tool in T.READ_ONLY]
 
             raw_system = str(system_prompt) or "You are a focused worker agent."
             raw_task = str(task) or "(no task)"
+            if role_adaptation is not None:
+                raw_system = (
+                    "You are a read-only scout for a single-slot local coding agent. "
+                    "Inspect only the files needed for the delegated task. Return concise, "
+                    "specific evidence: current definitions, required edits, invariants, and "
+                    "paths that must not change. Never attempt a write or edit tool, never "
+                    "broaden the contract, and finish immediately after the investigation."
+                )
+                raw_task = (
+                    "Investigate the delegated task without changing the workspace. Return a "
+                    "concise implementation handoff for the parent.\n\nOriginal delegated task:\n"
+                    + raw_task
+                )
             raw_context = str(context or "")
             prepared_system = raw_system[:WORKER_SYSTEM_MAX_CHARS]
             prepared_task = raw_task[:WORKER_TASK_MAX_CHARS]
@@ -275,23 +383,27 @@ class Orchestration:
                     "\n\nInvestigate and return concise evidence; leave final integration to "
                     "the orchestrator."
                 )
+            elif role == "implementer":
+                prepared_system += (
+                    "\n\nAfter applying the requested edits, return a concise factual result "
+                    "immediately. If run_bash is not in your tools, do not search for a shell, "
+                    "Python executable, or test runner; leave independent verification to the "
+                    "orchestrator. Do not broaden the original contract."
+                )
 
             fingerprint = hashlib.sha256(json.dumps(
-                {"name": str(name), "role": role, "system": prepared_system,
+                {"name": str(name), "requested_role": requested_role, "role": role,
+                 "system": prepared_system,
                  "task": prepared_task, "tools": allowed},
                 ensure_ascii=False, sort_keys=True,
             ).encode("utf-8")).hexdigest()[:20]
-            scheduler_state = self.scheduler.snapshot()
-            model_state = scheduler_state["resources"][
-                scheduler_mod.ResourceClass.MODEL_GENERATION.value
-            ]
             rejection: str | None = None
             reused: dict | None = None
             with self.lock:
                 if self.worker_policy == "none":
                     rejection = "worker_policy_none"
                 elif ((existing := self.worker_requests.get(fingerprint)) is not None
-                      and existing["status"] == "completed"):
+                      and existing["status"] in {"completed", "completed_partial"}):
                     reused = dict(existing)
                 elif self.worker_policy == "fixed_one" and self.worker_seq >= 1:
                     rejection = "worker_policy_fixed_one"
@@ -301,6 +413,11 @@ class Orchestration:
                     rejection = "worker_concurrent_budget"
                 elif existing is not None and existing["status"] == "running":
                     rejection = "duplicate_worker_running"
+                elif (fit := worker_spawn_fit(
+                    self.worker_policy, self.first_message,
+                    allow_autonomous_workers=self.allow_autonomous_workers,
+                )) is not None:
+                    rejection = fit
                 elif (pressure := worker_spawn_pressure(scheduler_state)) is not None:
                     rejection = pressure
                 else:
@@ -337,21 +454,47 @@ class Orchestration:
                     "worker_policy_fixed_one": "worker policy가 fixed_one이라 추가 worker를 만들 수 없습니다",
                     "worker_total_budget": "worker total budget을 소진했습니다",
                     "worker_concurrent_budget": "worker concurrent budget을 소진했습니다",
+                    "autonomous_implementer_overhead": (
+                        "단일 model slot에서 중복 implementer 비용이 예상돼 spawn을 억제했습니다"
+                    ),
                     "model_queue_backpressure": "model queue 압력 때문에 worker spawn을 억제했습니다",
                     "scheduler_closed": "scheduler가 종료돼 worker spawn을 억제했습니다",
                 }
+                if rejection in {
+                    "worker_policy_fixed_one", "autonomous_implementer_overhead",
+                    "duplicate_worker_running", "model_queue_backpressure",
+                }:
+                    previous = next(iter(self.worker_requests.values()), None)
+                    prior = str((previous or {}).get("result") or "").strip()
+                    guidance = (
+                        f"Worker spawn suppressed ({rejection}). "
+                        "Do not call create_worker again. Inspect the current workspace and "
+                        "complete/integrate the task directly."
+                    )
+                    if prior:
+                        guidance = prior + "\n\n" + guidance
+                    return {
+                        "worker": (previous or {}).get("worker"),
+                        "role": role, "result": guidance,
+                        "suppressed": True, "reason": rejection,
+                    }
                 return {"error": messages[rejection], "reason": rejection}
             # extra_tools를 안 넘기므로 워커는 create_worker를 절대 못 받는다 (깊이 1).
-            try:
-                steps = max(1, min(int(max_steps), 50))
-            except (TypeError, ValueError):
-                steps = 8
+            dispatch_snapshot = self.dispatch_budget.snapshot()
+            steps = effective_worker_step_limit(
+                max_steps,
+                int(self.budget["worker"]["step_limit"]),
+                dispatch_snapshot,
+                scheduler_state,
+            )
+            if role_adaptation is not None:
+                # One local generation can issue several parallel read calls. Waiting for a
+                # second/third scout generation is sequential overhead; the parent owns edits.
+                steps = 1
 
             cancel = threading.Event()
             worker_limits = dict(self.budget["worker"])
-            worker_limits["step_limit"] = min(
-                int(worker_limits["step_limit"]), steps
-            )
+            worker_limits["step_limit"] = steps
             worker_budget = budget_mod.BudgetTracker(f"worker:{wid}", worker_limits)
             worker_budget.begin_active()
             self.worker_cancels[wid] = cancel
@@ -360,7 +503,24 @@ class Orchestration:
             span = self._open_span(wid, label=str(name) or wid,
                                    parent_id=self.spans[0]["id"] if self.spans else None,
                                    input={"task": prepared_task, "tools": allowed,
-                                          "role": role, "context_chars": len(prepared_context)})
+                                          "role": role, "requested_role": requested_role,
+                                          "role_adaptation": role_adaptation,
+                                          "context_chars": len(prepared_context)})
+            if role_adaptation is not None:
+                self._sink(wid, "worker_role_adapted", {
+                    "requested_role": requested_role,
+                    "effective_role": role,
+                    "reason": role_adaptation,
+                    "model_generation_cap": model_state.get("cap", 1),
+                    "dispatch_step_limit": self.budget["dispatch"]["step_limit"],
+                })
+            self._sink(wid, "worker_step_budget_reserved", {
+                "requested_steps": max_steps,
+                "effective_steps": steps,
+                "dispatch_steps_used": dispatch_snapshot["usage"]["steps"],
+                "dispatch_step_limit": dispatch_snapshot["limits"]["step_limit"],
+                "model_generation_cap": model_state.get("cap", 1),
+            })
             self._sink(wid, "worker_context_prepared", {
                 "role": role,
                 "system_chars": len(prepared_system),
@@ -374,6 +534,23 @@ class Orchestration:
                     or len(raw_context) > WORKER_CONTEXT_MAX_CHARS
                 ),
             })
+            write_calls: dict[str, str] = {}
+            changed_paths: set[str] = set()
+            worker_trace_lock = threading.Lock()
+
+            def emit_worker(kind: str, **data) -> None:
+                call_id = str(data.get("call_id") or "")
+                if kind == "tool_start" and data.get("name") in {"write_file", "edit_file"}:
+                    path = str((data.get("args") or {}).get("path") or "").strip()
+                    if call_id and path:
+                        with worker_trace_lock:
+                            write_calls[call_id] = path
+                elif kind == "tool_run_end" and data.get("status") == "success":
+                    with worker_trace_lock:
+                        if path := write_calls.get(call_id):
+                            changed_paths.add(path)
+                self._sink(wid, kind, data)
+
             try:
                 text, _ = agent_mod.run(
                     client=self.client, model=self.model,
@@ -382,7 +559,7 @@ class Orchestration:
                     tool_names=allowed,
                     workspace_context=workspace_context,
                     approve=self._approve_for(wid, workspace_context),
-                    emit=lambda kind, **d: self._sink(wid, kind, d),
+                    emit=emit_worker,
                     max_steps=steps,
                     cancel=cancel,
                     scheduler=self.scheduler,
@@ -404,14 +581,48 @@ class Orchestration:
             if self.dispatch_budget.exhausted_reason:
                 self.budget_exhausted_reason = self.dispatch_budget.exhausted_reason
             if worker_budget.exhausted_reason:
+                budget_snapshot = worker_budget.snapshot()
+                partial_result = str(text or "").strip()
+                touched = ", ".join(sorted(changed_paths)) or "none recorded"
+                if role_adaptation is not None:
+                    integration = (
+                        f"Worker role adapted from {requested_role} to read-only {role} "
+                        f"({role_adaptation}) and reached its focused local budget at "
+                        f"{worker_budget.exhausted_reason}. Do not spawn another worker. "
+                        "Use any evidence above and complete the original implementation directly "
+                        "without broadening its contract. Do not repeat broad discovery already "
+                        "performed by the scout. If run_bash is unavailable, do not inspect an "
+                        "unrelated test harness as a substitute; the outer runner verifies it."
+                    )
+                else:
+                    integration = (
+                        f"Worker reached its focused local budget at "
+                        f"{worker_budget.exhausted_reason}. Successful write targets: {touched}. "
+                        "Do not spawn another worker. Validate these changes strictly against the "
+                        "original request or project contract; do not invent undocumented behavior "
+                        "or speculative tests. If the requested files and behavior are already "
+                        "covered, finish directly. Otherwise make only the necessary correction."
+                    )
+                rendered_result = (
+                    partial_result + "\n\n" + integration if partial_result else integration
+                )
                 with self.lock:
-                    self.worker_requests[fingerprint]["status"] = "failed"
+                    self.worker_requests[fingerprint].update(
+                        status="completed_partial", result=rendered_result,
+                        partial=True, warning=worker_budget.exhausted_reason,
+                    )
                 self._close_span(span, "error", {
                     "error": worker_budget.exhausted_reason,
-                    "budget": worker_budget.snapshot(),
+                    "partial_result": text,
+                    "budget": budget_snapshot,
                 })
-                return {"error": f"worker {wid} budget exhausted: "
-                        f"{worker_budget.exhausted_reason}"}
+                return {
+                    "worker": wid, "role": role, "result": rendered_result,
+                    "requested_role": requested_role,
+                    "role_adaptation": role_adaptation,
+                    "partial": True, "warning": worker_budget.exhausted_reason,
+                    "budget": budget_snapshot,
+                }
 
             if cancel.is_set():
                 with self.lock:
@@ -424,11 +635,28 @@ class Orchestration:
                     status="completed", result=text
                 )
             self._close_span(span, "success", {"result": text, "role": role})
-            return {"worker": wid, "role": role, "result": text}
+            rendered_text = str(text or "")
+            if role_adaptation is not None:
+                rendered_text = (
+                    f"Worker role adapted from {requested_role} to {role} "
+                    f"({role_adaptation}) for single-slot efficiency. "
+                    "Use this as read-only evidence and complete the implementation directly. "
+                    "Do not repeat broad glob/grep/read discovery already covered by the scout. "
+                    "Respect the original allowed and forbidden paths exactly. If run_bash is "
+                    "unavailable, leave verification to the outer runner and finish after the "
+                    "required edits.\n\n"
+                    + rendered_text
+                )
+                with self.lock:
+                    self.worker_requests[fingerprint]["result"] = rendered_text
+            return {
+                "worker": wid, "role": role, "requested_role": requested_role,
+                "role_adaptation": role_adaptation, "result": rendered_text,
+            }
 
         return T._t(
             "create_worker", handler,
-            lambda v: str(v.get("result") or ""),
+            lambda v: str(v.get("result") or v.get("warning") or v.get("error") or ""),
             T._obj(["name", "system_prompt", "task"],
                    name={"type": "string", "description": "Short worker name."},
                    system_prompt={"type": "string",
