@@ -311,9 +311,9 @@ Janus가 Task 특성과 현재 자원 상태에 따라 worker 수, 컨텍스트,
 
 ### 출구 조건
 
-- [ ] review된 ChangeSet에서 PR을 만들고 URL과 checks를 Task에 연결한다.
-- [ ] push·인증·충돌 실패가 데이터 손실 없이 복구 가능하다.
-- [ ] merge/close가 반영되어도 로컬 branch를 임의 삭제하지 않는다.
+- [x] review된 ChangeSet에서 PR을 만들고 URL과 checks를 Task에 연결한다.
+- [x] push·인증·충돌 실패가 데이터 손실 없이 복구 가능하다.
+- [x] merge/close가 반영되어도 로컬 branch를 임의 삭제하지 않는다.
 
 ---
 

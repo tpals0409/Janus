@@ -341,11 +341,11 @@
 
 ### 22. PR·CI 통합
 
-- [ ] commit/push 상태
-- [ ] GitHub PR 생성·연결
-- [ ] CI checks와 실패 로그
-- [ ] merge/close 상태
-- [ ] merge 후 workspace archive 제안
+- [x] commit/push 상태
+- [x] GitHub PR 생성·연결
+- [x] CI checks와 실패 로그
+- [x] merge/close 상태
+- [x] merge 후 workspace archive 제안
 
 ### 23. 개발 표면
 

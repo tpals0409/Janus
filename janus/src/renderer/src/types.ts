@@ -267,6 +267,62 @@ export interface ShipHandoff {
   notice: string
 }
 
+export interface PullRequestCheck {
+  name: string
+  state: string
+  bucket?: string
+  workflow?: string
+  link?: string
+  description?: string
+}
+
+export interface PullRequestRun {
+  databaseId: number
+  name: string
+  displayTitle?: string
+  status: string
+  conclusion: string | null
+  url: string
+}
+
+export interface PullRequestFailedLog {
+  run_id: number
+  name: string
+  conclusion: string
+  url: string
+  log: string
+  truncated: boolean
+}
+
+export interface TaskPullRequest {
+  id: string
+  task_id: string
+  number: number | null
+  url: string | null
+  state: 'creating' | 'open' | 'closed' | 'merged' | 'error'
+  title: string
+  head_branch: string
+  base_branch: string
+  draft: boolean
+  merge_state: string | null
+  review_decision: string | null
+  checks: PullRequestCheck[]
+  runs: PullRequestRun[]
+  failed_logs: PullRequestFailedLog[]
+  error: string | null
+  created_at: string
+  updated_at: string
+  merged_at: string | null
+  closed_at: string | null
+}
+
+export interface PullRequestSnapshot {
+  pull_request: TaskPullRequest | null
+  archive_recommended: boolean
+  archive_reason: string | null
+  branch_preserved: true
+}
+
 export interface EvaluationExperiment {
   id: string
   role: 'baseline' | 'candidate'

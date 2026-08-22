@@ -16,7 +16,7 @@ os.environ.setdefault("JANUS_AUTH_TOKEN", "test-token")
 
 from fastapi.testclient import TestClient
 
-from janus_server import scheduler, server
+from janus_server import github_service, scheduler, server
 
 
 def git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -47,6 +47,7 @@ class VerificationApiTests(unittest.TestCase):
         server._DOMAIN_RECOVERED_PATH = None
         server._WORKSPACE_SERVICE = None
         server._WORKSPACE_SERVICE_PATH = None
+        server._GITHUB_SERVICE = None
         scheduler._DEFAULT_SCHEDULER = scheduler.ResourceScheduler()
         self.client = TestClient(server.app)
         self.headers = {"x-janus-token": server.AUTH_TOKEN}
@@ -81,6 +82,7 @@ class VerificationApiTests(unittest.TestCase):
         server._DOMAIN_RECOVERED_PATH = None
         server._WORKSPACE_SERVICE = None
         server._WORKSPACE_SERVICE_PATH = None
+        server._GITHUB_SERVICE = None
         self.env.stop()
         self.temp.cleanup()
 
@@ -274,7 +276,21 @@ class VerificationApiTests(unittest.TestCase):
         self.assertEqual(commit_sha, git(root, "rev-parse", "HEAD").stdout.strip())
         self.assertEqual("main", git(self.repo, "branch", "--show-current").stdout.strip())
         self.assertEqual(main_head, git(self.repo, "rev-parse", "HEAD").stdout.strip())
+
         self.assertEqual("", git(self.repo, "status", "--porcelain").stdout.strip())
+
+        failed_push = self.client.post(
+            f"/tasks/{self.task_id}/ship/push", headers=self.headers, json={
+                "confirm_commit_sha": commit_sha, "remote": "origin",
+            },
+        )
+        self.assertEqual(409, failed_push.status_code)
+        failed_record = self.client.get(
+            f"/tasks/{self.task_id}/shipments", headers=self.headers
+        ).json()[-1]
+        self.assertEqual("push", failed_record["action"])
+        self.assertEqual("failed", failed_record["status"])
+        self.assertIn("remote", failed_record["error"])
 
         remote = Path(self.temp.name) / "remote.git"
         subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
@@ -301,8 +317,99 @@ class VerificationApiTests(unittest.TestCase):
         shipments = self.client.get(
             f"/tasks/{self.task_id}/shipments", headers=self.headers
         ).json()
-        self.assertEqual(["commit", "push"], [item["action"] for item in shipments])
+        self.assertEqual(["commit", "push", "push"], [item["action"] for item in shipments])
+        self.assertEqual(["completed", "failed", "completed"], [item["status"] for item in shipments])
+
+        class FakeGitHub:
+            def create_pull_request(self, **kwargs):
+                self.created = kwargs
+                return {
+                    "number": 17, "url": "https://github.test/acme/repo/pull/17",
+                    "state": "open", "draft": False, "merged_at": None,
+                    "closed_at": None, "merge_state": "BLOCKED",
+                    "review_decision": "REVIEW_REQUIRED", "title": "Verify",
+                    "head_branch": branch, "base_branch": "main",
+                }
+
+            def checks(self, **_kwargs):
+                return {
+                    "checks": [{"name": "tests", "state": "FAILURE", "bucket": "fail"}],
+                    "runs": [{"databaseId": 99, "conclusion": "failure"}],
+                    "failed_logs": [{
+                        "run_id": 99, "name": "tests", "conclusion": "failure",
+                        "url": "https://github.test/run/99", "log": "assertion failed",
+                        "truncated": False,
+                    }],
+                }
+
+            def refresh(self, **_kwargs):
+                pull_request = {
+                    "number": 17, "url": "https://github.test/acme/repo/pull/17",
+                    "state": "merged", "draft": False,
+                    "merged_at": "2026-08-22T12:00:00Z", "closed_at": None,
+                    "merge_state": "CLEAN", "review_decision": "APPROVED",
+                    "title": "Verify", "head_branch": branch, "base_branch": "main",
+                }
+                return {
+                    "pull_request": pull_request,
+                    "checks": [{"name": "tests", "state": "SUCCESS", "bucket": "pass"}],
+                    "runs": [{"databaseId": 100, "conclusion": "success"}],
+                    "failed_logs": [],
+                }
+
+        fake_github = FakeGitHub()
+        server._GITHUB_SERVICE = fake_github
+        pull_request = self.client.post(
+            f"/tasks/{self.task_id}/pull-request", headers=self.headers, json={
+                "title": "Verify", "body": "Verified work", "base": "main",
+            },
+        )
+        self.assertEqual(200, pull_request.status_code, pull_request.text)
+        linked = pull_request.json()["pull_request"]
+        self.assertEqual(17, linked["number"])
+        self.assertEqual("open", linked["state"])
+        self.assertEqual("assertion failed", linked["failed_logs"][0]["log"])
+        self.assertFalse(pull_request.json()["archive_recommended"])
+
+        merged = self.client.post(
+            f"/tasks/{self.task_id}/pull-request/refresh", headers=self.headers
+        )
+        self.assertEqual(200, merged.status_code, merged.text)
+        self.assertEqual("merged", merged.json()["pull_request"]["state"])
+        self.assertTrue(merged.json()["archive_recommended"])
+        self.assertTrue(merged.json()["branch_preserved"])
+        self.assertEqual("ready", self.client.get(
+            f"/tasks/{self.task_id}/workspace", headers=self.headers
+        ).json()["state"])
+        self.assertEqual(0, git(self.repo, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}").returncode)
         self.assertEqual(main_head, git(self.repo, "rev-parse", "HEAD").stdout.strip())
+
+    def test_pull_request_auth_failure_is_persisted_for_recovery(self):
+        store = server.get_domain_store()
+        task = store.get_task(self.task_id)
+        workspace = store.get_task_workspace(self.task_id)
+        assert workspace is not None
+        head = {"commit_sha": "a" * 40, "branch_name": workspace["branch_name"], "dirty": False}
+
+        class UnauthorizedGitHub:
+            def create_pull_request(self, **_kwargs):
+                raise github_service.GitHubServiceError(
+                    "gh pr create 실패(exit 4): authentication required"
+                )
+
+        server._GITHUB_SERVICE = UnauthorizedGitHub()
+        with patch.object(server, "_pushed_task_head", return_value=(task, workspace, head)):
+            response = self.client.post(
+                f"/tasks/{self.task_id}/pull-request", headers=self.headers,
+                json={"title": "Recoverable PR", "body": "body", "base": "main"},
+            )
+        self.assertEqual(409, response.status_code)
+        persisted = self.client.get(
+            f"/tasks/{self.task_id}/pull-request", headers=self.headers
+        ).json()["pull_request"]
+        self.assertEqual("error", persisted["state"])
+        self.assertIn("authentication required", persisted["error"])
+        self.assertEqual(workspace["branch_name"], persisted["head_branch"])
 
     def test_two_task_e2e_changes_and_commits_remain_isolated(self):
         main_head = git(self.repo, "rev-parse", "HEAD").stdout.strip()

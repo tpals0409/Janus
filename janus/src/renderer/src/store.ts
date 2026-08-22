@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type {
   AgentEvent, AgentProfile, AgentSessionDetail, AgentSummary, ApprovalRequest, ChangeSet,
   BackendStatus, ModelProfile, Project, RunDetail, RunSummary, SessionEvent, Span,
-  EvaluationComparison, EvaluationExperiment, OperationsSnapshot, ReviewSnapshot, ShipHandoff, Spec,
+  EvaluationComparison, EvaluationExperiment, OperationsSnapshot, PullRequestSnapshot, ReviewSnapshot, ShipHandoff, Spec,
   Task, TaskShipment, ToolInfo, TreeEntry,
   VerificationCommand, VerificationRun,
   WorkspaceInspection
@@ -85,6 +85,7 @@ interface State {
   review: ReviewSnapshot | null
   shipments: TaskShipment[]
   shipHandoff: ShipHandoff | null
+  taskPullRequest: PullRequestSnapshot | null
   evaluationExperiments: EvaluationExperiment[]
   evaluationComparisons: EvaluationComparison[]
   evaluationBusy: boolean
@@ -175,6 +176,11 @@ interface State {
   commitTask(message: string): Promise<void>
   pushTask(remote?: string): Promise<void>
   loadShipHandoff(): Promise<void>
+  loadTaskPullRequest(): Promise<void>
+  createTaskPullRequest(input: {
+    title: string; body: string; base: string; draft: boolean
+  }): Promise<void>
+  refreshTaskPullRequest(): Promise<void>
   loadEvaluations(): Promise<void>
   loadOperations(): Promise<void>
   startEvaluation(input: {
@@ -263,6 +269,7 @@ export const useStore = create<State>((set, get) => ({
   review: null,
   shipments: [],
   shipHandoff: null,
+  taskPullRequest: null,
   evaluationExperiments: [],
   evaluationComparisons: [],
   evaluationBusy: false,
@@ -411,6 +418,7 @@ export const useStore = create<State>((set, get) => ({
       review: null,
       shipments: [],
       shipHandoff: null,
+      taskPullRequest: null,
       taskActionError: null,
       ...(projectDefault ? { selectedAgentProfileId: projectDefault } : {})
     })
@@ -438,6 +446,7 @@ export const useStore = create<State>((set, get) => ({
       review: null,
       shipments: [],
       shipHandoff: null,
+      taskPullRequest: null,
       taskActionError: null,
       taskSession: null,
       taskSessionEvents: [],
@@ -455,6 +464,7 @@ export const useStore = create<State>((set, get) => ({
       await get().loadVerifications()
       if (task.workspace?.state === 'ready') await get().loadReview()
       if (task.workspace?.state === 'ready') await get().loadShipments()
+      if (task.workspace?.state === 'ready') await get().loadTaskPullRequest()
       if (task.workspace?.state === 'ready') await get().inspectWorkspace()
     } catch (error) {
       if (sequence === openTaskSequence) set({ taskActionError: errorMessage(error) })
@@ -755,6 +765,58 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
+  async loadTaskPullRequest() {
+    const taskId = get().taskId
+    if (!taskId) return
+    try {
+      const taskPullRequest = await apiJson(
+        `${BASE}/tasks/${taskId}/pull-request`
+      ) as PullRequestSnapshot
+      if (get().taskId === taskId) set({ taskPullRequest })
+    } catch (error) {
+      if (get().taskId === taskId) set({ taskActionError: errorMessage(error) })
+    }
+  },
+
+  async createTaskPullRequest(input) {
+    const taskId = get().taskId
+    if (!taskId) return
+    set({ taskBusy: true, taskActionError: null })
+    try {
+      const taskPullRequest = await apiJson(`${BASE}/tasks/${taskId}/pull-request`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input)
+      }) as PullRequestSnapshot
+      if (get().taskId === taskId) set({ taskPullRequest })
+    } catch (error) {
+      if (get().taskId === taskId) {
+        set({ taskActionError: errorMessage(error) })
+        await get().loadTaskPullRequest()
+      }
+    } finally {
+      set({ taskBusy: false })
+    }
+  },
+
+  async refreshTaskPullRequest() {
+    const taskId = get().taskId
+    if (!taskId) return
+    set({ taskBusy: true, taskActionError: null })
+    try {
+      const taskPullRequest = await apiJson(
+        `${BASE}/tasks/${taskId}/pull-request/refresh`, { method: 'POST' }
+      ) as PullRequestSnapshot
+      if (get().taskId === taskId) set({ taskPullRequest })
+    } catch (error) {
+      if (get().taskId === taskId) {
+        set({ taskActionError: errorMessage(error) })
+        await get().loadTaskPullRequest()
+      }
+    } finally {
+      set({ taskBusy: false })
+    }
+  },
+
   async loadEvaluations() {
     try {
       const [evaluationExperiments, evaluationComparisons] = await Promise.all([
@@ -889,7 +951,7 @@ export const useStore = create<State>((set, get) => ({
           body: JSON.stringify({ confirm_workspace_id: workspace.id })
         }
       )
-      set({ workspaceInspection: null, changeSet: null, verificationRuns: [], review: null, shipments: [], shipHandoff: null })
+      set({ workspaceInspection: null, changeSet: null, verificationRuns: [], review: null, shipments: [], shipHandoff: null, taskPullRequest: null })
       await get().refreshSelectedTask()
     } catch (error) {
       set({ taskActionError: errorMessage(error) })
@@ -925,7 +987,7 @@ export const useStore = create<State>((set, get) => ({
     try {
       await apiJson(`${BASE}/tasks/${taskId}`, { method: 'DELETE' })
       const tasks = (await apiJson(`${BASE}/projects/${projectId}/tasks`)) as Task[]
-      set({ tasks, taskId: null, task: null, workspaceInspection: null, changeSet: null, verificationRuns: [], review: null, shipments: [], shipHandoff: null })
+      set({ tasks, taskId: null, task: null, workspaceInspection: null, changeSet: null, verificationRuns: [], review: null, shipments: [], shipHandoff: null, taskPullRequest: null })
       if (tasks[0]) await get().selectTask(tasks[0].id)
     } catch (error) {
       set({ taskActionError: errorMessage(error) })

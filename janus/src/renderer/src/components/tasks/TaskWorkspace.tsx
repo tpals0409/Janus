@@ -6,7 +6,9 @@ import {
   ChevronRight,
   CircleDot,
   FolderGit2,
+  GitPullRequest,
   GitBranch,
+  ExternalLink,
   Loader2,
   MessageSquare,
   Play,
@@ -1159,23 +1161,51 @@ function ReviewDecisionCard({ task }: { task: Task }) {
 }
 
 function TaskShippingCard() {
+  const task = useStore((state) => state.task)
   const review = useStore((state) => state.review)
   const changeSet = useStore((state) => state.changeSet)
   const shipments = useStore((state) => state.shipments)
   const handoff = useStore((state) => state.shipHandoff)
+  const pullRequestSnapshot = useStore((state) => state.taskPullRequest)
   const busy = useStore((state) => state.taskBusy)
   const commitTask = useStore((state) => state.commitTask)
   const pushTask = useStore((state) => state.pushTask)
   const loadHandoff = useStore((state) => state.loadShipHandoff)
+  const createPullRequest = useStore((state) => state.createTaskPullRequest)
+  const refreshPullRequest = useStore((state) => state.refreshTaskPullRequest)
+  const archiveWorkspace = useStore((state) => state.archiveWorkspace)
   const [message, setMessage] = useState('')
+  const [prTitle, setPrTitle] = useState(task?.title ?? '')
+  const [prBody, setPrBody] = useState(task?.objective ?? '')
+  const [prBase, setPrBase] = useState(task?.base_ref.replace(/^origin\//, '') ?? 'main')
+  const [showCreatePr, setShowCreatePr] = useState(false)
   const latestDecision = review?.decisions[review.decisions.length - 1]
   const accepted = Boolean(
     latestDecision?.decision === 'accept' && latestDecision.revision === changeSet?.revision
   )
-  const commit = [...shipments].reverse().find((item) => item.action === 'commit')
-  const pushed = commit && shipments.some(
-    (item) => item.action === 'push' && item.commit_sha === commit.commit_sha
+  const commit = [...shipments].reverse().find(
+    (item) => item.action === 'commit' && item.status === 'completed'
   )
+  const failedCommit = [...shipments].reverse().find(
+    (item) => item.action === 'commit' && item.status === 'failed'
+  )
+  const pushed = commit && shipments.some(
+    (item) => item.action === 'push' && item.status === 'completed'
+      && item.commit_sha === commit.commit_sha
+  )
+  const failedPush = [...shipments].reverse().find(
+    (item) => item.action === 'push' && item.status === 'failed'
+  )
+  const pullRequest = pullRequestSnapshot?.pull_request
+  const checksPassed = Boolean(
+    pullRequest?.checks.length && pullRequest.checks.every((check) =>
+      ['SUCCESS', 'NEUTRAL', 'SKIPPED', 'PASS'].includes(String(check.state ?? check.bucket).toUpperCase())
+    )
+  )
+  const releaseStages = [
+    ['Commit', Boolean(commit)], ['Push', Boolean(pushed)], ['PR', Boolean(pullRequest?.number)],
+    ['Checks', checksPassed], ['Merged', pullRequest?.state === 'merged']
+  ] as const
 
   useEffect(() => {
     if (commit && !handoff) void loadHandoff()
@@ -1184,6 +1214,20 @@ function TaskShippingCard() {
   return (
     <section className="task-card">
       <div className="task-label">Ship Task branch</div>
+      <div className="mt-2 grid grid-cols-5 gap-1.5" aria-label="Release progress">
+        {releaseStages.map(([label, reached], index) => (
+          <div key={label} className="relative">
+            <div className="mb-1 flex items-center gap-1.5 font-mono text-[8px] uppercase tracking-[0.1em] text-faint">
+              <span className="grid h-3.5 w-3.5 place-items-center rounded-full border text-[7px]" style={{
+                borderColor: reached ? 'var(--color-ok)' : 'var(--color-border-strong)',
+                color: reached ? 'var(--color-ok)' : 'var(--color-faint)'
+              }}>{reached ? '✓' : index + 1}</span>
+              {label}
+            </div>
+            <div className="h-[2px] rounded-full" style={{ background: reached ? 'var(--color-ok)' : '#23232d' }} />
+          </div>
+        ))}
+      </div>
       <div className="mt-2 flex gap-2">
         <input
           value={message}
@@ -1209,6 +1253,16 @@ function TaskShippingCard() {
       <p className="mt-2 text-[9.5px] text-faint">
         Janus commits only inside the Task worktree. It never checks out or edits the main checkout.
       </p>
+      {failedCommit && !commit && (
+        <div className="mt-2 rounded-md border border-[#f8717140] bg-[#f8717110] px-2.5 py-2 text-[9.5px] text-danger">
+          Commit failed · {failedCommit.error}. Workspace changes remain untouched; fix Git identity or disk access, then retry.
+        </div>
+      )}
+      {failedPush && !pushed && (
+        <div className="mt-2 rounded-md border border-[#f8717140] bg-[#f8717110] px-2.5 py-2 text-[9.5px] text-danger">
+          Push failed · {failedPush.error}. The commit and Task branch are still intact; retry after fixing remote access.
+        </div>
+      )}
       {commit && (
         <div className="mt-3 rounded-md border border-border bg-raised/40 p-2.5">
           <div className="flex items-center gap-2 text-[10px]">
@@ -1227,6 +1281,118 @@ function TaskShippingCard() {
               >
                 Copy cherry-pick
               </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {pushed && !pullRequest?.number && (
+        <div className="mt-3 border-t border-border pt-3">
+          {!showCreatePr ? (
+            <button onClick={() => setShowCreatePr(true)} className="task-primary-action">
+              <GitPullRequest size={11} /> Create GitHub PR
+            </button>
+          ) : (
+            <div className="rounded-md border border-[#738cff45] bg-[#738cff0a] p-3">
+              <div className="mb-2 font-mono text-[9px] uppercase tracking-[0.14em] text-[#9dacff]">
+                Publish review boundary
+              </div>
+              <div className="grid grid-cols-[1fr_110px] gap-2">
+                <input value={prTitle} onChange={(event) => setPrTitle(event.target.value)} className="task-input mt-0" placeholder="PR title" />
+                <input value={prBase} onChange={(event) => setPrBase(event.target.value)} className="task-input mt-0 font-mono" placeholder="base" />
+              </div>
+              <textarea value={prBody} onChange={(event) => setPrBody(event.target.value)} rows={3} className="task-input mt-2 resize-none" placeholder="What changed and how it was verified" />
+              <div className="mt-2 flex justify-end gap-2">
+                <button onClick={() => setShowCreatePr(false)} className="task-quiet-action">Cancel</button>
+                <button
+                  onClick={() => void createPullRequest({ title: prTitle.trim(), body: prBody, base: prBase.trim(), draft: false })}
+                  disabled={busy || !prTitle.trim() || !prBase.trim()}
+                  className="task-primary-action"
+                >
+                  <GitPullRequest size={11} /> Create PR
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {pullRequest && (
+        <div className="mt-3 overflow-hidden rounded-md border border-border bg-[#09090f]">
+          <div className="flex items-start justify-between gap-3 border-b border-border px-3 py-2.5">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <GitPullRequest size={12} className="text-[#9dacff]" />
+                <span className="font-mono text-[9px] text-faint">PR #{pullRequest.number ?? '—'}</span>
+                <span className="rounded-full border px-1.5 py-0.5 font-mono text-[8px] uppercase" style={{
+                  color: pullRequest.state === 'merged' ? 'var(--color-ok)' : pullRequest.state === 'error' ? 'var(--color-danger)' : 'var(--color-accent-fg)',
+                  borderColor: pullRequest.state === 'merged' ? '#6dd6a855' : pullRequest.state === 'error' ? '#f8717155' : '#738cff55'
+                }}>{pullRequest.state}</span>
+              </div>
+              <div className="mt-1 truncate text-[11px] font-medium">{pullRequest.title}</div>
+              <div className="mt-1 font-mono text-[8px] text-faint">
+                {pullRequest.head_branch} → {pullRequest.base_branch} · {pullRequest.merge_state ?? 'remote pending'} · {pullRequest.review_decision ?? 'no review decision'}
+              </div>
+            </div>
+            <div className="flex shrink-0 gap-1">
+              <button onClick={() => void refreshPullRequest()} disabled={busy || !pullRequest.number} className="task-quiet-action">
+                <RefreshCw size={10} /> Refresh
+              </button>
+              {pullRequest.url && (
+                <button onClick={() => window.open(pullRequest.url!, '_blank', 'noopener,noreferrer')} className="task-quiet-action">
+                  <ExternalLink size={10} /> Open
+                </button>
+              )}
+            </div>
+          </div>
+
+          {pullRequest.error && (
+            <div className="border-b border-[#f8717130] bg-[#f871710c] px-3 py-2 text-[9.5px] text-danger">
+              Sync failed · {pullRequest.error}. Stored PR and CI data remain available.
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-px bg-border">
+            <div className="bg-[#09090f] p-3">
+              <div className="task-label">CI checks · {pullRequest.checks.length}</div>
+              <div className="mt-2 space-y-1.5">
+                {pullRequest.checks.map((check) => {
+                  const passed = ['SUCCESS', 'NEUTRAL', 'SKIPPED', 'PASS'].includes(String(check.state ?? check.bucket).toUpperCase())
+                  return (
+                    <div key={`${check.workflow}-${check.name}`} className="flex items-center justify-between gap-2 text-[9.5px]">
+                      <span className="truncate text-muted">{check.workflow ? `${check.workflow} / ` : ''}{check.name}</span>
+                      <span className={passed ? 'text-ok' : String(check.bucket).toLowerCase() === 'pending' ? 'text-warn' : 'text-danger'}>
+                        {check.state ?? check.bucket ?? 'unknown'}
+                      </span>
+                    </div>
+                  )
+                })}
+                {pullRequest.checks.length === 0 && <div className="text-[9px] text-faint">No checks reported.</div>}
+              </div>
+            </div>
+            <div className="bg-[#09090f] p-3">
+              <div className="task-label">Failed logs · {pullRequest.failed_logs.length}</div>
+              <div className="mt-2 space-y-1.5">
+                {pullRequest.failed_logs.map((failure) => (
+                  <details key={failure.run_id} className="rounded border border-[#f8717130] bg-[#f8717108] px-2 py-1.5">
+                    <summary className="cursor-pointer truncate text-[9px] text-danger">{failure.name} · {failure.conclusion}</summary>
+                    <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[8px] leading-relaxed text-muted">{failure.log || 'No failed log output.'}</pre>
+                    {failure.truncated && <div className="mt-1 text-[8px] text-warn">Log truncated at the persisted safety limit.</div>}
+                  </details>
+                ))}
+                {pullRequest.failed_logs.length === 0 && <div className="text-[9px] text-faint">No failed workflow logs.</div>}
+              </div>
+            </div>
+          </div>
+          {pullRequestSnapshot?.archive_reason && (
+            <div className="flex items-center justify-between gap-3 border-t border-border px-3 py-2.5 text-[9.5px]">
+              <span className={pullRequestSnapshot.archive_recommended ? 'text-ok' : 'text-faint'}>
+                {pullRequestSnapshot.archive_reason}. Local branch is preserved.
+              </span>
+              {pullRequestSnapshot.archive_recommended && (
+                <button onClick={() => void archiveWorkspace(false)} disabled={busy} className="task-quiet-action">
+                  <Archive size={10} /> Archive workspace
+                </button>
+              )}
             </div>
           )}
         </div>

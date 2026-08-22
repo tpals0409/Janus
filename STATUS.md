@@ -93,7 +93,7 @@ Janus memory peak, budget 소진율, generation/tool/verification 흔적을 2초
 
 2026-08-22 현재 체크아웃에서 직접 확인:
 
-- Python 테스트 115개 통과
+- Python 테스트 119개 통과
 - Node lifecycle 테스트 7개 통과(실제 분리 프로세스 그룹 3회 start/stop 포함)
 - 도구 자체 검사 통과
 - 오케스트레이터 spec 검사 통과
@@ -220,6 +220,15 @@ P4-20/21 Adaptive Orchestration과 Operations 결과:
   Project 기본 AgentProfile과 provenance로 저장한다.
 - Operations Monitor 한 화면에서 10개 Task의 queue와 attention, model slot·memory,
   Task별 budget, generation/tool/verification timeline을 감독하는 통합 테스트를 고정했다.
+
+P5-22 PR·CI 통합 결과:
+
+- commit/push 성공과 실패를 Task shipment로 분리 저장하며 인증·remote 실패 후에도 commit,
+  branch, workspace를 그대로 보존해 재시도할 수 있다.
+- review·commit·push가 끝난 Task branch만 `gh` argument-vector 호출로 GitHub PR을 만들고
+  URL, base/head, review/merge 상태, checks, workflow run과 제한된 실패 로그를 영속화한다.
+- 원격 refresh가 실패해도 마지막 PR/CI 관측값과 오류를 함께 남기며, merge 후 clean
+  workspace archive를 제안하되 branch/worktree를 자동 삭제하지 않는다.
 
 ## 완료한 마일스톤: R1 실제 27B Baseline과 계측
 

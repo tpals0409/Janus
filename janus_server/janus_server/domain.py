@@ -17,7 +17,7 @@ from typing import Any
 
 from .budget import empty_usage, merge_budget, normalize_budget
 
-CURRENT_SCHEMA_VERSION = 9
+CURRENT_SCHEMA_VERSION = 10
 
 TASK_STATUSES = frozenset({"todo", "preparing", "working", "needs_you", "review", "failed"})
 TASK_TRANSITIONS = {
@@ -332,10 +332,35 @@ ALTER TABLE projects ADD COLUMN promoted_comparison_id TEXT REFERENCES evaluatio
 ALTER TABLE projects ADD COLUMN profile_promoted_at TEXT;
 """
 
+MIGRATION_10 = """
+CREATE TABLE task_pull_requests (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id) ON DELETE CASCADE,
+    number INTEGER,
+    url TEXT,
+    state TEXT NOT NULL CHECK(state IN ('creating','open','closed','merged','error')),
+    title TEXT NOT NULL,
+    head_branch TEXT NOT NULL,
+    base_branch TEXT NOT NULL,
+    draft INTEGER NOT NULL DEFAULT 0 CHECK(draft IN (0,1)),
+    merge_state TEXT,
+    review_decision TEXT,
+    checks_json TEXT NOT NULL DEFAULT '[]',
+    runs_json TEXT NOT NULL DEFAULT '[]',
+    failed_logs_json TEXT NOT NULL DEFAULT '[]',
+    error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    merged_at TEXT,
+    closed_at TEXT
+);
+CREATE INDEX idx_task_pull_requests_state ON task_pull_requests(state,updated_at);
+"""
+
 MIGRATIONS = {
     1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3, 4: MIGRATION_4,
     5: MIGRATION_5, 6: MIGRATION_6, 7: MIGRATION_7, 8: MIGRATION_8,
-    9: MIGRATION_9,
+    9: MIGRATION_9, 10: MIGRATION_10,
 }
 
 
@@ -708,6 +733,62 @@ class DomainStore:
                 "SELECT * FROM task_shipments WHERE task_id=? ORDER BY created_at,id",
                 (task_id,),
             )]
+
+    def record_task_pull_request(
+        self, *, task_id: str, title: str, head_branch: str, base_branch: str,
+        state: str, details: dict | None = None, error: str | None = None,
+    ) -> dict:
+        if state not in {"creating", "open", "closed", "merged", "error"}:
+            raise Conflict(f"모르는 PullRequest 상태: {state}")
+        details = details or {}
+        now = _now()
+        with self.transaction(immediate=True) as connection:
+            self._one(connection, "SELECT * FROM tasks WHERE id=?", (task_id,), "Task")
+            current = connection.execute(
+                "SELECT * FROM task_pull_requests WHERE task_id=?", (task_id,)
+            ).fetchone()
+            if current is None:
+                connection.execute(
+                    "INSERT INTO task_pull_requests(id,task_id,number,url,state,title,head_branch,"
+                    "base_branch,draft,merge_state,review_decision,checks_json,runs_json,"
+                    "failed_logs_json,error,created_at,updated_at,merged_at,closed_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        _id("pr"), task_id, details.get("number"), details.get("url"), state,
+                        title.strip(), head_branch, base_branch,
+                        1 if details.get("draft") else 0, details.get("merge_state"),
+                        details.get("review_decision"), _json(details.get("checks") or []),
+                        _json(details.get("runs") or []),
+                        _json(details.get("failed_logs") or []), error, now, now,
+                        details.get("merged_at"), details.get("closed_at"),
+                    ),
+                )
+            else:
+                connection.execute(
+                    "UPDATE task_pull_requests SET number=COALESCE(?,number),url=COALESCE(?,url),"
+                    "state=?,title=?,head_branch=?,base_branch=?,draft=?,merge_state=?,"
+                    "review_decision=?,checks_json=?,runs_json=?,failed_logs_json=?,error=?,"
+                    "updated_at=?,merged_at=COALESCE(?,merged_at),closed_at=COALESCE(?,closed_at) "
+                    "WHERE task_id=?",
+                    (
+                        details.get("number"), details.get("url"), state, title.strip(),
+                        head_branch, base_branch, 1 if details.get("draft") else 0,
+                        details.get("merge_state"), details.get("review_decision"),
+                        _json(details.get("checks") or []), _json(details.get("runs") or []),
+                        _json(details.get("failed_logs") or []), error, now,
+                        details.get("merged_at"), details.get("closed_at"), task_id,
+                    ),
+                )
+        item = self.get_task_pull_request(task_id)
+        assert item is not None
+        return item
+
+    def get_task_pull_request(self, task_id: str) -> dict | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM task_pull_requests WHERE task_id=?", (task_id,)
+            ).fetchone()
+            return dict(row) if row is not None else None
 
     def create_evaluation_experiment(
         self, *, role: str, label: str, source: str,
