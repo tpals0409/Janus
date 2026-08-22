@@ -1,83 +1,156 @@
-# Janus 상태 (오케스트레이터-워커 전환, 2026-08-22)
+# Janus 구현 상태
 
-로컬 우선 Agent Development Environment. Electron 앱 + FastAPI 서버 +
-로컬 MLX 모델(Qwen3.8-27B 4bit).
+기준일: 2026-08-22
+제품 목표: **제한된 로컬 하드웨어에서 로컬 에이전트가 가장 적은 시간·토큰·사용자 개입으로
+검증된 변경을 만들도록 격리·스케줄·감독·평가하는 ADE**
 
-**판정: 아키텍처가 원래 계획과 일치하게 됐다.** 사람이 배선하는 정적 DAG(LangGraph)를
-삭제하고 오케스트레이터-워커 런타임으로 전환했다. 에이전트 = 오케스트레이터 1개,
-워커는 오케스트레이터가 `create_worker` 스킬로 런타임에 만들고 실행의 트레이스에만
-존재한다. 캔버스는 스펙 에디터가 아니라 **트레이스 뷰어**다(그래프 = 출력).
+- 제품 정의: [PRODUCT.md](PRODUCT.md)
+- 구현 순서와 출구 조건: [ROADMAP.md](ROADMAP.md)
+- 실행 체크리스트: [CHECKLIST.md](CHECKLIST.md)
 
-**검증(2026-08-22)**: `pytest tests/` 26개 전부 통과(15회 반복 무플레이크) /
-도구·spec 자체 검사 통과 / 렌더러 타입체크 통과 / 실서버 헤드리스 스모크
-(인증 거부·message→스팬 스트림·MLX 부재 시 즉시 run_error) 통과.
-**실 모델 스모크는 아직**: `pnpm dev`로 27B 상대 대화+워커 스폰은 사람 손 필요.
+## 현재 판정
 
----
+**측정 가능한 로컬 agent runtime(R1/P0)은 완성됐으나 ADE 작업 골격(R2/P1)은 아직 없다.**
 
-## 아키텍처 (전환 후)
+현재 앱은 로컬 MLX 오케스트레이터와 런타임 워커를 실행하고 trace를 보여주는 검증된 세로
+조각이다. 그러나 Project, Task, Task별 worktree, local resource scheduler, Git diff review,
+평가 loop가 없으므로 완성된 ADE로 부르기에는 이르다.
 
-- **스펙** (`spec.py`, ~120줄): YAML = 평평한 오케스트레이터 설정
-  (name/model/system_prompt/tools/approval/max_steps). 그래프 없음.
-- **런타임** (`runtime.py`, 신규): `Orchestration` = WS 연결당 대화 하나.
-  지속 `Session`으로 멀티턴. `create_worker`는 실행별 클로저로 주입 —
-  전역 REGISTRY 불변. 같은 턴의 도구 호출은 전부 병렬 스레드.
-- **WS 프로토콜**: client→ `message`/`approval_response`/`cancel`/`stop_worker`.
-  server→ `run_start`/`span_start`/`span_end`/`agent_event`(+`call_id`)/
-  `approval_request`/`turn_end`(신설, 저장 후 발송)/`run_error`.
-  `run`/`token`/`run_end` 폐기. 첫 message = 실행 시작, 소켓 close = 대화 종료.
-- **취소 의미론**: `cancel` = 현재 턴만 중단, 세션 유지. `stop_worker` = 그 워커만.
-- **UI**: 캔버스 노드 = 스팬(오케스트레이터 + 스폰된 워커). 노드 클릭 →
-  오케스트레이터는 대화창(컴포저), 워커는 로그 + Stop. Run 버튼/RunBar 삭제.
-  우측 패널 = 오케스트레이터 설정 폼.
+기존 “오케스트레이터-워커 전환으로 원래 계획과 일치했다”는 평가는 제품 목표가 런타임일 때만
+맞았다. ADE를 목표로 확정했으므로 현재 런타임은 제품 전체가 아니라 Task를 수행하는 핵심
+**Janus Local Runtime**으로 재배치한다. 외부 모델과 외부 CLI agent 지원은 현재 미정이며
+핵심 로드맵에 포함하지 않는다.
 
-## 안전 규칙 (전환 후에도 유지·강화)
+## 구현되어 있고 보존할 것
 
-- 위험 도구 승인 게이트는 `tools.dispatch` 단일 초크포인트 (C1 수정 유지).
-  워커가 실행해도 같은 게이트를 지난다 — 회귀 테스트 있음.
-- `create_worker`를 YAML tools에 적으면 검증 거부 (항상 런타임 주입).
-- 워커 도구 = 요청 ∩ 오케스트레이터 spec.tools. 워커는 `create_worker`를
-  못 받는다 → 스폰 깊이 1 보장. 부분집합·깊이 회귀 테스트 있음.
-- 인증(기동별 토큰 + Origin, HTTP/WS)·CORS 순서(bb5b0d1)·워크스페이스 jail 무변경.
+### Janus Local runtime
 
-## 삭제된 것
+- Qwen3.8-27B MLX 로컬 모델 연결
+- WS 연결별 지속 멀티턴 오케스트레이터 세션
+- `create_worker`를 통한 실행 중 worker 생성
+- 같은 턴의 tool call 병렬 실행
+- worker 도구 부분집합과 spawn 깊이 1 제한
+- 턴 취소, 개별 worker 중단, 취소 후 세션 유지
 
-`compile.py`(318줄), `trace.py`(213줄), 그래프 spec 검증(~250줄), 그래프 샘플 3개,
-`test_trace.py`, langchain-openai·langgraph 의존성, 렌더러 그래프 편집
-(팔레트·엣지·노드 추가/삭제/rename, RunBar, EdgeInspector 등 ~500줄). 순 디프 음수.
+### 안전과 상태 정직성
 
-## 남은 것 (한눈에)
+- 위험 도구 승인을 `tools.dispatch`에서 중앙 처리
+- 승인 없음·거부 시 기본 거부
+- 파일 도구 workspace jail
+- 기동별 인증 토큰, Origin 검증, HTTP/WS 인증
+- 모델 부재와 인증 실패를 구체적인 오류로 표시
+- 병렬 승인 요청과 소켓 경쟁 방어
 
-| | 내용 |
-|---|---|
-| **실 모델 스모크** | `pnpm dev`로 27B 상대: 대화+워커 스폰 / stop_worker / cancel 후 계속 / 과거 실행 재열람·A/B |
-| **H5** | 강제 종료 시 27B 모델이 RAM에 고아로 남고, 다음 실행이 옛 코드 백엔드에 조용히 붙음 |
-| **M4** | 에이전트 삭제 시 `runs/` 고아 → 같은 slug 새 에이전트가 남의 히스토리 상속 |
-| **MLX 다운 UX** | 컴포저가 미리 안 잠김. 대신 보내면 즉시 run_error로 정직하게 실패 (행 없음) — 심각도 하락 |
-| **IDE** | 검색, 출력 복사, 키보드 단축키, 긴 세션 가상화 (Undo/Delete 문제는 캔버스 편집 삭제로 소멸) |
-| **리포** | README, 배포 패키징(`pnpm dev` 전용) |
-| **ponytail 표시** | 고정 2열 캔버스 레이아웃(워커 ~8개↑면 dagre), cancel=stop-turn(대화 리셋=새 연결), 병렬은 도구 I/O만 겹침(MLX 1대 직렬) |
+### 관측과 UI
 
-해결·소멸: M8(거짓 없는 즉시 실패로 강등), M10(`_make_llm` 자체가 삭제됨),
-캔버스 Delete 사고(편집 제거로 소멸).
+- 오케스트레이터와 runtime worker span
+- monotonic 기반 queue/lease/generation/tool/verification timing
+- Task/Session/Dispatch/Worker ID, token, worker 수, memory snapshot
+- 배타적 active/user-wait 시간 회계와 실행 기록
+- 실제 27B TaskSuite 반복 baseline과 정책 A/B 비교 기반
+- Electron shell, 파일 트리, agent profile 설정
+- 실패·취소 상태 표시
 
-## 테스트
+## ADE 전환의 핵심 결손
+
+| 영역 | 현재 | 목표 |
+|---|---|---|
+| 최상위 객체 | Agent profile | Project와 Task |
+| 실행 경계 | 전역 workspace | Task별 Workspace/worktree |
+| 에이전트 | 단일 Janus Local 설정 | 측정·비교 가능한 로컬 Agent/Model Profile |
+| 실행 시도 | agent run | Dispatch + AgentSession |
+| 자원 제어 | 모델 서버에 즉시 요청 | generation lease + tool/verification scheduler |
+| 결과 | 답변과 trace | Git ChangeSet + Verification |
+| 최적화 | token/latency 표시 | 고정 TaskSuite의 품질·시간·token·개입 비교 |
+| 완료 | 턴 종료 | review 수락과 ship |
+| 기본 화면 | agent/trace | Task 상태와 Needs You/Review |
+
+가장 위험한 기술 부채는 `tools.WORKSPACE`가 전역 mutable 상태라는 점이다. 이 상태에서 병렬
+Task worktree를 추가하면 한 작업의 도구가 다른 작업 경로를 사용할 수 있다. UI보다 먼저
+workspace context를 실행마다 명시적으로 전달하도록 바꿔야 한다.
+
+R1 계측과 baseline은 완료됐다. 현재 가장 큰 실행 제어 공백은 계측된 queue/lease가 아직
+ResourceScheduler 정책으로 연결되지 않았다는 점이다. 이 작업은 Task/Workspace 격리를 먼저
+도입한 뒤 R3에서 진행한다.
+
+## 현재 검증
+
+2026-08-22 현재 체크아웃에서 직접 확인:
+
+- Python 테스트 31개 통과
+- Node lifecycle 테스트 7개 통과(실제 분리 프로세스 그룹 3회 start/stop 포함)
+- 도구 자체 검사 통과
+- 오케스트레이터 spec 검사 통과
+- TypeScript 타입 검사 통과
+- Electron production build 통과
+- 정적 그래프/LangGraph 의존성 제거 완료
+- 실제 Qwen3.8-27B smoke 4개 시나리오 통과: 멀티턴, worker spawn/stop, cancel 후 재개
+- TaskSuite 3개 × 정책 3개 × 5회 = 45회 완료, acceptance 44/45
+- smoke 종료 후 owned MLX PID 종료와 orphan process 0 확인
+
+아직 검증하지 못한 것:
+
+- 새 ADE Task/worktree 흐름 전체 — 아직 구현 전
+- 서로 다른 두 Task의 WorkspaceContext 병렬 격리 — 아직 전역 `tools.WORKSPACE`
+- scheduler/lease/budget 적용 후 baseline 대비 개선
+
+## 완료한 마일스톤: R1 실제 27B Baseline과 계측
+
+완료 항목:
+
+1. queue/generation/tool/verification timing event schema와 전체 시간 회계
+2. 실제 MLX 서버를 사용하는 반복 가능한 smoke harness
+3. objective와 acceptance command가 고정된 TaskSuite v0
+4. worker 없음/고정 worker/자율 worker 각각 5회 baseline
+5. backend/model PID 소유권, health probe, backoff, orphan 검사
+
+전체 정책 결과는 `none` 15/15, `fixed_one` 14/15, `autonomous` 15/15다. 평균 wall time은
+각각 34.79초, 109.93초, 44.63초였다. 자율 정책은 15회 모두 worker 0을 선택했다. 상세 표는
+`janus_server/artifacts/p0/tasksuite/20260822-115844/baseline.md`에 있다.
+
+## 다음 마일스톤: R2 Task/worktree/WorkspaceContext
+
+다음은 P1 영속 도메인 모델, WorkspaceContext, WorkspaceService, Task 중심 UI와 runtime 연결이다.
+R3에서 model generation 1-slot scheduler, ResourceLease와 token/time/worker budget을 도입한다.
+
+R1의 상세 출구 조건은 [ROADMAP.md](ROADMAP.md#r1-실제-27b-baseline과-계측--최적화의-기준선)를
+단일 기준으로 사용한다.
+
+## 기존 결함의 새 우선순위
+
+### R2와 함께 해결해야 함
+
+- **M4:** agent 삭제 시 `runs/`가 남아 같은 slug가 이전 기록을 상속한다.
+  새 Task/Dispatch 저장 구조에서 소유권과 archive 정책으로 해결한다.
+- 기존 `agent_id` 중심 run 저장을 더 확장하지 않는다.
+
+### R1에서 해결됨
+
+- **H5:** owned PID/process group만 TERM→KILL하고 종료를 기다리며 orphan을 명시적으로 탐지한다.
+- 실제 27B smoke와 45회 TaskSuite로 fake client와 실환경 사이의 공백을 닫았다.
+- worker 정책의 성공률·wall time·token·승인 요청 baseline을 저장했다.
+- queue, lease, generation, tool, verification, memory 계측을 저장한다.
+
+### 제품 전환으로 소멸한 항목
+
+- 정적 DAG 편집·삭제·순환 trace 문제
+- LangGraph token 귀속 문제
+- graph node/edge Inspector 관련 UX 결함
+
+## 테스트와 실행
 
 ```bash
-cd janus_server && uv run pytest tests/ -q      # 26 passed
-uv run python -m janus_server.tools             # 도구 자체 검사 (jail 포함)
-uv run python -m janus_server.spec              # 오케스트레이터 스펙 검증
-cd janus && npx tsc --noEmit                    # 렌더러 타입체크
+cd janus_server
+uv run pytest tests/ -q
+uv run python -m janus_server.tools
+uv run python -m janus_server.spec
+
+cd ../janus
+npx tsc --noEmit
+pnpm test:main
+pnpm build
+pnpm dev
 ```
 
-핵심 런타임 테스트(`test_runtime.py`, FakeClient·MLX 불필요): 단일 턴 스트림+저장 /
-멀티턴 세션 유지+파일 덮어쓰기 / 워커 부분집합+깊이1 / Barrier로 병렬 스폰 증명 /
-워커별 취소 / cancel 후 세션 유지. 보안(`test_security.py`): 인증·CORS·WS 핸드셰이크
-+ 병렬 위험 도구 승인 2건 독립 왕복.
-
-## 실행법
-
-```bash
-cd janus && pnpm dev     # 앱이 janus-server(:8765)와 MLX(:8080)를 직접 띄우고, 끄면 함께 종료
-```
-백엔드 로그: `/tmp/janus-server.log`, `/tmp/janus-mlx.log`
+백엔드 로그: `/tmp/janus-server.log`
+MLX 로그: `/tmp/janus-mlx.log`

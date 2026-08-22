@@ -1,0 +1,1626 @@
+{
+  "schema_version": 1,
+  "suite": "janus-local-ade-v0",
+  "started_at": "2026-08-22T02:58:44.844744+00:00",
+  "status": "completed",
+  "conditions": {
+    "model": "qwen3.8-27b",
+    "quantization": "4-bit MLX",
+    "model_generation_slots": 1,
+    "turn_timeout_seconds": 180,
+    "max_steps": 10,
+    "approval_mode": "automated for benchmark; requests are counted",
+    "workspace_execution": "sequential because tools.WORKSPACE is process-global",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.12 (main, Mar 20 2026, 00:20:47) [Clang 22.1.1 ]",
+    "model_path": "/Users/kimsemin/.cache/huggingface/hub/models--orcarouter--Qwen3.8-27B-Uncensored-MLX/snapshots/b4603df5fd2a51e7fed2560ee7090caa4e13e4b7/4-bit",
+    "repeats": 5,
+    "policies": [
+      "none",
+      "fixed_one",
+      "autonomous"
+    ],
+    "tasks": [
+      "single_file_bug",
+      "multi_file_refactor",
+      "investigate_code_tests"
+    ]
+  },
+  "model_server": {
+    "ownership": "owned",
+    "pid": 60955,
+    "exit_code": -15
+  },
+  "runs": [
+    {
+      "schema_version": 1,
+      "task_id": "single_file_bug",
+      "category": "single-file bug fix",
+      "policy": "none",
+      "repeat": 1,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 24839.134,
+      "changed_files": [
+        "calculator.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 3 tests in 0.000s\n\nOK\n",
+        "duration_ms": 39.297
+      },
+      "worker_count": 0,
+      "approval_requests": 1,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 4862,
+        "completion": 227,
+        "total": 5089
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "single_file_bug",
+      "category": "single-file bug fix",
+      "policy": "none",
+      "repeat": 2,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 24976.638,
+      "changed_files": [
+        "calculator.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 3 tests in 0.000s\n\nOK\n",
+        "duration_ms": 38.595
+      },
+      "worker_count": 0,
+      "approval_requests": 1,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 4862,
+        "completion": 236,
+        "total": 5098
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "single_file_bug",
+      "category": "single-file bug fix",
+      "policy": "none",
+      "repeat": 3,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 24747.405,
+      "changed_files": [
+        "calculator.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 3 tests in 0.000s\n\nOK\n",
+        "duration_ms": 26.243
+      },
+      "worker_count": 0,
+      "approval_requests": 1,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 4862,
+        "completion": 227,
+        "total": 5089
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "single_file_bug",
+      "category": "single-file bug fix",
+      "policy": "none",
+      "repeat": 4,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 24301.514,
+      "changed_files": [
+        "calculator.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 3 tests in 0.000s\n\nOK\n",
+        "duration_ms": 30.421
+      },
+      "worker_count": 0,
+      "approval_requests": 1,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 4862,
+        "completion": 223,
+        "total": 5085
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "single_file_bug",
+      "category": "single-file bug fix",
+      "policy": "none",
+      "repeat": 5,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 24393.71,
+      "changed_files": [
+        "calculator.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 3 tests in 0.000s\n\nOK\n",
+        "duration_ms": 26.925
+      },
+      "worker_count": 0,
+      "approval_requests": 1,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 4862,
+        "completion": 227,
+        "total": 5089
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "single_file_bug",
+      "category": "single-file bug fix",
+      "policy": "fixed_one",
+      "repeat": 1,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 91734.544,
+      "changed_files": [
+        "calculator.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 3 tests in 0.000s\n\nOK\n",
+        "duration_ms": 29.632
+      },
+      "worker_count": 1,
+      "approval_requests": 1,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 14122,
+        "completion": 993,
+        "total": 15115
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "single_file_bug",
+      "category": "single-file bug fix",
+      "policy": "fixed_one",
+      "repeat": 2,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 90214.546,
+      "changed_files": [
+        "calculator.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 3 tests in 0.000s\n\nOK\n",
+        "duration_ms": 27.226
+      },
+      "worker_count": 1,
+      "approval_requests": 1,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 14044,
+        "completion": 964,
+        "total": 15008
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "single_file_bug",
+      "category": "single-file bug fix",
+      "policy": "fixed_one",
+      "repeat": 3,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 98162.908,
+      "changed_files": [
+        "calculator.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 3 tests in 0.000s\n\nOK\n",
+        "duration_ms": 26.315
+      },
+      "worker_count": 1,
+      "approval_requests": 1,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 16030,
+        "completion": 1012,
+        "total": 17042
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "single_file_bug",
+      "category": "single-file bug fix",
+      "policy": "fixed_one",
+      "repeat": 4,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 94528.243,
+      "changed_files": [
+        "calculator.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 3 tests in 0.000s\n\nOK\n",
+        "duration_ms": 27.045
+      },
+      "worker_count": 1,
+      "approval_requests": 1,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 14148,
+        "completion": 1021,
+        "total": 15169
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "single_file_bug",
+      "category": "single-file bug fix",
+      "policy": "fixed_one",
+      "repeat": 5,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 98552.786,
+      "changed_files": [
+        "calculator.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 3 tests in 0.000s\n\nOK\n",
+        "duration_ms": 26.22
+      },
+      "worker_count": 1,
+      "approval_requests": 1,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 14290,
+        "completion": 1075,
+        "total": 15365
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "single_file_bug",
+      "category": "single-file bug fix",
+      "policy": "autonomous",
+      "repeat": 1,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 27579.462,
+      "changed_files": [
+        "calculator.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 3 tests in 0.000s\n\nOK\n",
+        "duration_ms": 25.423
+      },
+      "worker_count": 0,
+      "approval_requests": 1,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 5750,
+        "completion": 225,
+        "total": 5975
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "single_file_bug",
+      "category": "single-file bug fix",
+      "policy": "autonomous",
+      "repeat": 2,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 26579.728,
+      "changed_files": [
+        "calculator.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 3 tests in 0.000s\n\nOK\n",
+        "duration_ms": 26.112
+      },
+      "worker_count": 0,
+      "approval_requests": 1,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 5750,
+        "completion": 209,
+        "total": 5959
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "single_file_bug",
+      "category": "single-file bug fix",
+      "policy": "autonomous",
+      "repeat": 3,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 27548.534,
+      "changed_files": [
+        "calculator.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 3 tests in 0.000s\n\nOK\n",
+        "duration_ms": 26.235
+      },
+      "worker_count": 0,
+      "approval_requests": 1,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 5750,
+        "completion": 225,
+        "total": 5975
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "single_file_bug",
+      "category": "single-file bug fix",
+      "policy": "autonomous",
+      "repeat": 4,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 27645.875,
+      "changed_files": [
+        "calculator.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 3 tests in 0.000s\n\nOK\n",
+        "duration_ms": 25.849
+      },
+      "worker_count": 0,
+      "approval_requests": 1,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 5750,
+        "completion": 225,
+        "total": 5975
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "single_file_bug",
+      "category": "single-file bug fix",
+      "policy": "autonomous",
+      "repeat": 5,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 27593.279,
+      "changed_files": [
+        "calculator.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 3 tests in 0.000s\n\nOK\n",
+        "duration_ms": 25.923
+      },
+      "worker_count": 0,
+      "approval_requests": 1,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 5750,
+        "completion": 225,
+        "total": 5975
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "multi_file_refactor",
+      "category": "multi-file refactor",
+      "policy": "none",
+      "repeat": 1,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 33308.16,
+      "changed_files": [
+        "invoice/report.py",
+        "invoice/totals.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 2 tests in 0.000s\n\nOK\n",
+        "duration_ms": 26.353
+      },
+      "worker_count": 0,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 5616,
+        "completion": 327,
+        "total": 5943
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "multi_file_refactor",
+      "category": "multi-file refactor",
+      "policy": "none",
+      "repeat": 2,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 35210.321,
+      "changed_files": [
+        "invoice/report.py",
+        "invoice/totals.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 2 tests in 0.000s\n\nOK\n",
+        "duration_ms": 26.458
+      },
+      "worker_count": 0,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 5628,
+        "completion": 358,
+        "total": 5986
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "multi_file_refactor",
+      "category": "multi-file refactor",
+      "policy": "none",
+      "repeat": 3,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 47591.676,
+      "changed_files": [
+        "invoice/report.py",
+        "invoice/totals.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 2 tests in 0.000s\n\nOK\n",
+        "duration_ms": 26.275
+      },
+      "worker_count": 0,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 7614,
+        "completion": 481,
+        "total": 8095
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "multi_file_refactor",
+      "category": "multi-file refactor",
+      "policy": "none",
+      "repeat": 4,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 34330.963,
+      "changed_files": [
+        "invoice/report.py",
+        "invoice/totals.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 2 tests in 0.000s\n\nOK\n",
+        "duration_ms": 27.681
+      },
+      "worker_count": 0,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 5616,
+        "completion": 342,
+        "total": 5958
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "multi_file_refactor",
+      "category": "multi-file refactor",
+      "policy": "none",
+      "repeat": 5,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 33737.017,
+      "changed_files": [
+        "invoice/report.py",
+        "invoice/totals.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 2 tests in 0.000s\n\nOK\n",
+        "duration_ms": 26.292
+      },
+      "worker_count": 0,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 5616,
+        "completion": 331,
+        "total": 5947
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "multi_file_refactor",
+      "category": "multi-file refactor",
+      "policy": "fixed_one",
+      "repeat": 1,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 113038.347,
+      "changed_files": [
+        "invoice/report.py",
+        "invoice/totals.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 2 tests in 0.000s\n\nOK\n",
+        "duration_ms": 26.947
+      },
+      "worker_count": 1,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 17708,
+        "completion": 1176,
+        "total": 18884
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "multi_file_refactor",
+      "category": "multi-file refactor",
+      "policy": "fixed_one",
+      "repeat": 2,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 115857.683,
+      "changed_files": [
+        "invoice/report.py",
+        "invoice/totals.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 2 tests in 0.000s\n\nOK\n",
+        "duration_ms": 27.053
+      },
+      "worker_count": 1,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 17321,
+        "completion": 1240,
+        "total": 18561
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "multi_file_refactor",
+      "category": "multi-file refactor",
+      "policy": "fixed_one",
+      "repeat": 3,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 108327.535,
+      "changed_files": [
+        "invoice/report.py",
+        "invoice/totals.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 2 tests in 0.000s\n\nOK\n",
+        "duration_ms": 26.527
+      },
+      "worker_count": 1,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 17588,
+        "completion": 1093,
+        "total": 18681
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "multi_file_refactor",
+      "category": "multi-file refactor",
+      "policy": "fixed_one",
+      "repeat": 4,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 128759.589,
+      "changed_files": [
+        "invoice/report.py",
+        "invoice/totals.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 2 tests in 0.000s\n\nOK\n",
+        "duration_ms": 29.072
+      },
+      "worker_count": 1,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 20573,
+        "completion": 1311,
+        "total": 21884
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "multi_file_refactor",
+      "category": "multi-file refactor",
+      "policy": "fixed_one",
+      "repeat": 5,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 109062.442,
+      "changed_files": [
+        "invoice/report.py",
+        "invoice/totals.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 2 tests in 0.000s\n\nOK\n",
+        "duration_ms": 26.756
+      },
+      "worker_count": 1,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 17179,
+        "completion": 1123,
+        "total": 18302
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "multi_file_refactor",
+      "category": "multi-file refactor",
+      "policy": "autonomous",
+      "repeat": 1,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 49341.521,
+      "changed_files": [
+        "invoice/report.py",
+        "invoice/totals.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 2 tests in 0.000s\n\nOK\n",
+        "duration_ms": 26.337
+      },
+      "worker_count": 0,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 11441,
+        "completion": 355,
+        "total": 11796
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "multi_file_refactor",
+      "category": "multi-file refactor",
+      "policy": "autonomous",
+      "repeat": 2,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 65630.469,
+      "changed_files": [
+        "invoice/report.py",
+        "invoice/totals.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 2 tests in 0.000s\n\nOK\n",
+        "duration_ms": 27.358
+      },
+      "worker_count": 0,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 14201,
+        "completion": 518,
+        "total": 14719
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "multi_file_refactor",
+      "category": "multi-file refactor",
+      "policy": "autonomous",
+      "repeat": 3,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 47705.303,
+      "changed_files": [
+        "invoice/report.py",
+        "invoice/totals.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 2 tests in 0.000s\n\nOK\n",
+        "duration_ms": 26.184
+      },
+      "worker_count": 0,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 11209,
+        "completion": 334,
+        "total": 11543
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "multi_file_refactor",
+      "category": "multi-file refactor",
+      "policy": "autonomous",
+      "repeat": 4,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 52468.035,
+      "changed_files": [
+        "invoice/report.py",
+        "invoice/totals.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 2 tests in 0.000s\n\nOK\n",
+        "duration_ms": 27.182
+      },
+      "worker_count": 0,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 11441,
+        "completion": 410,
+        "total": 11851
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "multi_file_refactor",
+      "category": "multi-file refactor",
+      "policy": "autonomous",
+      "repeat": 5,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 52671.12,
+      "changed_files": [
+        "invoice/report.py",
+        "invoice/totals.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q",
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "----------------------------------------------------------------------\nRan 2 tests in 0.000s\n\nOK\n",
+        "duration_ms": 26.851
+      },
+      "worker_count": 0,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 11441,
+        "completion": 410,
+        "total": 11851
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "investigate_code_tests",
+      "category": "investigate then modify code and tests",
+      "policy": "none",
+      "repeat": 1,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 44367.292,
+      "changed_files": [
+        "slug.py",
+        "tests/test_slug.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q && python3 acceptance.py",
+        "exit_code": 0,
+        "stdout": "acceptance OK\n",
+        "stderr": "----------------------------------------------------------------------\nRan 4 tests in 0.000s\n\nOK\n",
+        "duration_ms": 42.434
+      },
+      "worker_count": 0,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 4108,
+        "completion": 568,
+        "total": 4676
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "investigate_code_tests",
+      "category": "investigate then modify code and tests",
+      "policy": "none",
+      "repeat": 2,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 42120.462,
+      "changed_files": [
+        "slug.py",
+        "tests/test_slug.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q && python3 acceptance.py",
+        "exit_code": 0,
+        "stdout": "acceptance OK\n",
+        "stderr": "----------------------------------------------------------------------\nRan 4 tests in 0.000s\n\nOK\n",
+        "duration_ms": 41.336
+      },
+      "worker_count": 0,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 4108,
+        "completion": 529,
+        "total": 4637
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "investigate_code_tests",
+      "category": "investigate then modify code and tests",
+      "policy": "none",
+      "repeat": 3,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 43146.781,
+      "changed_files": [
+        "slug.py",
+        "tests/test_slug.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q && python3 acceptance.py",
+        "exit_code": 0,
+        "stdout": "acceptance OK\n",
+        "stderr": "----------------------------------------------------------------------\nRan 4 tests in 0.000s\n\nOK\n",
+        "duration_ms": 41.178
+      },
+      "worker_count": 0,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 4108,
+        "completion": 548,
+        "total": 4656
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "investigate_code_tests",
+      "category": "investigate then modify code and tests",
+      "policy": "none",
+      "repeat": 4,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 43212.481,
+      "changed_files": [
+        "slug.py",
+        "tests/test_slug.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q && python3 acceptance.py",
+        "exit_code": 0,
+        "stdout": "acceptance OK\n",
+        "stderr": "----------------------------------------------------------------------\nRan 4 tests in 0.000s\n\nOK\n",
+        "duration_ms": 41.797
+      },
+      "worker_count": 0,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 4108,
+        "completion": 548,
+        "total": 4656
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "investigate_code_tests",
+      "category": "investigate then modify code and tests",
+      "policy": "none",
+      "repeat": 5,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 41497.956,
+      "changed_files": [
+        "slug.py",
+        "tests/test_slug.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q && python3 acceptance.py",
+        "exit_code": 0,
+        "stdout": "acceptance OK\n",
+        "stderr": "----------------------------------------------------------------------\nRan 4 tests in 0.000s\n\nOK\n",
+        "duration_ms": 41.399
+      },
+      "worker_count": 0,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 4108,
+        "completion": 518,
+        "total": 4626
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "investigate_code_tests",
+      "category": "investigate then modify code and tests",
+      "policy": "fixed_one",
+      "repeat": 1,
+      "status": "failed",
+      "acceptance_passed": false,
+      "policy_conformant": true,
+      "turn_error": "turn timeout(180s)",
+      "wall_time_ms": 180110.455,
+      "changed_files": [
+        "slug.py",
+        "tests/test_slug.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q && python3 acceptance.py",
+        "exit_code": 0,
+        "stdout": "acceptance OK\n",
+        "stderr": "----------------------------------------------------------------------\nRan 4 tests in 0.000s\n\nOK\n",
+        "duration_ms": 54.013
+      },
+      "worker_count": 1,
+      "approval_requests": 6,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 20232,
+        "completion": 2001,
+        "total": 22233
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "investigate_code_tests",
+      "category": "investigate then modify code and tests",
+      "policy": "fixed_one",
+      "repeat": 2,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 109019.389,
+      "changed_files": [
+        "slug.py",
+        "tests/test_slug.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q && python3 acceptance.py",
+        "exit_code": 0,
+        "stdout": "acceptance OK\n",
+        "stderr": "----------------------------------------------------------------------\nRan 4 tests in 0.000s\n\nOK\n",
+        "duration_ms": 40.919
+      },
+      "worker_count": 1,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 10008,
+        "completion": 1417,
+        "total": 11425
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "investigate_code_tests",
+      "category": "investigate then modify code and tests",
+      "policy": "fixed_one",
+      "repeat": 3,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 105681.483,
+      "changed_files": [
+        "slug.py",
+        "tests/test_slug.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q && python3 acceptance.py",
+        "exit_code": 0,
+        "stdout": "acceptance OK\n",
+        "stderr": "----------------------------------------------------------------------\nRan 4 tests in 0.000s\n\nOK\n",
+        "duration_ms": 41.732
+      },
+      "worker_count": 1,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 9926,
+        "completion": 1359,
+        "total": 11285
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "investigate_code_tests",
+      "category": "investigate then modify code and tests",
+      "policy": "fixed_one",
+      "repeat": 4,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 107061.043,
+      "changed_files": [
+        "slug.py",
+        "tests/test_slug.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q && python3 acceptance.py",
+        "exit_code": 0,
+        "stdout": "acceptance OK\n",
+        "stderr": "----------------------------------------------------------------------\nRan 4 tests in 0.000s\n\nOK\n",
+        "duration_ms": 41.171
+      },
+      "worker_count": 1,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 9876,
+        "completion": 1385,
+        "total": 11261
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "investigate_code_tests",
+      "category": "investigate then modify code and tests",
+      "policy": "fixed_one",
+      "repeat": 5,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 98809.856,
+      "changed_files": [
+        "slug.py",
+        "tests/test_slug.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q && python3 acceptance.py",
+        "exit_code": 0,
+        "stdout": "acceptance OK\n",
+        "stderr": "----------------------------------------------------------------------\nRan 4 tests in 0.000s\n\nOK\n",
+        "duration_ms": 40.762
+      },
+      "worker_count": 1,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 9780,
+        "completion": 1249,
+        "total": 11029
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "investigate_code_tests",
+      "category": "investigate then modify code and tests",
+      "policy": "autonomous",
+      "repeat": 1,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 52940.637,
+      "changed_files": [
+        "slug.py",
+        "tests/test_slug.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q && python3 acceptance.py",
+        "exit_code": 0,
+        "stdout": "acceptance OK\n",
+        "stderr": "----------------------------------------------------------------------\nRan 6 tests in 0.000s\n\nOK\n",
+        "duration_ms": 41.444
+      },
+      "worker_count": 0,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 4927,
+        "completion": 680,
+        "total": 5607
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "investigate_code_tests",
+      "category": "investigate then modify code and tests",
+      "policy": "autonomous",
+      "repeat": 2,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 52564.597,
+      "changed_files": [
+        "slug.py",
+        "tests/test_slug.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q && python3 acceptance.py",
+        "exit_code": 0,
+        "stdout": "acceptance OK\n",
+        "stderr": "----------------------------------------------------------------------\nRan 6 tests in 0.000s\n\nOK\n",
+        "duration_ms": 41.013
+      },
+      "worker_count": 0,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 4927,
+        "completion": 674,
+        "total": 5601
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "investigate_code_tests",
+      "category": "investigate then modify code and tests",
+      "policy": "autonomous",
+      "repeat": 3,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 52369.799,
+      "changed_files": [
+        "slug.py",
+        "tests/test_slug.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q && python3 acceptance.py",
+        "exit_code": 0,
+        "stdout": "acceptance OK\n",
+        "stderr": "----------------------------------------------------------------------\nRan 6 tests in 0.000s\n\nOK\n",
+        "duration_ms": 41.559
+      },
+      "worker_count": 0,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 4927,
+        "completion": 672,
+        "total": 5599
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "investigate_code_tests",
+      "category": "investigate then modify code and tests",
+      "policy": "autonomous",
+      "repeat": 4,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 54416.807,
+      "changed_files": [
+        "slug.py",
+        "tests/test_slug.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q && python3 acceptance.py",
+        "exit_code": 0,
+        "stdout": "acceptance OK\n",
+        "stderr": "----------------------------------------------------------------------\nRan 6 tests in 0.000s\n\nOK\n",
+        "duration_ms": 42.019
+      },
+      "worker_count": 0,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 4927,
+        "completion": 705,
+        "total": 5632
+      }
+    },
+    {
+      "schema_version": 1,
+      "task_id": "investigate_code_tests",
+      "category": "investigate then modify code and tests",
+      "policy": "autonomous",
+      "repeat": 5,
+      "status": "passed",
+      "acceptance_passed": true,
+      "policy_conformant": true,
+      "turn_error": null,
+      "wall_time_ms": 52414.622,
+      "changed_files": [
+        "slug.py",
+        "tests/test_slug.py"
+      ],
+      "missing_required_files": [],
+      "unexpected_changed_files": [],
+      "acceptance": {
+        "command": "python3 -m unittest discover -s tests -q && python3 acceptance.py",
+        "exit_code": 0,
+        "stdout": "acceptance OK\n",
+        "stderr": "----------------------------------------------------------------------\nRan 6 tests in 0.000s\n\nOK\n",
+        "duration_ms": 41.773
+      },
+      "worker_count": 0,
+      "approval_requests": 2,
+      "user_inputs": 1,
+      "tokens": {
+        "prompt": 4927,
+        "completion": 671,
+        "total": 5598
+      }
+    }
+  ],
+  "summary": [
+    {
+      "task_id": "investigate_code_tests",
+      "policy": "autonomous",
+      "runs": 5,
+      "acceptance_successes": 5,
+      "policy_conformant_runs": 5,
+      "wall_mean_ms": 52941.292,
+      "wall_stdev_ms": 764.595,
+      "prompt_tokens_mean": 4927,
+      "completion_tokens_mean": 680.4,
+      "approval_requests_mean": 2,
+      "worker_count_mean": 0
+    },
+    {
+      "task_id": "investigate_code_tests",
+      "policy": "fixed_one",
+      "runs": 5,
+      "acceptance_successes": 4,
+      "policy_conformant_runs": 5,
+      "wall_mean_ms": 120136.445,
+      "wall_stdev_ms": 30183.46,
+      "prompt_tokens_mean": 11964.4,
+      "completion_tokens_mean": 1482.2,
+      "approval_requests_mean": 2.8,
+      "worker_count_mean": 1
+    },
+    {
+      "task_id": "investigate_code_tests",
+      "policy": "none",
+      "runs": 5,
+      "acceptance_successes": 5,
+      "policy_conformant_runs": 5,
+      "wall_mean_ms": 42868.994,
+      "wall_stdev_ms": 987.936,
+      "prompt_tokens_mean": 4108,
+      "completion_tokens_mean": 542.2,
+      "approval_requests_mean": 2,
+      "worker_count_mean": 0
+    },
+    {
+      "task_id": "multi_file_refactor",
+      "policy": "autonomous",
+      "runs": 5,
+      "acceptance_successes": 5,
+      "policy_conformant_runs": 5,
+      "wall_mean_ms": 53563.29,
+      "wall_stdev_ms": 6320.628,
+      "prompt_tokens_mean": 11946.6,
+      "completion_tokens_mean": 405.4,
+      "approval_requests_mean": 2,
+      "worker_count_mean": 0
+    },
+    {
+      "task_id": "multi_file_refactor",
+      "policy": "fixed_one",
+      "runs": 5,
+      "acceptance_successes": 5,
+      "policy_conformant_runs": 5,
+      "wall_mean_ms": 115009.119,
+      "wall_stdev_ms": 7398.459,
+      "prompt_tokens_mean": 18073.8,
+      "completion_tokens_mean": 1188.6,
+      "approval_requests_mean": 2,
+      "worker_count_mean": 1
+    },
+    {
+      "task_id": "multi_file_refactor",
+      "policy": "none",
+      "runs": 5,
+      "acceptance_successes": 5,
+      "policy_conformant_runs": 5,
+      "wall_mean_ms": 36835.627,
+      "wall_stdev_ms": 5415.754,
+      "prompt_tokens_mean": 6018,
+      "completion_tokens_mean": 367.8,
+      "approval_requests_mean": 2,
+      "worker_count_mean": 0
+    },
+    {
+      "task_id": "single_file_bug",
+      "policy": "autonomous",
+      "runs": 5,
+      "acceptance_successes": 5,
+      "policy_conformant_runs": 5,
+      "wall_mean_ms": 27389.376,
+      "wall_stdev_ms": 406.045,
+      "prompt_tokens_mean": 5750,
+      "completion_tokens_mean": 221.8,
+      "approval_requests_mean": 1,
+      "worker_count_mean": 0
+    },
+    {
+      "task_id": "single_file_bug",
+      "policy": "fixed_one",
+      "runs": 5,
+      "acceptance_successes": 5,
+      "policy_conformant_runs": 5,
+      "wall_mean_ms": 94638.605,
+      "wall_stdev_ms": 3339.448,
+      "prompt_tokens_mean": 14526.8,
+      "completion_tokens_mean": 1013,
+      "approval_requests_mean": 1,
+      "worker_count_mean": 1
+    },
+    {
+      "task_id": "single_file_bug",
+      "policy": "none",
+      "runs": 5,
+      "acceptance_successes": 5,
+      "policy_conformant_runs": 5,
+      "wall_mean_ms": 24651.68,
+      "wall_stdev_ms": 260.409,
+      "prompt_tokens_mean": 4862,
+      "completion_tokens_mean": 228,
+      "approval_requests_mean": 1,
+      "worker_count_mean": 0
+    }
+  ],
+  "finished_at": "2026-08-22T03:46:12.394464+00:00"
+}

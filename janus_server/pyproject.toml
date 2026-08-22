@@ -20,4 +20,5 @@ dev = [
 [tool.pytest.ini_options]
 # 패키지를 설치하지 않고 리포에서 바로 테스트를 돌린다 (uv init --bare 프로젝트)
 pythonpath = ["."]
+testpaths = ["tests"]
 asyncio_mode = "auto"

@@ -14,7 +14,6 @@ import glob
 import os
 import re
 import threading
-import time
 import uuid
 from typing import Callable
 
@@ -22,6 +21,7 @@ from openai import OpenAI
 
 from . import agent as agent_mod
 from . import spec as spec_mod
+from . import telemetry as telemetry_mod
 from . import tools as T
 
 # UI의 짧은 이름 -> 로컬에 실제로 존재하는 스냅샷 경로.
@@ -78,10 +78,6 @@ def _clip(v):
     return v
 
 
-def _now_ms() -> int:
-    return int(time.time() * 1000)
-
-
 ORCH_ID = "orchestrator"  # 실행 간 고정 — A/B 비교가 node_id로 매칭된다
 
 
@@ -93,13 +89,17 @@ class Orchestration:
     """
 
     def __init__(self, spec: dict, *, send: Callable[[dict], None],
-                 approver: Callable[[str, str, dict], bool] | None):
+                 approver: Callable[[str, str, dict], bool] | None,
+                 task_id: str | None = None, session_id: str | None = None,
+                 clock: Callable[[], int] | None = None):
         self.spec = spec
         self.send = send
         self.client = make_client()
         self.model = resolve_local_model(spec["model"])
         self.tools = list(spec.get("tools") or [])
         self.max_steps = spec.get("max_steps", 15)
+        self.worker_policy = spec.get("worker_policy", "autonomous")
+        self.worker_enabled = self.worker_policy != "none"
 
         self.cancel = threading.Event()
         self.worker_cancels: dict[str, threading.Event] = {}
@@ -108,7 +108,11 @@ class Orchestration:
         self.node_usage: dict[str, dict] = {}
         self.spans: list[dict] = []          # [0]=오케스트레이터, 이후 워커 스폰 순
         self.worker_seq = 0
-        self.t0 = _now_ms()
+        telemetry_kwargs = {"task_id": task_id, "session_id": session_id}
+        if clock is not None:
+            telemetry_kwargs["clock"] = clock
+        self.telemetry = telemetry_mod.ExecutionTelemetry(**telemetry_kwargs)
+        self.current_dispatch_id: str | None = None
         self.first_message: str | None = None
         self.last_text = ""
         self.cancelled_turn = False
@@ -126,18 +130,24 @@ class Orchestration:
 
         self.create_worker = self._make_create_worker()
         registry = dict(T.REGISTRY)
-        registry[self.create_worker["name"]] = self.create_worker
+        if self.worker_enabled:
+            registry[self.create_worker["name"]] = self.create_worker
+        runtime_tools = self.tools + (["create_worker"] if self.worker_enabled else [])
         self.session = agent_mod.Session(
             agent_mod.build_system_prompt(
                 spec.get("system_prompt") or "You are an orchestrator.",
-                self.tools + ["create_worker"], registry=registry),
+                runtime_tools, registry=registry),
             registry=registry)
 
     # ── 스팬/이벤트 ──
 
     def _sink(self, node_id: str, kind: str, data: dict) -> None:
-        ev = {"type": "agent_event", "node_id": node_id, "kind": kind,
-              "at_ms": _now_ms() - self.t0, **{k: _clip(v) for k, v in data.items()}}
+        clipped = {k: _clip(v) for k, v in data.items()}
+        measured = self.telemetry.record_event(
+            kind, node_id=node_id, dispatch_id=self.current_dispatch_id,
+            worker_id=None if node_id == ORCH_ID else node_id, **clipped,
+        )
+        ev = {"type": "agent_event", **measured}
         with self.lock:
             self.node_events.setdefault(node_id, []).append(ev)
             if kind == "usage":
@@ -150,8 +160,12 @@ class Orchestration:
     def _open_span(self, node_id: str, *, label: str | None,
                    parent_id: str | None, input: dict) -> dict:
         span = {"id": uuid.uuid4().hex[:12], "node_id": node_id, "status": "running",
-                "started_ms": _now_ms() - self.t0, "input": _clip(input),
-                "parent_id": parent_id, "label": label}
+                "started_ms": self.telemetry.elapsed_ms(), "input": _clip(input),
+                "parent_id": parent_id, "label": label,
+                "task_id": self.telemetry.task_id,
+                "session_id": self.telemetry.session_id,
+                "dispatch_id": self.current_dispatch_id,
+                "worker_id": None if node_id == ORCH_ID else node_id}
         with self.lock:
             self.spans.append(span)
         self.send({"type": "span_start", "span": dict(span)})
@@ -160,7 +174,9 @@ class Orchestration:
     def _close_span(self, span: dict, status: str, output: dict) -> None:
         with self.lock:
             span["status"] = status
-            span["duration_ms"] = _now_ms() - self.t0 - span["started_ms"]
+            span["duration_ms"] = round(
+                self.telemetry.elapsed_ms() - span["started_ms"], 3
+            )
             span["output"] = _clip(output)
             span["events"] = list(self.node_events.get(span["node_id"], []))
             span["usage"] = self.node_usage.get(span["node_id"])
@@ -172,6 +188,10 @@ class Orchestration:
         def handler(name: str = "", system_prompt: str = "", task: str = "",
                     tools: list | None = None, max_steps: int = 8) -> dict:
             with self.lock:
+                if self.worker_policy == "none":
+                    return {"error": "worker policy가 none이라 worker를 만들 수 없습니다"}
+                if self.worker_policy == "fixed_one" and self.worker_seq >= 1:
+                    return {"error": "worker policy가 fixed_one이라 추가 worker를 만들 수 없습니다"}
                 self.worker_seq += 1
                 seq = self.worker_seq
             slug = re.sub(r"[^a-z0-9]+", "-", str(name).lower()).strip("-") or "worker"
@@ -184,11 +204,13 @@ class Orchestration:
             except (TypeError, ValueError):
                 steps = 8
 
+            cancel = threading.Event()
+            self.worker_cancels[wid] = cancel
+            # span_start를 본 UI/headless harness가 즉시 stop을 보내도 놓치지 않도록
+            # cancel handle을 공개한 뒤 span 이벤트를 보낸다.
             span = self._open_span(wid, label=str(name) or wid,
                                    parent_id=self.spans[0]["id"] if self.spans else None,
                                    input={"task": task, "tools": allowed})
-            cancel = threading.Event()
-            self.worker_cancels[wid] = cancel
             try:
                 text, _ = agent_mod.run(
                     client=self.client, model=self.model,
@@ -236,26 +258,37 @@ class Orchestration:
         self.cancel.clear()
         self.cancelled_turn = False
         self.turn_failed = False
+        dispatch_id = self.telemetry.begin_turn()
+        self.current_dispatch_id = dispatch_id
         if self.first_message is None:
             self.first_message = text
             self._open_span(ORCH_ID, label=self.spec.get("name"), parent_id=None,
                             input={"task": text})
-        last, _ = agent_mod.run(
-            client=self.client, model=self.model,
-            system_prompt=self.spec.get("system_prompt") or "",  # session이 이미 보유
-            task=text,
-            tool_names=self.tools + ["create_worker"],
-            approve=self._approve_for(ORCH_ID),
-            emit=lambda kind, **d: self._sink(ORCH_ID, kind, d),
-            max_steps=self.max_steps,
-            cancel=self.cancel,
-            extra_tools=[self.create_worker],
-            session=self.session,
-        )
-        if last:
-            self.last_text = last
-        if self.cancel.is_set():
-            self.cancelled_turn = True
+        try:
+            last, _ = agent_mod.run(
+                client=self.client, model=self.model,
+                system_prompt=self.spec.get("system_prompt") or "",  # session이 이미 보유
+                task=text,
+                tool_names=self.tools + (["create_worker"] if self.worker_enabled else []),
+                approve=self._approve_for(ORCH_ID),
+                emit=lambda kind, **d: self._sink(ORCH_ID, kind, d),
+                max_steps=self.max_steps,
+                cancel=self.cancel,
+                extra_tools=[self.create_worker] if self.worker_enabled else [],
+                session=self.session,
+            )
+            if last:
+                self.last_text = last
+            if self.cancel.is_set():
+                self.cancelled_turn = True
+        except Exception:
+            self.turn_failed = True
+            raise
+        finally:
+            status = ("error" if self.turn_failed else
+                      "cancelled" if self.cancelled_turn else "success")
+            self.telemetry.end_turn(dispatch_id, status=status)
+            self.current_dispatch_id = None
         # turn_end는 서버가 저장을 마친 뒤 보낸다 — 여기서 보내면 히스토리 갱신이 빈손
 
     # ── 취소 ──
@@ -282,7 +315,9 @@ class Orchestration:
                 if s["node_id"] == ORCH_ID:
                     s["status"] = ("error" if self.cancelled_turn or self.turn_failed
                                    else "success")
-                    s["duration_ms"] = _now_ms() - self.t0 - s["started_ms"]
+                    s["duration_ms"] = round(
+                        self.telemetry.elapsed_ms() - s["started_ms"], 3
+                    )
                     s["output"] = _clip({"reply": self.last_text})
                     s["events"] = list(self.node_events.get(ORCH_ID, []))
                     s["usage"] = self.node_usage.get(ORCH_ID)
@@ -291,3 +326,9 @@ class Orchestration:
                     s["events"] = list(self.node_events.get(s["node_id"], []))
                     s["usage"] = self.node_usage.get(s["node_id"])
         return spans
+
+    def snapshot_telemetry(self) -> dict:
+        return self.telemetry.snapshot(
+            usage=self.node_usage,
+            worker_count=self.worker_seq,
+        )

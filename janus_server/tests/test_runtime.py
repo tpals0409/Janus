@@ -91,6 +91,18 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual("orchestrator", spans[0]["node_id"])
             self.assertEqual("success", spans[0]["status"])
             self.assertIsNone(spans[0]["parent_id"])
+            telemetry = r["telemetry"]
+            self.assertEqual(1, telemetry["schema_version"])
+            self.assertEqual("monotonic_ns", telemetry["clock"])
+            self.assertEqual(0, telemetry["top_level_unaccounted_ms"])
+            self.assertEqual(1, telemetry["tokens"]["prompt"])
+            self.assertEqual(1, telemetry["tokens"]["completion"])
+            kinds = {event["kind"] for event in telemetry["events"]}
+            self.assertIn("resource_queue_enter", kinds)
+            self.assertIn("resource_lease_acquired", kinds)
+            self.assertIn("model_generation_start", kinds)
+            self.assertIn("model_generation_end", kinds)
+            self.assertTrue(telemetry["memory_snapshots"])
 
     def test_multi_turn_keeps_session_and_overwrites_one_file(self):
         fake = FakeClient([{"text": "A"}, {"text": "B"}])
@@ -105,6 +117,16 @@ class RuntimeTests(unittest.TestCase):
             self.assertIn("A", second)     # 1턴 assistant
             self.assertIn("two", second)   # 2턴 user
             self.saved_run(runs)           # 파일은 여전히 1개 (덮어쓰기)
+
+    def test_worker_none_policy_does_not_expose_create_worker(self):
+        fake = FakeClient([{"text": "direct"}])
+        spec = {**SPEC, "worker_policy": "none"}
+        with orch_env(fake, spec), self.connect() as ws:
+            ws.send_json({"type": "message", "text": "go"})
+            self.drain_turn(ws)
+
+        names = [tool["function"]["name"] for tool in fake.captured[0]["tools"]]
+        self.assertNotIn("create_worker", names)
 
     def test_worker_tools_subset_and_no_spawn_depth(self):
         # 워커가 run_bash를 요청해도 오케스트레이터 tools(echo)와의 교집합만 받는다
@@ -133,6 +155,23 @@ class RuntimeTests(unittest.TestCase):
             final_call = fake.captured[2]["messages"]
             tool_msgs = [m for m in final_call if m["role"] == "tool"]
             self.assertEqual(["worker done"], [m["content"] for m in tool_msgs])
+
+    def test_fixed_one_policy_rejects_additional_workers(self):
+        fake = FakeClient([
+            {"calls": [("create_worker", worker_args("first")),
+                       ("create_worker", worker_args("second"))]},
+            {"text": "worker done"},
+            {"text": "final"},
+        ])
+        spec = {**SPEC, "worker_policy": "fixed_one"}
+        with orch_env(fake, spec) as runs, self.connect() as ws:
+            ws.send_json({"type": "message", "text": "go"})
+            self.drain_turn(ws)
+            saved = self.saved_run(runs)
+
+        workers = [span for span in saved["spans"] if span["worker_id"] is not None]
+        self.assertEqual(1, len(workers))
+        self.assertEqual(1, saved["telemetry"]["worker_count"])
 
     def test_parallel_workers_run_concurrently(self):
         barrier = threading.Barrier(2, timeout=10)  # 순차 실행이면 타임아웃으로 깨진다

@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "suite": "janus-local-ade-v0",
+  "repeats": 5,
+  "conditions": {
+    "model": "qwen3.8-27b",
+    "quantization": "4-bit MLX",
+    "model_generation_slots": 1,
+    "turn_timeout_seconds": 180,
+    "max_steps": 10,
+    "approval_mode": "automated for benchmark; requests are counted",
+    "workspace_execution": "sequential because tools.WORKSPACE is process-global"
+  },
+  "tasks": [
+    {
+      "id": "single_file_bug",
+      "category": "single-file bug fix",
+      "objective": "Fix clamp() so it returns lower for values below the range, upper for values above it, and the original value inside the range.",
+      "constraints": [
+        "Read the existing implementation and tests before editing.",
+        "Change calculator.py only.",
+        "Do not weaken or delete tests.",
+        "The harness runs the fixed acceptance command; do not modify tests."
+      ],
+      "acceptance_command": "python3 -m unittest discover -s tests -q",
+      "required_changed_files": ["calculator.py"],
+      "allowed_changed_files": ["calculator.py"]
+    },
+    {
+      "id": "multi_file_refactor",
+      "category": "multi-file refactor",
+      "objective": "Extract subtotal() from invoice/report.py into a new invoice/totals.py module and update report.py to import it without changing public behavior.",
+      "constraints": [
+        "Preserve render_invoice() output and invoice.report.subtotal compatibility.",
+        "Create invoice/totals.py and modify invoice/report.py.",
+        "Do not modify the acceptance tests.",
+        "The harness runs the fixed acceptance command; do not modify tests."
+      ],
+      "acceptance_command": "python3 -m unittest discover -s tests -q",
+      "required_changed_files": ["invoice/report.py", "invoice/totals.py"],
+      "allowed_changed_files": ["invoice/report.py", "invoice/totals.py"]
+    },
+    {
+      "id": "investigate_code_tests",
+      "category": "investigate then modify code and tests",
+      "objective": "Read SPEC.md, identify slugify() behavior gaps, fix slug.py, and add regression tests for the documented edge cases.",
+      "constraints": [
+        "Treat SPEC.md as the behavior contract.",
+        "Modify both slug.py and tests/test_slug.py.",
+        "Do not modify SPEC.md or acceptance.py.",
+        "The harness runs the fixed acceptance command; do not modify acceptance.py."
+      ],
+      "acceptance_command": "python3 -m unittest discover -s tests -q && python3 acceptance.py",
+      "required_changed_files": ["slug.py", "tests/test_slug.py"],
+      "allowed_changed_files": ["slug.py", "tests/test_slug.py"]
+    }
+  ]
+}

@@ -115,7 +115,7 @@ _restore_workspace()
 
 
 def _save_run(agent_id: str, run_id: str, inputs: dict, spans: list,
-              cancelled: bool) -> None:
+              cancelled: bool, telemetry: dict | None = None) -> None:
     """실행 하나를 단일 JSON 파일로 남긴다. run_id가 고정이라 대화가 이어질 때마다
     같은 파일을 덮어쓴다 — 한 대화 = 한 기록."""
     if not spans:
@@ -130,6 +130,7 @@ def _save_run(agent_id: str, run_id: str, inputs: dict, spans: list,
         "inputs": inputs, "cancelled": cancelled,
         "duration_ms": total, "node_count": len(spans),
         "summary": summary[:120], "spans": spans,
+        "telemetry": telemetry,
     }, ensure_ascii=False), encoding="utf-8")
 
 app = FastAPI(title="Janus", version="0.1.0")
@@ -221,6 +222,7 @@ def _blank_spec(name: str) -> dict:
             "You are an orchestrator. For separable subtasks, spawn workers with "
             "create_worker and integrate their results."),
         "tools": [],
+        "worker_policy": "autonomous",
         "approval": "auto",
         "max_steps": 15,
     }
@@ -457,7 +459,8 @@ async def run_agent(ws: WebSocket, agent_id: str):
     def save() -> None:
         if orch is not None:
             _save_run(agent_id, run_id, {"task": orch.first_message or ""},
-                      orch.snapshot_spans(), orch.cancelled_turn)
+                      orch.snapshot_spans(), orch.cancelled_turn,
+                      orch.snapshot_telemetry())
 
     async def do_turn(text: str):
         nonlocal orch

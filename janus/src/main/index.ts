@@ -4,6 +4,17 @@ import { randomBytes } from 'crypto'
 import { createWriteStream } from 'fs'
 import net from 'net'
 import { join, resolve } from 'path'
+import {
+  classifyEndpoint,
+  createServiceRuntime,
+  markBlocked,
+  markExternal,
+  markOwned,
+  processAlive,
+  scheduleRestart,
+  stopOwnedService,
+  type ServiceRuntime
+} from './service-lifecycle'
 
 // ─────────────────────────── 백엔드 소유 ───────────────────────────
 // "하나의 앱": Janus를 켜면 janus-server와 MLX 모델 서버가 함께 뜨고, 끄면 함께
@@ -30,16 +41,6 @@ const env: NodeJS.ProcessEnv = {
 }
 
 type ServiceLabel = 'server' | 'mlx'
-type ServicePhase = 'starting' | 'up' | 'restarting' | 'failed' | 'external' | 'stopped'
-
-interface ServiceRuntime {
-  process: ChildProcess | null
-  phase: ServicePhase
-  attempts: number
-  nextRetryAt: number
-  startedAt: number | null
-  lastError: string | null
-}
 
 const serviceSpecs: Record<ServiceLabel, { port: number; command: string; cwd: string }> = {
   server: {
@@ -57,8 +58,8 @@ const serviceSpecs: Record<ServiceLabel, { port: number; command: string; cwd: s
 }
 
 const services: Record<ServiceLabel, ServiceRuntime> = {
-  server: { process: null, phase: 'starting', attempts: 0, nextRetryAt: 0, startedAt: null, lastError: null },
-  mlx: { process: null, phase: 'starting', attempts: 0, nextRetryAt: 0, startedAt: null, lastError: null }
+  server: createServiceRuntime(),
+  mlx: createServiceRuntime()
 }
 
 let quitting = false
@@ -83,24 +84,6 @@ function portInUse(port: number): Promise<boolean> {
   })
 }
 
-function processAlive(p: ChildProcess | null): p is ChildProcess {
-  return Boolean(p && p.exitCode === null && p.signalCode === null)
-}
-
-function retryDelay(attempt: number): number {
-  return Math.min(30_000, 1000 * 2 ** Math.min(Math.max(attempt - 1, 0), 5))
-}
-
-function scheduleRestart(label: ServiceLabel, reason: string): void {
-  const service = services[label]
-  service.process = null
-  service.startedAt = null
-  service.attempts += 1
-  service.nextRetryAt = Date.now() + retryDelay(service.attempts)
-  service.lastError = reason
-  service.phase = service.attempts >= 3 ? 'failed' : 'restarting'
-}
-
 function spawnLogged(label: ServiceLabel): void {
   const spec = serviceSpecs[label]
   const service = services[label]
@@ -114,14 +97,11 @@ function spawnLogged(label: ServiceLabel): void {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     log.end(`\n[janus] ${label} spawn failed: ${message}\n`)
-    scheduleRestart(label, `spawn failed: ${message}`)
+    scheduleRestart(service, `spawn failed: ${message}`)
     return
   }
 
-  service.process = p
-  service.startedAt = Date.now()
-  service.phase = service.attempts ? 'restarting' : 'starting'
-  service.nextRetryAt = 0
+  markOwned(service, p)
   p.stdout?.pipe(log)
   p.stderr?.pipe(log)
   let handled = false
@@ -129,17 +109,31 @@ function spawnLogged(label: ServiceLabel): void {
     if (handled) return
     handled = true
     log.end(`\n[janus] ${label} stopped: ${reason}\n`)
-    if (!quitting) scheduleRestart(label, reason)
+    if (!quitting) scheduleRestart(service, reason)
   }
   p.once('error', (error) => stopped(`spawn error: ${error.message}`))
   p.once('exit', (code, signal) => stopped(`exit=${code ?? '—'} signal=${signal ?? '—'}`))
 }
 
+async function endpointHealthy(label: ServiceLabel): Promise<boolean> {
+  const url = label === 'server' ? 'http://127.0.0.1:8765/health' : 'http://127.0.0.1:8080/v1/models'
+  const headers = label === 'server' ? { 'x-janus-token': authToken } : undefined
+  try {
+    const response = await fetch(url, { headers, signal: AbortSignal.timeout(800) })
+    if (!response.ok) return false
+    const body = (await response.json()) as Record<string, unknown>
+    return label === 'server' ? body.ok === true : Array.isArray(body.data)
+  } catch {
+    return false
+  }
+}
+
 async function ensureService(label: ServiceLabel): Promise<void> {
   const service = services[label]
   const portUp = await portInUse(serviceSpecs[label].port)
+  const endpoint = classifyEndpoint(portUp, portUp && (await endpointHealthy(label)))
 
-  if (portUp) {
+  if (endpoint === 'healthy') {
     if (processAlive(service.process)) {
       service.phase = 'up'
       // 30초 이상 안정적으로 살아야 이전 크래시 카운트를 지운다.
@@ -148,10 +142,22 @@ async function ensureService(label: ServiceLabel): Promise<void> {
         service.lastError = null
       }
     } else {
-      // 수동으로 띄운 서버는 종료/재시작 대상이 아니다.
-      service.phase = 'external'
-      service.nextRetryAt = 0
+      // endpoint까지 확인된 수동 서버만 external이다.
+      markExternal(service)
     }
+    return
+  }
+
+  if (endpoint === 'foreign') {
+    if (processAlive(service.process)) {
+      // 우리가 막 시작한 서비스는 port bind 뒤 endpoint 준비까지 시간이 필요하다.
+      service.phase = 'starting'
+      return
+    }
+    markBlocked(
+      service,
+      `port ${serviceSpecs[label].port} is occupied by an unexpected or stale service`
+    )
     return
   }
 
@@ -179,6 +185,9 @@ function backendStatus() {
   const now = Date.now()
   const publicState = (service: ServiceRuntime) => ({
     phase: service.phase,
+    ownership: service.ownership,
+    pid: service.pid,
+    lastPid: service.lastPid,
     attempts: service.attempts,
     retryInMs: Math.max(0, service.nextRetryAt - now),
     lastError: service.lastError
@@ -186,22 +195,14 @@ function backendStatus() {
   return { server: publicState(services.server), mlx: publicState(services.mlx) }
 }
 
-function killBackend(): void {
+async function killBackend(): Promise<void> {
   quitting = true
   if (supervisorTimer) clearInterval(supervisorTimer)
   supervisorTimer = null
-  for (const service of Object.values(services)) {
-    const p = service.process
-    service.phase = 'stopped'
-    if (!processAlive(p) || p.pid == null) continue
-    try {
-      process.kill(-p.pid, 'SIGTERM') // 프로세스 그룹 전체
-    } catch {
-      try {
-        p.kill('SIGTERM')
-      } catch {
-        /* 이미 죽었으면 무시 */
-      }
+  const results = await Promise.all(Object.values(services).map((service) => stopOwnedService(service)))
+  for (const result of results) {
+    if (result.orphan) {
+      console.error(`[janus] orphan process survived shutdown: pid=${result.pid ?? 'unknown'}`)
     }
   }
 }
@@ -247,13 +248,23 @@ app.whenReady().then(() => {
   })
 })
 
-app.on('before-quit', killBackend)
+let shutdownComplete = false
+let shutdownPromise: Promise<void> | null = null
+
+app.on('before-quit', (event) => {
+  if (shutdownComplete) return
+  event.preventDefault()
+  if (shutdownPromise === null) {
+    shutdownPromise = killBackend().finally(() => {
+      shutdownComplete = true
+      app.quit()
+    })
+  }
+})
 process.on('SIGTERM', () => {
-  killBackend()
   app.quit()
 })
 process.on('SIGINT', () => {
-  killBackend()
   app.quit()
 })
 

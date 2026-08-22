@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import threading
+import uuid
 from typing import Callable
 
 from openai import OpenAI
@@ -164,7 +165,27 @@ def run(
                   "stream_options": {"include_usage": True}}
         if schemas:
             kwargs["tools"] = schemas
-        text, calls, usage = _assemble(client.chat.completions.create(**kwargs), emit, cancel)
+        generation_id = uuid.uuid4().hex[:16]
+        emit("resource_queue_enter", resource="model_generation",
+             operation_id=generation_id, step=step + 1)
+        # P2 scheduler 전에는 즉시 lease다. 같은 이벤트 계약을 먼저 남겨 baseline도
+        # 이후 scheduler 결과와 직접 비교할 수 있게 한다.
+        emit("resource_lease_acquired", resource="model_generation",
+             operation_id=generation_id, step=step + 1)
+        emit("model_generation_start", operation_id=generation_id, step=step + 1)
+        try:
+            text, calls, usage = _assemble(
+                client.chat.completions.create(**kwargs), emit, cancel
+            )
+        except Exception:
+            emit("model_generation_end", operation_id=generation_id,
+                 step=step + 1, status="error")
+            raise
+        else:
+            emit("model_generation_end", operation_id=generation_id,
+                 step=step + 1,
+                 status="cancelled" if cancel is not None and cancel.is_set()
+                 else "success")
         if usage:
             tok_prompt += usage["prompt_tokens"]
             tok_completion += usage["completion_tokens"]
@@ -190,10 +211,26 @@ def run(
                 args = json.loads(call["function"]["arguments"] or "{}")
             except json.JSONDecodeError as e:
                 return name, {"error": f"인자 JSON 파싱 실패: {e}"}
+            operation_id = uuid.uuid4().hex[:16]
+            emit("resource_queue_enter", resource="tool", operation_id=operation_id,
+                 tool=name, call_id=call["id"])
+            emit("resource_lease_acquired", resource="tool", operation_id=operation_id,
+                 tool=name, call_id=call["id"])
+            emit("tool_run_start", operation_id=operation_id, name=name,
+                 call_id=call["id"])
             emit("tool_start", name=name, args=args, call_id=call["id"])
             # 승인 강제는 모든 호출 경로가 공유하는 dispatch의 책임이다.
             # 여기서 미리 검사하면 다른 호출 경로가 또 뚫린다.
-            return name, T.dispatch(name, args, approve=approve, registry=reg)
+            try:
+                value = T.dispatch(name, args, approve=approve, registry=reg)
+            except Exception:
+                emit("tool_run_end", operation_id=operation_id, name=name,
+                     call_id=call["id"], status="error")
+                raise
+            emit("tool_run_end", operation_id=operation_id, name=name,
+                 call_id=call["id"],
+                 status="error" if "error" in value else "success")
+            return name, value
 
         if len(calls) > 1:
             # ponytail: 턴의 모든 도구 호출을 병렬화 — agent가 워커를 모르게 유지.

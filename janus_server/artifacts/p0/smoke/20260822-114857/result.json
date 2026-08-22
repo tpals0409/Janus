@@ -1,0 +1,4319 @@
+{
+  "schema_version": 1,
+  "started_at": "2026-08-22T02:48:57.634471+00:00",
+  "status": "passed",
+  "environment": {
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.12 (main, Mar 20 2026, 00:20:47) [Clang 22.1.1 ]",
+    "model": "qwen3.8-27b",
+    "model_path": "/Users/kimsemin/.cache/huggingface/hub/models--orcarouter--Qwen3.8-27B-Uncensored-MLX/snapshots/b4603df5fd2a51e7fed2560ee7090caa4e13e4b7/4-bit"
+  },
+  "model_server": {
+    "ownership": "owned",
+    "pid": 55081,
+    "exit_code": -15
+  },
+  "scenarios": {
+    "multi_turn": {
+      "status": "passed",
+      "duration_ms": 5107.195,
+      "reply": "JANUS-MULTITURN-7F3A",
+      "spans": [
+        {
+          "id": "52440e4a978a",
+          "node_id": "orchestrator",
+          "status": "success",
+          "started_ms": 0.184,
+          "input": {
+            "task": "Remember this marker for the next turn: JANUS-MULTITURN-7F3A. Reply SAVED only."
+          },
+          "parent_id": null,
+          "label": "P0 27B smoke",
+          "task_id": "task_2b745272e7bb4116",
+          "session_id": "session_557fe8c18f3048ca",
+          "dispatch_id": "dispatch_b756139298e0471c",
+          "worker_id": null,
+          "duration_ms": 5080.718,
+          "output": {
+            "reply": "JANUS-MULTITURN-7F3A"
+          },
+          "events": [
+            {
+              "type": "agent_event",
+              "kind": "user",
+              "node_id": "orchestrator",
+              "at_ms": 0.198,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_b756139298e0471c",
+              "worker_id": null,
+              "content": "Remember this marker for the next turn: JANUS-MULTITURN-7F3A. Reply SAVED only."
+            },
+            {
+              "type": "agent_event",
+              "kind": "step",
+              "node_id": "orchestrator",
+              "at_ms": 0.205,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_b756139298e0471c",
+              "worker_id": null,
+              "n": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "llm_call",
+              "node_id": "orchestrator",
+              "at_ms": 0.213,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_b756139298e0471c",
+              "worker_id": null,
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "This is a deterministic smoke test. Do not call tools unless explicitly asked. Follow the requested output format exactly and keep replies under 20 tokens.\n\nWork by calling tools. When the task is done, reply with plain text and no tool call — that is how you finish.\n\nTools:\n- create_worker: Spawn a worker per separable subtask. Request several in one reply to run them in parallel. tools must be a subset of your own tools.\n\nBe brief. Do not narrate what you are about to do; just do it."
+                },
+                {
+                  "role": "user",
+                  "content": "Remember this marker for the next turn: JANUS-MULTITURN-7F3A. Reply SAVED only."
+                }
+              ],
+              "total_messages": 2
+            },
+            {
+              "type": "agent_event",
+              "kind": "resource_queue_enter",
+              "node_id": "orchestrator",
+              "at_ms": 0.221,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_b756139298e0471c",
+              "worker_id": null,
+              "resource": "model_generation",
+              "operation_id": "297aebd709154170",
+              "step": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "resource_lease_acquired",
+              "node_id": "orchestrator",
+              "at_ms": 0.225,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_b756139298e0471c",
+              "worker_id": null,
+              "resource": "model_generation",
+              "operation_id": "297aebd709154170",
+              "step": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "model_generation_start",
+              "node_id": "orchestrator",
+              "at_ms": 0.232,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_b756139298e0471c",
+              "worker_id": null,
+              "operation_id": "297aebd709154170",
+              "step": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 2950.36,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_b756139298e0471c",
+              "worker_id": null,
+              "text": "SA"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 3005.241,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_b756139298e0471c",
+              "worker_id": null,
+              "text": "VED"
+            },
+            {
+              "type": "agent_event",
+              "kind": "model_generation_end",
+              "node_id": "orchestrator",
+              "at_ms": 3072.266,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_b756139298e0471c",
+              "worker_id": null,
+              "operation_id": "297aebd709154170",
+              "step": 1,
+              "status": "success"
+            },
+            {
+              "type": "agent_event",
+              "kind": "usage",
+              "node_id": "orchestrator",
+              "at_ms": 3072.282,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_b756139298e0471c",
+              "worker_id": null,
+              "step": 1,
+              "prompt_tokens": 530,
+              "completion_tokens": 3,
+              "total_tokens": 533
+            },
+            {
+              "type": "agent_event",
+              "kind": "assistant",
+              "node_id": "orchestrator",
+              "at_ms": 3072.287,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_b756139298e0471c",
+              "worker_id": null,
+              "content": "SAVED"
+            },
+            {
+              "type": "agent_event",
+              "kind": "done",
+              "node_id": "orchestrator",
+              "at_ms": 3072.289,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_b756139298e0471c",
+              "worker_id": null,
+              "reason": "no_tool_calls"
+            },
+            {
+              "type": "agent_event",
+              "kind": "user",
+              "node_id": "orchestrator",
+              "at_ms": 3072.715,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_eb92bea647854133",
+              "worker_id": null,
+              "content": "Reply with the exact marker I asked you to remember, and nothing else."
+            },
+            {
+              "type": "agent_event",
+              "kind": "step",
+              "node_id": "orchestrator",
+              "at_ms": 3072.72,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_eb92bea647854133",
+              "worker_id": null,
+              "n": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "llm_call",
+              "node_id": "orchestrator",
+              "at_ms": 3072.726,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_eb92bea647854133",
+              "worker_id": null,
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "This is a deterministic smoke test. Do not call tools unless explicitly asked. Follow the requested output format exactly and keep replies under 20 tokens.\n\nWork by calling tools. When the task is done, reply with plain text and no tool call — that is how you finish.\n\nTools:\n- create_worker: Spawn a worker per separable subtask. Request several in one reply to run them in parallel. tools must be a subset of your own tools.\n\nBe brief. Do not narrate what you are about to do; just do it."
+                },
+                {
+                  "role": "user",
+                  "content": "Remember this marker for the next turn: JANUS-MULTITURN-7F3A. Reply SAVED only."
+                },
+                {
+                  "role": "assistant",
+                  "content": "SAVED"
+                },
+                {
+                  "role": "user",
+                  "content": "Reply with the exact marker I asked you to remember, and nothing else."
+                }
+              ],
+              "total_messages": 4
+            },
+            {
+              "type": "agent_event",
+              "kind": "resource_queue_enter",
+              "node_id": "orchestrator",
+              "at_ms": 3072.733,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_eb92bea647854133",
+              "worker_id": null,
+              "resource": "model_generation",
+              "operation_id": "ff60d52cf67749fd",
+              "step": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "resource_lease_acquired",
+              "node_id": "orchestrator",
+              "at_ms": 3072.735,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_eb92bea647854133",
+              "worker_id": null,
+              "resource": "model_generation",
+              "operation_id": "ff60d52cf67749fd",
+              "step": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "model_generation_start",
+              "node_id": "orchestrator",
+              "at_ms": 3072.74,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_eb92bea647854133",
+              "worker_id": null,
+              "operation_id": "ff60d52cf67749fd",
+              "step": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 4378.432,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_eb92bea647854133",
+              "worker_id": null,
+              "text": "J"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 4435.915,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_eb92bea647854133",
+              "worker_id": null,
+              "text": "AN"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 4493.971,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_eb92bea647854133",
+              "worker_id": null,
+              "text": "US"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 4551.782,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_eb92bea647854133",
+              "worker_id": null,
+              "text": "-M"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 4610.193,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_eb92bea647854133",
+              "worker_id": null,
+              "text": "ULT"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 4667.827,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_eb92bea647854133",
+              "worker_id": null,
+              "text": "IT"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 4725.869,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_eb92bea647854133",
+              "worker_id": null,
+              "text": "URN"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 4783.501,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_eb92bea647854133",
+              "worker_id": null,
+              "text": "-"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 4841.055,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_eb92bea647854133",
+              "worker_id": null,
+              "text": "7"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 4899.405,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_eb92bea647854133",
+              "worker_id": null,
+              "text": "F"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 4957.036,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_eb92bea647854133",
+              "worker_id": null,
+              "text": "3"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 5015.021,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_eb92bea647854133",
+              "worker_id": null,
+              "text": "A"
+            },
+            {
+              "type": "agent_event",
+              "kind": "model_generation_end",
+              "node_id": "orchestrator",
+              "at_ms": 5080.768,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_eb92bea647854133",
+              "worker_id": null,
+              "operation_id": "ff60d52cf67749fd",
+              "step": 1,
+              "status": "success"
+            },
+            {
+              "type": "agent_event",
+              "kind": "usage",
+              "node_id": "orchestrator",
+              "at_ms": 5080.781,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_eb92bea647854133",
+              "worker_id": null,
+              "step": 1,
+              "prompt_tokens": 561,
+              "completion_tokens": 13,
+              "total_tokens": 574
+            },
+            {
+              "type": "agent_event",
+              "kind": "assistant",
+              "node_id": "orchestrator",
+              "at_ms": 5080.785,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_eb92bea647854133",
+              "worker_id": null,
+              "content": "JANUS-MULTITURN-7F3A"
+            },
+            {
+              "type": "agent_event",
+              "kind": "done",
+              "node_id": "orchestrator",
+              "at_ms": 5080.788,
+              "task_id": "task_2b745272e7bb4116",
+              "session_id": "session_557fe8c18f3048ca",
+              "dispatch_id": "dispatch_eb92bea647854133",
+              "worker_id": null,
+              "reason": "no_tool_calls"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 1091,
+            "completion_tokens": 16
+          }
+        }
+      ],
+      "telemetry": {
+        "schema_version": 1,
+        "clock": "monotonic_ns",
+        "started_at": "2026-08-22T02:49:01.738463+00:00",
+        "task_id": "task_2b745272e7bb4116",
+        "session_id": "session_557fe8c18f3048ca",
+        "elapsed_ms": 5080.906,
+        "top_level_accounted_ms": 5080.906,
+        "top_level_unaccounted_ms": 0.0,
+        "totals_ms": {
+          "user_wait": 0.637,
+          "resource_queue": 0.006,
+          "model_generation": 5080.062,
+          "active_turn": 5080.269,
+          "verification": 0.006
+        },
+        "tokens": {
+          "prompt": 1091,
+          "completion": 16,
+          "total": 1107
+        },
+        "worker_count": 0,
+        "memory_snapshots": [
+          {
+            "at_ms": 0.0,
+            "reason": "session_start",
+            "process_peak_rss_bytes": 72433664
+          },
+          {
+            "at_ms": 3072.294,
+            "reason": "turn_end",
+            "process_peak_rss_bytes": 87949312
+          },
+          {
+            "at_ms": 5080.793,
+            "reason": "turn_end",
+            "process_peak_rss_bytes": 87949312
+          }
+        ],
+        "intervals": [
+          {
+            "category": "user_wait",
+            "operation_id": null,
+            "started_ms": 0.0,
+            "duration_ms": 0.149,
+            "status": "success",
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": null,
+            "worker_id": null
+          },
+          {
+            "category": "resource_queue",
+            "operation_id": "297aebd709154170",
+            "started_ms": 0.221,
+            "duration_ms": 0.004,
+            "status": "success",
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_b756139298e0471c",
+            "worker_id": null,
+            "node_id": "orchestrator",
+            "resource": "model_generation",
+            "step": 1
+          },
+          {
+            "category": "model_generation",
+            "operation_id": "297aebd709154170",
+            "started_ms": 0.232,
+            "duration_ms": 3072.034,
+            "status": "success",
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_b756139298e0471c",
+            "worker_id": null,
+            "node_id": "orchestrator",
+            "step": 1
+          },
+          {
+            "category": "active_turn",
+            "operation_id": null,
+            "started_ms": 0.149,
+            "duration_ms": 3072.145,
+            "status": "success",
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_b756139298e0471c",
+            "worker_id": null
+          },
+          {
+            "category": "user_wait",
+            "operation_id": null,
+            "started_ms": 3072.294,
+            "duration_ms": 0.375,
+            "status": "success",
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": null,
+            "worker_id": null
+          },
+          {
+            "category": "resource_queue",
+            "operation_id": "ff60d52cf67749fd",
+            "started_ms": 3072.733,
+            "duration_ms": 0.002,
+            "status": "success",
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "node_id": "orchestrator",
+            "resource": "model_generation",
+            "step": 1
+          },
+          {
+            "category": "model_generation",
+            "operation_id": "ff60d52cf67749fd",
+            "started_ms": 3072.74,
+            "duration_ms": 2008.028,
+            "status": "success",
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "node_id": "orchestrator",
+            "step": 1
+          },
+          {
+            "category": "active_turn",
+            "operation_id": null,
+            "started_ms": 3072.669,
+            "duration_ms": 2008.124,
+            "status": "success",
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null
+          },
+          {
+            "category": "verification",
+            "operation_id": "aed8529440204cd5",
+            "started_ms": 5080.883,
+            "duration_ms": 0.006,
+            "status": "success",
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "node_id": "verifier",
+            "label": "multi_turn_marker"
+          },
+          {
+            "category": "user_wait",
+            "operation_id": null,
+            "started_ms": 5080.793,
+            "duration_ms": 0.113,
+            "status": "running",
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": null,
+            "worker_id": null
+          }
+        ],
+        "events": [
+          {
+            "kind": "user",
+            "node_id": "orchestrator",
+            "at_ms": 0.198,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_b756139298e0471c",
+            "worker_id": null,
+            "content": "Remember this marker for the next turn: JANUS-MULTITURN-7F3A. Reply SAVED only."
+          },
+          {
+            "kind": "step",
+            "node_id": "orchestrator",
+            "at_ms": 0.205,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_b756139298e0471c",
+            "worker_id": null,
+            "n": 1
+          },
+          {
+            "kind": "llm_call",
+            "node_id": "orchestrator",
+            "at_ms": 0.213,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_b756139298e0471c",
+            "worker_id": null,
+            "messages": [
+              {
+                "role": "system",
+                "content": "This is a deterministic smoke test. Do not call tools unless explicitly asked. Follow the requested output format exactly and keep replies under 20 tokens.\n\nWork by calling tools. When the task is done, reply with plain text and no tool call — that is how you finish.\n\nTools:\n- create_worker: Spawn a worker per separable subtask. Request several in one reply to run them in parallel. tools must be a subset of your own tools.\n\nBe brief. Do not narrate what you are about to do; just do it."
+              },
+              {
+                "role": "user",
+                "content": "Remember this marker for the next turn: JANUS-MULTITURN-7F3A. Reply SAVED only."
+              }
+            ],
+            "total_messages": 2
+          },
+          {
+            "kind": "resource_queue_enter",
+            "node_id": "orchestrator",
+            "at_ms": 0.221,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_b756139298e0471c",
+            "worker_id": null,
+            "resource": "model_generation",
+            "operation_id": "297aebd709154170",
+            "step": 1
+          },
+          {
+            "kind": "resource_lease_acquired",
+            "node_id": "orchestrator",
+            "at_ms": 0.225,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_b756139298e0471c",
+            "worker_id": null,
+            "resource": "model_generation",
+            "operation_id": "297aebd709154170",
+            "step": 1
+          },
+          {
+            "kind": "model_generation_start",
+            "node_id": "orchestrator",
+            "at_ms": 0.232,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_b756139298e0471c",
+            "worker_id": null,
+            "operation_id": "297aebd709154170",
+            "step": 1
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 2950.36,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_b756139298e0471c",
+            "worker_id": null,
+            "text": "SA"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 3005.241,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_b756139298e0471c",
+            "worker_id": null,
+            "text": "VED"
+          },
+          {
+            "kind": "model_generation_end",
+            "node_id": "orchestrator",
+            "at_ms": 3072.266,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_b756139298e0471c",
+            "worker_id": null,
+            "operation_id": "297aebd709154170",
+            "step": 1,
+            "status": "success"
+          },
+          {
+            "kind": "usage",
+            "node_id": "orchestrator",
+            "at_ms": 3072.282,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_b756139298e0471c",
+            "worker_id": null,
+            "step": 1,
+            "prompt_tokens": 530,
+            "completion_tokens": 3,
+            "total_tokens": 533
+          },
+          {
+            "kind": "assistant",
+            "node_id": "orchestrator",
+            "at_ms": 3072.287,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_b756139298e0471c",
+            "worker_id": null,
+            "content": "SAVED"
+          },
+          {
+            "kind": "done",
+            "node_id": "orchestrator",
+            "at_ms": 3072.289,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_b756139298e0471c",
+            "worker_id": null,
+            "reason": "no_tool_calls"
+          },
+          {
+            "kind": "user",
+            "node_id": "orchestrator",
+            "at_ms": 3072.715,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "content": "Reply with the exact marker I asked you to remember, and nothing else."
+          },
+          {
+            "kind": "step",
+            "node_id": "orchestrator",
+            "at_ms": 3072.72,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "n": 1
+          },
+          {
+            "kind": "llm_call",
+            "node_id": "orchestrator",
+            "at_ms": 3072.726,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "messages": [
+              {
+                "role": "system",
+                "content": "This is a deterministic smoke test. Do not call tools unless explicitly asked. Follow the requested output format exactly and keep replies under 20 tokens.\n\nWork by calling tools. When the task is done, reply with plain text and no tool call — that is how you finish.\n\nTools:\n- create_worker: Spawn a worker per separable subtask. Request several in one reply to run them in parallel. tools must be a subset of your own tools.\n\nBe brief. Do not narrate what you are about to do; just do it."
+              },
+              {
+                "role": "user",
+                "content": "Remember this marker for the next turn: JANUS-MULTITURN-7F3A. Reply SAVED only."
+              },
+              {
+                "role": "assistant",
+                "content": "SAVED"
+              },
+              {
+                "role": "user",
+                "content": "Reply with the exact marker I asked you to remember, and nothing else."
+              }
+            ],
+            "total_messages": 4
+          },
+          {
+            "kind": "resource_queue_enter",
+            "node_id": "orchestrator",
+            "at_ms": 3072.733,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "resource": "model_generation",
+            "operation_id": "ff60d52cf67749fd",
+            "step": 1
+          },
+          {
+            "kind": "resource_lease_acquired",
+            "node_id": "orchestrator",
+            "at_ms": 3072.735,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "resource": "model_generation",
+            "operation_id": "ff60d52cf67749fd",
+            "step": 1
+          },
+          {
+            "kind": "model_generation_start",
+            "node_id": "orchestrator",
+            "at_ms": 3072.74,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "operation_id": "ff60d52cf67749fd",
+            "step": 1
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 4378.432,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "text": "J"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 4435.915,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "text": "AN"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 4493.971,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "text": "US"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 4551.782,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "text": "-M"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 4610.193,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "text": "ULT"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 4667.827,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "text": "IT"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 4725.869,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "text": "URN"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 4783.501,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "text": "-"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 4841.055,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "text": "7"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 4899.405,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "text": "F"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 4957.036,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "text": "3"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 5015.021,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "text": "A"
+          },
+          {
+            "kind": "model_generation_end",
+            "node_id": "orchestrator",
+            "at_ms": 5080.768,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "operation_id": "ff60d52cf67749fd",
+            "step": 1,
+            "status": "success"
+          },
+          {
+            "kind": "usage",
+            "node_id": "orchestrator",
+            "at_ms": 5080.781,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "step": 1,
+            "prompt_tokens": 561,
+            "completion_tokens": 13,
+            "total_tokens": 574
+          },
+          {
+            "kind": "assistant",
+            "node_id": "orchestrator",
+            "at_ms": 5080.785,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "content": "JANUS-MULTITURN-7F3A"
+          },
+          {
+            "kind": "done",
+            "node_id": "orchestrator",
+            "at_ms": 5080.788,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "reason": "no_tool_calls"
+          },
+          {
+            "kind": "verification_start",
+            "node_id": "verifier",
+            "at_ms": 5080.883,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "operation_id": "aed8529440204cd5",
+            "label": "multi_turn_marker"
+          },
+          {
+            "kind": "verification_end",
+            "node_id": "verifier",
+            "at_ms": 5080.89,
+            "task_id": "task_2b745272e7bb4116",
+            "session_id": "session_557fe8c18f3048ca",
+            "dispatch_id": "dispatch_eb92bea647854133",
+            "worker_id": null,
+            "operation_id": "aed8529440204cd5",
+            "status": "success",
+            "label": "multi_turn_marker"
+          }
+        ]
+      }
+    },
+    "worker_spawn": {
+      "status": "passed",
+      "duration_ms": 8798.903,
+      "reply": "JANUS_ORCH_OK",
+      "spans": [
+        {
+          "id": "ecac31d2fcfa",
+          "node_id": "orchestrator",
+          "status": "success",
+          "started_ms": 0.088,
+          "input": {
+            "task": "Call create_worker exactly once with name smoke-worker, system_prompt 'Reply with the requested marker only', task 'Reply JANUS_WORKER_OK only', tools [], max_steps 2. After the tool returns, reply JANUS_ORCH_OK only."
+          },
+          "parent_id": null,
+          "label": "P0 27B smoke",
+          "task_id": "task_caee076c07c84345",
+          "session_id": "session_ca14bd2b8780483c",
+          "dispatch_id": "dispatch_e52497562d3f4e6e",
+          "worker_id": null,
+          "duration_ms": 8797.644,
+          "output": {
+            "reply": "JANUS_ORCH_OK"
+          },
+          "events": [
+            {
+              "type": "agent_event",
+              "kind": "user",
+              "node_id": "orchestrator",
+              "at_ms": 0.098,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "content": "Call create_worker exactly once with name smoke-worker, system_prompt 'Reply with the requested marker only', task 'Reply JANUS_WORKER_OK only', tools [], max_steps 2. After the tool returns, reply JANUS_ORCH_OK only."
+            },
+            {
+              "type": "agent_event",
+              "kind": "step",
+              "node_id": "orchestrator",
+              "at_ms": 0.104,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "n": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "llm_call",
+              "node_id": "orchestrator",
+              "at_ms": 0.11,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are a tool-use smoke test. When explicitly told to call create_worker, you must call it before answering. Keep all replies short.\n\nWork by calling tools. When the task is done, reply with plain text and no tool call — that is how you finish.\n\nTools:\n- create_worker: Spawn a worker per separable subtask. Request several in one reply to run them in parallel. tools must be a subset of your own tools.\n\nBe brief. Do not narrate what you are about to do; just do it."
+                },
+                {
+                  "role": "user",
+                  "content": "Call create_worker exactly once with name smoke-worker, system_prompt 'Reply with the requested marker only', task 'Reply JANUS_WORKER_OK only', tools [], max_steps 2. After the tool returns, reply JANUS_ORCH_OK only."
+                }
+              ],
+              "total_messages": 2
+            },
+            {
+              "type": "agent_event",
+              "kind": "resource_queue_enter",
+              "node_id": "orchestrator",
+              "at_ms": 0.12,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "resource": "model_generation",
+              "operation_id": "08b41008bc554cfe",
+              "step": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "resource_lease_acquired",
+              "node_id": "orchestrator",
+              "at_ms": 0.123,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "resource": "model_generation",
+              "operation_id": "08b41008bc554cfe",
+              "step": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "model_generation_start",
+              "node_id": "orchestrator",
+              "at_ms": 0.13,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "operation_id": "08b41008bc554cfe",
+              "step": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "model_generation_end",
+              "node_id": "orchestrator",
+              "at_ms": 6294.356,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "operation_id": "08b41008bc554cfe",
+              "step": 1,
+              "status": "success"
+            },
+            {
+              "type": "agent_event",
+              "kind": "usage",
+              "node_id": "orchestrator",
+              "at_ms": 6294.369,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "step": 1,
+              "prompt_tokens": 553,
+              "completion_tokens": 87,
+              "total_tokens": 640
+            },
+            {
+              "type": "agent_event",
+              "kind": "resource_queue_enter",
+              "node_id": "orchestrator",
+              "at_ms": 6294.39,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "resource": "tool",
+              "operation_id": "9811d851cba54c67",
+              "tool": "create_worker",
+              "call_id": "57466c01-7a42-4fb6-ab2f-7cb09f5494ab"
+            },
+            {
+              "type": "agent_event",
+              "kind": "resource_lease_acquired",
+              "node_id": "orchestrator",
+              "at_ms": 6294.394,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "resource": "tool",
+              "operation_id": "9811d851cba54c67",
+              "tool": "create_worker",
+              "call_id": "57466c01-7a42-4fb6-ab2f-7cb09f5494ab"
+            },
+            {
+              "type": "agent_event",
+              "kind": "tool_run_start",
+              "node_id": "orchestrator",
+              "at_ms": 6294.4,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "operation_id": "9811d851cba54c67",
+              "name": "create_worker",
+              "call_id": "57466c01-7a42-4fb6-ab2f-7cb09f5494ab"
+            },
+            {
+              "type": "agent_event",
+              "kind": "tool_start",
+              "node_id": "orchestrator",
+              "at_ms": 6294.404,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "name": "create_worker",
+              "args": {
+                "name": "smoke-worker",
+                "system_prompt": "Reply with the requested marker only",
+                "task": "Reply JANUS_WORKER_OK only",
+                "tools": [],
+                "max_steps": 2
+              },
+              "call_id": "57466c01-7a42-4fb6-ab2f-7cb09f5494ab"
+            },
+            {
+              "type": "agent_event",
+              "kind": "tool_run_end",
+              "node_id": "orchestrator",
+              "at_ms": 6877.694,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "operation_id": "9811d851cba54c67",
+              "name": "create_worker",
+              "call_id": "57466c01-7a42-4fb6-ab2f-7cb09f5494ab",
+              "status": "success"
+            },
+            {
+              "type": "agent_event",
+              "kind": "tool_result",
+              "node_id": "orchestrator",
+              "at_ms": 6877.704,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "name": "create_worker",
+              "value": {
+                "worker": "w1-smoke-worker",
+                "result": "JANUS_WORKER_OK"
+              },
+              "call_id": "57466c01-7a42-4fb6-ab2f-7cb09f5494ab"
+            },
+            {
+              "type": "agent_event",
+              "kind": "step",
+              "node_id": "orchestrator",
+              "at_ms": 6877.707,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "n": 2
+            },
+            {
+              "type": "agent_event",
+              "kind": "llm_call",
+              "node_id": "orchestrator",
+              "at_ms": 6877.717,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "messages": [
+                {
+                  "role": "assistant",
+                  "content": "",
+                  "tool_calls": [
+                    {
+                      "id": "57466c01-7a42-4fb6-ab2f-7cb09f5494ab",
+                      "type": "function",
+                      "function": {
+                        "name": "create_worker",
+                        "arguments": "{\"name\": \"smoke-worker\", \"system_prompt\": \"Reply with the requested marker only\", \"task\": \"Reply JANUS_WORKER_OK only\", \"tools\": [], \"max_steps\": 2}"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "role": "tool",
+                  "tool_call_id": "57466c01-7a42-4fb6-ab2f-7cb09f5494ab",
+                  "content": "JANUS_WORKER_OK"
+                }
+              ],
+              "total_messages": 4
+            },
+            {
+              "type": "agent_event",
+              "kind": "resource_queue_enter",
+              "node_id": "orchestrator",
+              "at_ms": 6877.738,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "resource": "model_generation",
+              "operation_id": "4c405aae5a6c4b17",
+              "step": 2
+            },
+            {
+              "type": "agent_event",
+              "kind": "resource_lease_acquired",
+              "node_id": "orchestrator",
+              "at_ms": 6877.741,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "resource": "model_generation",
+              "operation_id": "4c405aae5a6c4b17",
+              "step": 2
+            },
+            {
+              "type": "agent_event",
+              "kind": "model_generation_start",
+              "node_id": "orchestrator",
+              "at_ms": 6877.745,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "operation_id": "4c405aae5a6c4b17",
+              "step": 2
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 8440.754,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "text": "J"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 8498.578,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "text": "AN"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 8556.369,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "text": "US"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 8615.065,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "text": "_OR"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 8672.941,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "text": "CH"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 8731.294,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "text": "_OK"
+            },
+            {
+              "type": "agent_event",
+              "kind": "model_generation_end",
+              "node_id": "orchestrator",
+              "at_ms": 8797.568,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "operation_id": "4c405aae5a6c4b17",
+              "step": 2,
+              "status": "success"
+            },
+            {
+              "type": "agent_event",
+              "kind": "usage",
+              "node_id": "orchestrator",
+              "at_ms": 8797.581,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "step": 2,
+              "prompt_tokens": 663,
+              "completion_tokens": 7,
+              "total_tokens": 670
+            },
+            {
+              "type": "agent_event",
+              "kind": "assistant",
+              "node_id": "orchestrator",
+              "at_ms": 8797.585,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "content": "JANUS_ORCH_OK"
+            },
+            {
+              "type": "agent_event",
+              "kind": "done",
+              "node_id": "orchestrator",
+              "at_ms": 8797.587,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": null,
+              "reason": "no_tool_calls"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 1216,
+            "completion_tokens": 94
+          }
+        },
+        {
+          "id": "980e92f1cd0b",
+          "node_id": "w1-smoke-worker",
+          "status": "success",
+          "started_ms": 6294.455,
+          "input": {
+            "task": "Reply JANUS_WORKER_OK only",
+            "tools": []
+          },
+          "parent_id": "ecac31d2fcfa",
+          "label": "smoke-worker",
+          "task_id": "task_caee076c07c84345",
+          "session_id": "session_ca14bd2b8780483c",
+          "dispatch_id": "dispatch_e52497562d3f4e6e",
+          "worker_id": "w1-smoke-worker",
+          "duration_ms": 583.233,
+          "output": {
+            "result": "JANUS_WORKER_OK"
+          },
+          "events": [
+            {
+              "type": "agent_event",
+              "kind": "user",
+              "node_id": "w1-smoke-worker",
+              "at_ms": 6294.461,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": "w1-smoke-worker",
+              "content": "Reply JANUS_WORKER_OK only"
+            },
+            {
+              "type": "agent_event",
+              "kind": "step",
+              "node_id": "w1-smoke-worker",
+              "at_ms": 6294.465,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": "w1-smoke-worker",
+              "n": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "llm_call",
+              "node_id": "w1-smoke-worker",
+              "at_ms": 6294.468,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": "w1-smoke-worker",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "Reply with the requested marker only\n\nYou have no tools. Answer directly."
+                },
+                {
+                  "role": "user",
+                  "content": "Reply JANUS_WORKER_OK only"
+                }
+              ],
+              "total_messages": 2
+            },
+            {
+              "type": "agent_event",
+              "kind": "resource_queue_enter",
+              "node_id": "w1-smoke-worker",
+              "at_ms": 6294.473,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": "w1-smoke-worker",
+              "resource": "model_generation",
+              "operation_id": "43cbf7027e2a48db",
+              "step": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "resource_lease_acquired",
+              "node_id": "w1-smoke-worker",
+              "at_ms": 6294.475,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": "w1-smoke-worker",
+              "resource": "model_generation",
+              "operation_id": "43cbf7027e2a48db",
+              "step": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "model_generation_start",
+              "node_id": "w1-smoke-worker",
+              "at_ms": 6294.479,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": "w1-smoke-worker",
+              "operation_id": "43cbf7027e2a48db",
+              "step": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "w1-smoke-worker",
+              "at_ms": 6523.376,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": "w1-smoke-worker",
+              "text": "J"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "w1-smoke-worker",
+              "at_ms": 6579.959,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": "w1-smoke-worker",
+              "text": "AN"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "w1-smoke-worker",
+              "at_ms": 6637.551,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": "w1-smoke-worker",
+              "text": "US"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "w1-smoke-worker",
+              "at_ms": 6696.059,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": "w1-smoke-worker",
+              "text": "_WORK"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "w1-smoke-worker",
+              "at_ms": 6753.771,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": "w1-smoke-worker",
+              "text": "ER"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "w1-smoke-worker",
+              "at_ms": 6811.797,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": "w1-smoke-worker",
+              "text": "_OK"
+            },
+            {
+              "type": "agent_event",
+              "kind": "model_generation_end",
+              "node_id": "w1-smoke-worker",
+              "at_ms": 6877.665,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": "w1-smoke-worker",
+              "operation_id": "43cbf7027e2a48db",
+              "step": 1,
+              "status": "success"
+            },
+            {
+              "type": "agent_event",
+              "kind": "usage",
+              "node_id": "w1-smoke-worker",
+              "at_ms": 6877.678,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": "w1-smoke-worker",
+              "step": 1,
+              "prompt_tokens": 39,
+              "completion_tokens": 7,
+              "total_tokens": 46
+            },
+            {
+              "type": "agent_event",
+              "kind": "assistant",
+              "node_id": "w1-smoke-worker",
+              "at_ms": 6877.682,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": "w1-smoke-worker",
+              "content": "JANUS_WORKER_OK"
+            },
+            {
+              "type": "agent_event",
+              "kind": "done",
+              "node_id": "w1-smoke-worker",
+              "at_ms": 6877.684,
+              "task_id": "task_caee076c07c84345",
+              "session_id": "session_ca14bd2b8780483c",
+              "dispatch_id": "dispatch_e52497562d3f4e6e",
+              "worker_id": "w1-smoke-worker",
+              "reason": "no_tool_calls"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 39,
+            "completion_tokens": 7
+          }
+        }
+      ],
+      "telemetry": {
+        "schema_version": 1,
+        "clock": "monotonic_ns",
+        "started_at": "2026-08-22T02:49:06.820561+00:00",
+        "task_id": "task_caee076c07c84345",
+        "session_id": "session_ca14bd2b8780483c",
+        "elapsed_ms": 8797.734,
+        "top_level_accounted_ms": 8797.734,
+        "top_level_unaccounted_ms": 0.0,
+        "totals_ms": {
+          "user_wait": 0.21,
+          "resource_queue": 0.012,
+          "model_generation": 8797.234,
+          "tool_run": 583.294,
+          "active_turn": 8797.524,
+          "verification": 0.077
+        },
+        "tokens": {
+          "prompt": 1255,
+          "completion": 101,
+          "total": 1356
+        },
+        "worker_count": 1,
+        "memory_snapshots": [
+          {
+            "at_ms": 0.0,
+            "reason": "session_start",
+            "process_peak_rss_bytes": 87949312
+          },
+          {
+            "at_ms": 8797.591,
+            "reason": "turn_end",
+            "process_peak_rss_bytes": 87949312
+          }
+        ],
+        "intervals": [
+          {
+            "category": "user_wait",
+            "operation_id": null,
+            "started_ms": 0.0,
+            "duration_ms": 0.067,
+            "status": "success",
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": null,
+            "worker_id": null
+          },
+          {
+            "category": "resource_queue",
+            "operation_id": "08b41008bc554cfe",
+            "started_ms": 0.12,
+            "duration_ms": 0.003,
+            "status": "success",
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "node_id": "orchestrator",
+            "resource": "model_generation",
+            "step": 1
+          },
+          {
+            "category": "model_generation",
+            "operation_id": "08b41008bc554cfe",
+            "started_ms": 0.13,
+            "duration_ms": 6294.226,
+            "status": "success",
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "node_id": "orchestrator",
+            "step": 1
+          },
+          {
+            "category": "resource_queue",
+            "operation_id": "9811d851cba54c67",
+            "started_ms": 6294.39,
+            "duration_ms": 0.004,
+            "status": "success",
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "node_id": "orchestrator",
+            "resource": "tool",
+            "tool": "create_worker",
+            "call_id": "57466c01-7a42-4fb6-ab2f-7cb09f5494ab"
+          },
+          {
+            "category": "resource_queue",
+            "operation_id": "43cbf7027e2a48db",
+            "started_ms": 6294.473,
+            "duration_ms": 0.002,
+            "status": "success",
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": "w1-smoke-worker",
+            "node_id": "w1-smoke-worker",
+            "resource": "model_generation",
+            "step": 1
+          },
+          {
+            "category": "model_generation",
+            "operation_id": "43cbf7027e2a48db",
+            "started_ms": 6294.479,
+            "duration_ms": 583.186,
+            "status": "success",
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": "w1-smoke-worker",
+            "node_id": "w1-smoke-worker",
+            "step": 1
+          },
+          {
+            "category": "tool_run",
+            "operation_id": "9811d851cba54c67",
+            "started_ms": 6294.4,
+            "duration_ms": 583.294,
+            "status": "success",
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "node_id": "orchestrator",
+            "name": "create_worker",
+            "call_id": "57466c01-7a42-4fb6-ab2f-7cb09f5494ab"
+          },
+          {
+            "category": "resource_queue",
+            "operation_id": "4c405aae5a6c4b17",
+            "started_ms": 6877.738,
+            "duration_ms": 0.003,
+            "status": "success",
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "node_id": "orchestrator",
+            "resource": "model_generation",
+            "step": 2
+          },
+          {
+            "category": "model_generation",
+            "operation_id": "4c405aae5a6c4b17",
+            "started_ms": 6877.745,
+            "duration_ms": 1919.822,
+            "status": "success",
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "node_id": "orchestrator",
+            "step": 2
+          },
+          {
+            "category": "active_turn",
+            "operation_id": null,
+            "started_ms": 0.067,
+            "duration_ms": 8797.524,
+            "status": "success",
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null
+          },
+          {
+            "category": "verification",
+            "operation_id": "6e328af459a048c2",
+            "started_ms": 8797.648,
+            "duration_ms": 0.077,
+            "status": "success",
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "node_id": "verifier",
+            "label": "worker_spawn"
+          },
+          {
+            "category": "user_wait",
+            "operation_id": null,
+            "started_ms": 8797.591,
+            "duration_ms": 0.143,
+            "status": "running",
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": null,
+            "worker_id": null
+          }
+        ],
+        "events": [
+          {
+            "kind": "user",
+            "node_id": "orchestrator",
+            "at_ms": 0.098,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "content": "Call create_worker exactly once with name smoke-worker, system_prompt 'Reply with the requested marker only', task 'Reply JANUS_WORKER_OK only', tools [], max_steps 2. After the tool returns, reply JANUS_ORCH_OK only."
+          },
+          {
+            "kind": "step",
+            "node_id": "orchestrator",
+            "at_ms": 0.104,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "n": 1
+          },
+          {
+            "kind": "llm_call",
+            "node_id": "orchestrator",
+            "at_ms": 0.11,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a tool-use smoke test. When explicitly told to call create_worker, you must call it before answering. Keep all replies short.\n\nWork by calling tools. When the task is done, reply with plain text and no tool call — that is how you finish.\n\nTools:\n- create_worker: Spawn a worker per separable subtask. Request several in one reply to run them in parallel. tools must be a subset of your own tools.\n\nBe brief. Do not narrate what you are about to do; just do it."
+              },
+              {
+                "role": "user",
+                "content": "Call create_worker exactly once with name smoke-worker, system_prompt 'Reply with the requested marker only', task 'Reply JANUS_WORKER_OK only', tools [], max_steps 2. After the tool returns, reply JANUS_ORCH_OK only."
+              }
+            ],
+            "total_messages": 2
+          },
+          {
+            "kind": "resource_queue_enter",
+            "node_id": "orchestrator",
+            "at_ms": 0.12,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "resource": "model_generation",
+            "operation_id": "08b41008bc554cfe",
+            "step": 1
+          },
+          {
+            "kind": "resource_lease_acquired",
+            "node_id": "orchestrator",
+            "at_ms": 0.123,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "resource": "model_generation",
+            "operation_id": "08b41008bc554cfe",
+            "step": 1
+          },
+          {
+            "kind": "model_generation_start",
+            "node_id": "orchestrator",
+            "at_ms": 0.13,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "operation_id": "08b41008bc554cfe",
+            "step": 1
+          },
+          {
+            "kind": "model_generation_end",
+            "node_id": "orchestrator",
+            "at_ms": 6294.356,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "operation_id": "08b41008bc554cfe",
+            "step": 1,
+            "status": "success"
+          },
+          {
+            "kind": "usage",
+            "node_id": "orchestrator",
+            "at_ms": 6294.369,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "step": 1,
+            "prompt_tokens": 553,
+            "completion_tokens": 87,
+            "total_tokens": 640
+          },
+          {
+            "kind": "resource_queue_enter",
+            "node_id": "orchestrator",
+            "at_ms": 6294.39,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "resource": "tool",
+            "operation_id": "9811d851cba54c67",
+            "tool": "create_worker",
+            "call_id": "57466c01-7a42-4fb6-ab2f-7cb09f5494ab"
+          },
+          {
+            "kind": "resource_lease_acquired",
+            "node_id": "orchestrator",
+            "at_ms": 6294.394,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "resource": "tool",
+            "operation_id": "9811d851cba54c67",
+            "tool": "create_worker",
+            "call_id": "57466c01-7a42-4fb6-ab2f-7cb09f5494ab"
+          },
+          {
+            "kind": "tool_run_start",
+            "node_id": "orchestrator",
+            "at_ms": 6294.4,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "operation_id": "9811d851cba54c67",
+            "name": "create_worker",
+            "call_id": "57466c01-7a42-4fb6-ab2f-7cb09f5494ab"
+          },
+          {
+            "kind": "tool_start",
+            "node_id": "orchestrator",
+            "at_ms": 6294.404,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "name": "create_worker",
+            "args": {
+              "name": "smoke-worker",
+              "system_prompt": "Reply with the requested marker only",
+              "task": "Reply JANUS_WORKER_OK only",
+              "tools": [],
+              "max_steps": 2
+            },
+            "call_id": "57466c01-7a42-4fb6-ab2f-7cb09f5494ab"
+          },
+          {
+            "kind": "user",
+            "node_id": "w1-smoke-worker",
+            "at_ms": 6294.461,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": "w1-smoke-worker",
+            "content": "Reply JANUS_WORKER_OK only"
+          },
+          {
+            "kind": "step",
+            "node_id": "w1-smoke-worker",
+            "at_ms": 6294.465,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": "w1-smoke-worker",
+            "n": 1
+          },
+          {
+            "kind": "llm_call",
+            "node_id": "w1-smoke-worker",
+            "at_ms": 6294.468,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": "w1-smoke-worker",
+            "messages": [
+              {
+                "role": "system",
+                "content": "Reply with the requested marker only\n\nYou have no tools. Answer directly."
+              },
+              {
+                "role": "user",
+                "content": "Reply JANUS_WORKER_OK only"
+              }
+            ],
+            "total_messages": 2
+          },
+          {
+            "kind": "resource_queue_enter",
+            "node_id": "w1-smoke-worker",
+            "at_ms": 6294.473,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": "w1-smoke-worker",
+            "resource": "model_generation",
+            "operation_id": "43cbf7027e2a48db",
+            "step": 1
+          },
+          {
+            "kind": "resource_lease_acquired",
+            "node_id": "w1-smoke-worker",
+            "at_ms": 6294.475,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": "w1-smoke-worker",
+            "resource": "model_generation",
+            "operation_id": "43cbf7027e2a48db",
+            "step": 1
+          },
+          {
+            "kind": "model_generation_start",
+            "node_id": "w1-smoke-worker",
+            "at_ms": 6294.479,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": "w1-smoke-worker",
+            "operation_id": "43cbf7027e2a48db",
+            "step": 1
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "w1-smoke-worker",
+            "at_ms": 6523.376,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": "w1-smoke-worker",
+            "text": "J"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "w1-smoke-worker",
+            "at_ms": 6579.959,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": "w1-smoke-worker",
+            "text": "AN"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "w1-smoke-worker",
+            "at_ms": 6637.551,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": "w1-smoke-worker",
+            "text": "US"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "w1-smoke-worker",
+            "at_ms": 6696.059,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": "w1-smoke-worker",
+            "text": "_WORK"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "w1-smoke-worker",
+            "at_ms": 6753.771,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": "w1-smoke-worker",
+            "text": "ER"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "w1-smoke-worker",
+            "at_ms": 6811.797,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": "w1-smoke-worker",
+            "text": "_OK"
+          },
+          {
+            "kind": "model_generation_end",
+            "node_id": "w1-smoke-worker",
+            "at_ms": 6877.665,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": "w1-smoke-worker",
+            "operation_id": "43cbf7027e2a48db",
+            "step": 1,
+            "status": "success"
+          },
+          {
+            "kind": "usage",
+            "node_id": "w1-smoke-worker",
+            "at_ms": 6877.678,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": "w1-smoke-worker",
+            "step": 1,
+            "prompt_tokens": 39,
+            "completion_tokens": 7,
+            "total_tokens": 46
+          },
+          {
+            "kind": "assistant",
+            "node_id": "w1-smoke-worker",
+            "at_ms": 6877.682,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": "w1-smoke-worker",
+            "content": "JANUS_WORKER_OK"
+          },
+          {
+            "kind": "done",
+            "node_id": "w1-smoke-worker",
+            "at_ms": 6877.684,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": "w1-smoke-worker",
+            "reason": "no_tool_calls"
+          },
+          {
+            "kind": "tool_run_end",
+            "node_id": "orchestrator",
+            "at_ms": 6877.694,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "operation_id": "9811d851cba54c67",
+            "name": "create_worker",
+            "call_id": "57466c01-7a42-4fb6-ab2f-7cb09f5494ab",
+            "status": "success"
+          },
+          {
+            "kind": "tool_result",
+            "node_id": "orchestrator",
+            "at_ms": 6877.704,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "name": "create_worker",
+            "value": {
+              "worker": "w1-smoke-worker",
+              "result": "JANUS_WORKER_OK"
+            },
+            "call_id": "57466c01-7a42-4fb6-ab2f-7cb09f5494ab"
+          },
+          {
+            "kind": "step",
+            "node_id": "orchestrator",
+            "at_ms": 6877.707,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "n": 2
+          },
+          {
+            "kind": "llm_call",
+            "node_id": "orchestrator",
+            "at_ms": 6877.717,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "messages": [
+              {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                  {
+                    "id": "57466c01-7a42-4fb6-ab2f-7cb09f5494ab",
+                    "type": "function",
+                    "function": {
+                      "name": "create_worker",
+                      "arguments": "{\"name\": \"smoke-worker\", \"system_prompt\": \"Reply with the requested marker only\", \"task\": \"Reply JANUS_WORKER_OK only\", \"tools\": [], \"max_steps\": 2}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "57466c01-7a42-4fb6-ab2f-7cb09f5494ab",
+                "content": "JANUS_WORKER_OK"
+              }
+            ],
+            "total_messages": 4
+          },
+          {
+            "kind": "resource_queue_enter",
+            "node_id": "orchestrator",
+            "at_ms": 6877.738,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "resource": "model_generation",
+            "operation_id": "4c405aae5a6c4b17",
+            "step": 2
+          },
+          {
+            "kind": "resource_lease_acquired",
+            "node_id": "orchestrator",
+            "at_ms": 6877.741,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "resource": "model_generation",
+            "operation_id": "4c405aae5a6c4b17",
+            "step": 2
+          },
+          {
+            "kind": "model_generation_start",
+            "node_id": "orchestrator",
+            "at_ms": 6877.745,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "operation_id": "4c405aae5a6c4b17",
+            "step": 2
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 8440.754,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "text": "J"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 8498.578,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "text": "AN"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 8556.369,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "text": "US"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 8615.065,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "text": "_OR"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 8672.941,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "text": "CH"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 8731.294,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "text": "_OK"
+          },
+          {
+            "kind": "model_generation_end",
+            "node_id": "orchestrator",
+            "at_ms": 8797.568,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "operation_id": "4c405aae5a6c4b17",
+            "step": 2,
+            "status": "success"
+          },
+          {
+            "kind": "usage",
+            "node_id": "orchestrator",
+            "at_ms": 8797.581,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "step": 2,
+            "prompt_tokens": 663,
+            "completion_tokens": 7,
+            "total_tokens": 670
+          },
+          {
+            "kind": "assistant",
+            "node_id": "orchestrator",
+            "at_ms": 8797.585,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "content": "JANUS_ORCH_OK"
+          },
+          {
+            "kind": "done",
+            "node_id": "orchestrator",
+            "at_ms": 8797.587,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "reason": "no_tool_calls"
+          },
+          {
+            "kind": "verification_start",
+            "node_id": "verifier",
+            "at_ms": 8797.648,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "operation_id": "6e328af459a048c2",
+            "label": "worker_spawn"
+          },
+          {
+            "kind": "verification_end",
+            "node_id": "verifier",
+            "at_ms": 8797.725,
+            "task_id": "task_caee076c07c84345",
+            "session_id": "session_ca14bd2b8780483c",
+            "dispatch_id": "dispatch_e52497562d3f4e6e",
+            "worker_id": null,
+            "operation_id": "6e328af459a048c2",
+            "status": "success",
+            "label": "worker_spawn"
+          }
+        ]
+      }
+    },
+    "worker_stop": {
+      "status": "passed",
+      "duration_ms": 7926.569,
+      "reply": "JANUS_STOP_OBSERVED",
+      "spans": [
+        {
+          "id": "dd8f80bb4eee",
+          "node_id": "orchestrator",
+          "status": "success",
+          "started_ms": 0.078,
+          "input": {
+            "task": "Call create_worker exactly once with name stop-worker, system_prompt 'Follow the task', task 'Write a very long numbered list', tools [], max_steps 4. After it returns, reply JANUS_STOP_OBSERVED only."
+          },
+          "parent_id": null,
+          "label": "P0 27B smoke",
+          "task_id": "task_f849dabb1f094e4f",
+          "session_id": "session_e51a185081b644b8",
+          "dispatch_id": "dispatch_568443fa7bc74514",
+          "worker_id": null,
+          "duration_ms": 7925.837,
+          "output": {
+            "reply": "JANUS_STOP_OBSERVED"
+          },
+          "events": [
+            {
+              "type": "agent_event",
+              "kind": "user",
+              "node_id": "orchestrator",
+              "at_ms": 0.084,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "content": "Call create_worker exactly once with name stop-worker, system_prompt 'Follow the task', task 'Write a very long numbered list', tools [], max_steps 4. After it returns, reply JANUS_STOP_OBSERVED only."
+            },
+            {
+              "type": "agent_event",
+              "kind": "step",
+              "node_id": "orchestrator",
+              "at_ms": 0.088,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "n": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "llm_call",
+              "node_id": "orchestrator",
+              "at_ms": 0.093,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "You are a tool-use smoke test. When explicitly told to call create_worker, you must call it before answering. Keep all replies short.\n\nWork by calling tools. When the task is done, reply with plain text and no tool call — that is how you finish.\n\nTools:\n- create_worker: Spawn a worker per separable subtask. Request several in one reply to run them in parallel. tools must be a subset of your own tools.\n\nBe brief. Do not narrate what you are about to do; just do it."
+                },
+                {
+                  "role": "user",
+                  "content": "Call create_worker exactly once with name stop-worker, system_prompt 'Follow the task', task 'Write a very long numbered list', tools [], max_steps 4. After it returns, reply JANUS_STOP_OBSERVED only."
+                }
+              ],
+              "total_messages": 2
+            },
+            {
+              "type": "agent_event",
+              "kind": "resource_queue_enter",
+              "node_id": "orchestrator",
+              "at_ms": 0.098,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "resource": "model_generation",
+              "operation_id": "962a63cc7a9c4e79",
+              "step": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "resource_lease_acquired",
+              "node_id": "orchestrator",
+              "at_ms": 0.101,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "resource": "model_generation",
+              "operation_id": "962a63cc7a9c4e79",
+              "step": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "model_generation_start",
+              "node_id": "orchestrator",
+              "at_ms": 0.105,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "operation_id": "962a63cc7a9c4e79",
+              "step": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "model_generation_end",
+              "node_id": "orchestrator",
+              "at_ms": 6023.599,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "operation_id": "962a63cc7a9c4e79",
+              "step": 1,
+              "status": "success"
+            },
+            {
+              "type": "agent_event",
+              "kind": "usage",
+              "node_id": "orchestrator",
+              "at_ms": 6023.612,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "step": 1,
+              "prompt_tokens": 548,
+              "completion_tokens": 82,
+              "total_tokens": 630
+            },
+            {
+              "type": "agent_event",
+              "kind": "resource_queue_enter",
+              "node_id": "orchestrator",
+              "at_ms": 6023.632,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "resource": "tool",
+              "operation_id": "4a6ceb397eab4068",
+              "tool": "create_worker",
+              "call_id": "24a54edb-4a11-4198-bb13-900150be5af3"
+            },
+            {
+              "type": "agent_event",
+              "kind": "resource_lease_acquired",
+              "node_id": "orchestrator",
+              "at_ms": 6023.638,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "resource": "tool",
+              "operation_id": "4a6ceb397eab4068",
+              "tool": "create_worker",
+              "call_id": "24a54edb-4a11-4198-bb13-900150be5af3"
+            },
+            {
+              "type": "agent_event",
+              "kind": "tool_run_start",
+              "node_id": "orchestrator",
+              "at_ms": 6023.643,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "operation_id": "4a6ceb397eab4068",
+              "name": "create_worker",
+              "call_id": "24a54edb-4a11-4198-bb13-900150be5af3"
+            },
+            {
+              "type": "agent_event",
+              "kind": "tool_start",
+              "node_id": "orchestrator",
+              "at_ms": 6023.646,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "name": "create_worker",
+              "args": {
+                "name": "stop-worker",
+                "system_prompt": "Follow the task",
+                "task": "Write a very long numbered list",
+                "tools": [],
+                "max_steps": 4
+              },
+              "call_id": "24a54edb-4a11-4198-bb13-900150be5af3"
+            },
+            {
+              "type": "agent_event",
+              "kind": "tool_run_end",
+              "node_id": "orchestrator",
+              "at_ms": 6023.686,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "operation_id": "4a6ceb397eab4068",
+              "name": "create_worker",
+              "call_id": "24a54edb-4a11-4198-bb13-900150be5af3",
+              "status": "success"
+            },
+            {
+              "type": "agent_event",
+              "kind": "tool_result",
+              "node_id": "orchestrator",
+              "at_ms": 6023.692,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "name": "create_worker",
+              "value": {
+                "worker": "w1-stop-worker",
+                "result": "",
+                "cancelled": "worker was stopped by the user before finishing"
+              },
+              "call_id": "24a54edb-4a11-4198-bb13-900150be5af3"
+            },
+            {
+              "type": "agent_event",
+              "kind": "step",
+              "node_id": "orchestrator",
+              "at_ms": 6023.694,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "n": 2
+            },
+            {
+              "type": "agent_event",
+              "kind": "llm_call",
+              "node_id": "orchestrator",
+              "at_ms": 6023.7,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "messages": [
+                {
+                  "role": "assistant",
+                  "content": "",
+                  "tool_calls": [
+                    {
+                      "id": "24a54edb-4a11-4198-bb13-900150be5af3",
+                      "type": "function",
+                      "function": {
+                        "name": "create_worker",
+                        "arguments": "{\"name\": \"stop-worker\", \"system_prompt\": \"Follow the task\", \"task\": \"Write a very long numbered list\", \"tools\": [], \"max_steps\": 4}"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "role": "tool",
+                  "tool_call_id": "24a54edb-4a11-4198-bb13-900150be5af3",
+                  "content": ""
+                }
+              ],
+              "total_messages": 4
+            },
+            {
+              "type": "agent_event",
+              "kind": "resource_queue_enter",
+              "node_id": "orchestrator",
+              "at_ms": 6023.706,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "resource": "model_generation",
+              "operation_id": "b278f1d2ed3b4ff5",
+              "step": 2
+            },
+            {
+              "type": "agent_event",
+              "kind": "resource_lease_acquired",
+              "node_id": "orchestrator",
+              "at_ms": 6023.708,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "resource": "model_generation",
+              "operation_id": "b278f1d2ed3b4ff5",
+              "step": 2
+            },
+            {
+              "type": "agent_event",
+              "kind": "model_generation_start",
+              "node_id": "orchestrator",
+              "at_ms": 6023.712,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "operation_id": "b278f1d2ed3b4ff5",
+              "step": 2
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 7567.556,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "text": "J"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 7625.299,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "text": "AN"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 7683.804,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "text": "US"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 7742.953,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "text": "_STOP"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 7800.755,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "text": "_OBS"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 7859.244,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "text": "ERVED"
+            },
+            {
+              "type": "agent_event",
+              "kind": "model_generation_end",
+              "node_id": "orchestrator",
+              "at_ms": 7925.783,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "operation_id": "b278f1d2ed3b4ff5",
+              "step": 2,
+              "status": "success"
+            },
+            {
+              "type": "agent_event",
+              "kind": "usage",
+              "node_id": "orchestrator",
+              "at_ms": 7925.797,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "step": 2,
+              "prompt_tokens": 646,
+              "completion_tokens": 7,
+              "total_tokens": 653
+            },
+            {
+              "type": "agent_event",
+              "kind": "assistant",
+              "node_id": "orchestrator",
+              "at_ms": 7925.801,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "content": "JANUS_STOP_OBSERVED"
+            },
+            {
+              "type": "agent_event",
+              "kind": "done",
+              "node_id": "orchestrator",
+              "at_ms": 7925.803,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": null,
+              "reason": "no_tool_calls"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 1194,
+            "completion_tokens": 89
+          }
+        },
+        {
+          "id": "93facbb60fcc",
+          "node_id": "w1-stop-worker",
+          "status": "error",
+          "started_ms": 6023.663,
+          "input": {
+            "task": "Write a very long numbered list",
+            "tools": []
+          },
+          "parent_id": "dd8f80bb4eee",
+          "label": "stop-worker",
+          "task_id": "task_f849dabb1f094e4f",
+          "session_id": "session_e51a185081b644b8",
+          "dispatch_id": "dispatch_568443fa7bc74514",
+          "worker_id": "w1-stop-worker",
+          "duration_ms": 0.018,
+          "output": {
+            "error": "사용자가 워커를 중단함"
+          },
+          "events": [
+            {
+              "type": "agent_event",
+              "kind": "user",
+              "node_id": "w1-stop-worker",
+              "at_ms": 6023.675,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": "w1-stop-worker",
+              "content": "Write a very long numbered list"
+            },
+            {
+              "type": "agent_event",
+              "kind": "done",
+              "node_id": "w1-stop-worker",
+              "at_ms": 6023.678,
+              "task_id": "task_f849dabb1f094e4f",
+              "session_id": "session_e51a185081b644b8",
+              "dispatch_id": "dispatch_568443fa7bc74514",
+              "worker_id": "w1-stop-worker",
+              "reason": "cancelled"
+            }
+          ],
+          "usage": null
+        }
+      ],
+      "telemetry": {
+        "schema_version": 1,
+        "clock": "monotonic_ns",
+        "started_at": "2026-08-22T02:49:15.618962+00:00",
+        "task_id": "task_f849dabb1f094e4f",
+        "session_id": "session_e51a185081b644b8",
+        "elapsed_ms": 7925.916,
+        "top_level_accounted_ms": 7925.916,
+        "top_level_unaccounted_ms": 0.0,
+        "totals_ms": {
+          "user_wait": 0.167,
+          "resource_queue": 0.011,
+          "model_generation": 7925.565,
+          "tool_run": 0.043,
+          "active_turn": 7925.75,
+          "verification": 0.04
+        },
+        "tokens": {
+          "prompt": 1194,
+          "completion": 89,
+          "total": 1283
+        },
+        "worker_count": 1,
+        "memory_snapshots": [
+          {
+            "at_ms": 0.0,
+            "reason": "session_start",
+            "process_peak_rss_bytes": 87949312
+          },
+          {
+            "at_ms": 7925.806,
+            "reason": "turn_end",
+            "process_peak_rss_bytes": 87949312
+          }
+        ],
+        "intervals": [
+          {
+            "category": "user_wait",
+            "operation_id": null,
+            "started_ms": 0.0,
+            "duration_ms": 0.056,
+            "status": "success",
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": null,
+            "worker_id": null
+          },
+          {
+            "category": "resource_queue",
+            "operation_id": "962a63cc7a9c4e79",
+            "started_ms": 0.098,
+            "duration_ms": 0.002,
+            "status": "success",
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "node_id": "orchestrator",
+            "resource": "model_generation",
+            "step": 1
+          },
+          {
+            "category": "model_generation",
+            "operation_id": "962a63cc7a9c4e79",
+            "started_ms": 0.105,
+            "duration_ms": 6023.493,
+            "status": "success",
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "node_id": "orchestrator",
+            "step": 1
+          },
+          {
+            "category": "resource_queue",
+            "operation_id": "4a6ceb397eab4068",
+            "started_ms": 6023.632,
+            "duration_ms": 0.006,
+            "status": "success",
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "node_id": "orchestrator",
+            "resource": "tool",
+            "tool": "create_worker",
+            "call_id": "24a54edb-4a11-4198-bb13-900150be5af3"
+          },
+          {
+            "category": "tool_run",
+            "operation_id": "4a6ceb397eab4068",
+            "started_ms": 6023.643,
+            "duration_ms": 0.043,
+            "status": "success",
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "node_id": "orchestrator",
+            "name": "create_worker",
+            "call_id": "24a54edb-4a11-4198-bb13-900150be5af3"
+          },
+          {
+            "category": "resource_queue",
+            "operation_id": "b278f1d2ed3b4ff5",
+            "started_ms": 6023.706,
+            "duration_ms": 0.002,
+            "status": "success",
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "node_id": "orchestrator",
+            "resource": "model_generation",
+            "step": 2
+          },
+          {
+            "category": "model_generation",
+            "operation_id": "b278f1d2ed3b4ff5",
+            "started_ms": 6023.712,
+            "duration_ms": 1902.071,
+            "status": "success",
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "node_id": "orchestrator",
+            "step": 2
+          },
+          {
+            "category": "active_turn",
+            "operation_id": null,
+            "started_ms": 0.056,
+            "duration_ms": 7925.75,
+            "status": "success",
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null
+          },
+          {
+            "category": "verification",
+            "operation_id": "5ba47501d7e74c2b",
+            "started_ms": 7925.868,
+            "duration_ms": 0.04,
+            "status": "success",
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "node_id": "verifier",
+            "label": "worker_stop"
+          },
+          {
+            "category": "user_wait",
+            "operation_id": null,
+            "started_ms": 7925.806,
+            "duration_ms": 0.11,
+            "status": "running",
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": null,
+            "worker_id": null
+          }
+        ],
+        "events": [
+          {
+            "kind": "user",
+            "node_id": "orchestrator",
+            "at_ms": 0.084,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "content": "Call create_worker exactly once with name stop-worker, system_prompt 'Follow the task', task 'Write a very long numbered list', tools [], max_steps 4. After it returns, reply JANUS_STOP_OBSERVED only."
+          },
+          {
+            "kind": "step",
+            "node_id": "orchestrator",
+            "at_ms": 0.088,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "n": 1
+          },
+          {
+            "kind": "llm_call",
+            "node_id": "orchestrator",
+            "at_ms": 0.093,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a tool-use smoke test. When explicitly told to call create_worker, you must call it before answering. Keep all replies short.\n\nWork by calling tools. When the task is done, reply with plain text and no tool call — that is how you finish.\n\nTools:\n- create_worker: Spawn a worker per separable subtask. Request several in one reply to run them in parallel. tools must be a subset of your own tools.\n\nBe brief. Do not narrate what you are about to do; just do it."
+              },
+              {
+                "role": "user",
+                "content": "Call create_worker exactly once with name stop-worker, system_prompt 'Follow the task', task 'Write a very long numbered list', tools [], max_steps 4. After it returns, reply JANUS_STOP_OBSERVED only."
+              }
+            ],
+            "total_messages": 2
+          },
+          {
+            "kind": "resource_queue_enter",
+            "node_id": "orchestrator",
+            "at_ms": 0.098,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "resource": "model_generation",
+            "operation_id": "962a63cc7a9c4e79",
+            "step": 1
+          },
+          {
+            "kind": "resource_lease_acquired",
+            "node_id": "orchestrator",
+            "at_ms": 0.101,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "resource": "model_generation",
+            "operation_id": "962a63cc7a9c4e79",
+            "step": 1
+          },
+          {
+            "kind": "model_generation_start",
+            "node_id": "orchestrator",
+            "at_ms": 0.105,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "operation_id": "962a63cc7a9c4e79",
+            "step": 1
+          },
+          {
+            "kind": "model_generation_end",
+            "node_id": "orchestrator",
+            "at_ms": 6023.599,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "operation_id": "962a63cc7a9c4e79",
+            "step": 1,
+            "status": "success"
+          },
+          {
+            "kind": "usage",
+            "node_id": "orchestrator",
+            "at_ms": 6023.612,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "step": 1,
+            "prompt_tokens": 548,
+            "completion_tokens": 82,
+            "total_tokens": 630
+          },
+          {
+            "kind": "resource_queue_enter",
+            "node_id": "orchestrator",
+            "at_ms": 6023.632,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "resource": "tool",
+            "operation_id": "4a6ceb397eab4068",
+            "tool": "create_worker",
+            "call_id": "24a54edb-4a11-4198-bb13-900150be5af3"
+          },
+          {
+            "kind": "resource_lease_acquired",
+            "node_id": "orchestrator",
+            "at_ms": 6023.638,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "resource": "tool",
+            "operation_id": "4a6ceb397eab4068",
+            "tool": "create_worker",
+            "call_id": "24a54edb-4a11-4198-bb13-900150be5af3"
+          },
+          {
+            "kind": "tool_run_start",
+            "node_id": "orchestrator",
+            "at_ms": 6023.643,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "operation_id": "4a6ceb397eab4068",
+            "name": "create_worker",
+            "call_id": "24a54edb-4a11-4198-bb13-900150be5af3"
+          },
+          {
+            "kind": "tool_start",
+            "node_id": "orchestrator",
+            "at_ms": 6023.646,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "name": "create_worker",
+            "args": {
+              "name": "stop-worker",
+              "system_prompt": "Follow the task",
+              "task": "Write a very long numbered list",
+              "tools": [],
+              "max_steps": 4
+            },
+            "call_id": "24a54edb-4a11-4198-bb13-900150be5af3"
+          },
+          {
+            "kind": "user",
+            "node_id": "w1-stop-worker",
+            "at_ms": 6023.675,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": "w1-stop-worker",
+            "content": "Write a very long numbered list"
+          },
+          {
+            "kind": "done",
+            "node_id": "w1-stop-worker",
+            "at_ms": 6023.678,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": "w1-stop-worker",
+            "reason": "cancelled"
+          },
+          {
+            "kind": "tool_run_end",
+            "node_id": "orchestrator",
+            "at_ms": 6023.686,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "operation_id": "4a6ceb397eab4068",
+            "name": "create_worker",
+            "call_id": "24a54edb-4a11-4198-bb13-900150be5af3",
+            "status": "success"
+          },
+          {
+            "kind": "tool_result",
+            "node_id": "orchestrator",
+            "at_ms": 6023.692,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "name": "create_worker",
+            "value": {
+              "worker": "w1-stop-worker",
+              "result": "",
+              "cancelled": "worker was stopped by the user before finishing"
+            },
+            "call_id": "24a54edb-4a11-4198-bb13-900150be5af3"
+          },
+          {
+            "kind": "step",
+            "node_id": "orchestrator",
+            "at_ms": 6023.694,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "n": 2
+          },
+          {
+            "kind": "llm_call",
+            "node_id": "orchestrator",
+            "at_ms": 6023.7,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "messages": [
+              {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                  {
+                    "id": "24a54edb-4a11-4198-bb13-900150be5af3",
+                    "type": "function",
+                    "function": {
+                      "name": "create_worker",
+                      "arguments": "{\"name\": \"stop-worker\", \"system_prompt\": \"Follow the task\", \"task\": \"Write a very long numbered list\", \"tools\": [], \"max_steps\": 4}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "24a54edb-4a11-4198-bb13-900150be5af3",
+                "content": ""
+              }
+            ],
+            "total_messages": 4
+          },
+          {
+            "kind": "resource_queue_enter",
+            "node_id": "orchestrator",
+            "at_ms": 6023.706,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "resource": "model_generation",
+            "operation_id": "b278f1d2ed3b4ff5",
+            "step": 2
+          },
+          {
+            "kind": "resource_lease_acquired",
+            "node_id": "orchestrator",
+            "at_ms": 6023.708,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "resource": "model_generation",
+            "operation_id": "b278f1d2ed3b4ff5",
+            "step": 2
+          },
+          {
+            "kind": "model_generation_start",
+            "node_id": "orchestrator",
+            "at_ms": 6023.712,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "operation_id": "b278f1d2ed3b4ff5",
+            "step": 2
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 7567.556,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "text": "J"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 7625.299,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "text": "AN"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 7683.804,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "text": "US"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 7742.953,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "text": "_STOP"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 7800.755,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "text": "_OBS"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 7859.244,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "text": "ERVED"
+          },
+          {
+            "kind": "model_generation_end",
+            "node_id": "orchestrator",
+            "at_ms": 7925.783,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "operation_id": "b278f1d2ed3b4ff5",
+            "step": 2,
+            "status": "success"
+          },
+          {
+            "kind": "usage",
+            "node_id": "orchestrator",
+            "at_ms": 7925.797,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "step": 2,
+            "prompt_tokens": 646,
+            "completion_tokens": 7,
+            "total_tokens": 653
+          },
+          {
+            "kind": "assistant",
+            "node_id": "orchestrator",
+            "at_ms": 7925.801,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "content": "JANUS_STOP_OBSERVED"
+          },
+          {
+            "kind": "done",
+            "node_id": "orchestrator",
+            "at_ms": 7925.803,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "reason": "no_tool_calls"
+          },
+          {
+            "kind": "verification_start",
+            "node_id": "verifier",
+            "at_ms": 7925.868,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "operation_id": "5ba47501d7e74c2b",
+            "label": "worker_stop"
+          },
+          {
+            "kind": "verification_end",
+            "node_id": "verifier",
+            "at_ms": 7925.907,
+            "task_id": "task_f849dabb1f094e4f",
+            "session_id": "session_e51a185081b644b8",
+            "dispatch_id": "dispatch_568443fa7bc74514",
+            "worker_id": null,
+            "operation_id": "5ba47501d7e74c2b",
+            "status": "success",
+            "label": "worker_stop"
+          }
+        ]
+      }
+    },
+    "cancel_resume": {
+      "status": "passed",
+      "duration_ms": 2867.318,
+      "reply": "JANUS_RESUMED",
+      "spans": [
+        {
+          "id": "52aa9b6421a4",
+          "node_id": "orchestrator",
+          "status": "success",
+          "started_ms": 0.075,
+          "input": {
+            "task": "Write 500 numbered words."
+          },
+          "parent_id": null,
+          "label": "P0 27B smoke",
+          "task_id": "task_2ed05c069a284c1e",
+          "session_id": "session_6e17ec6eefde417c",
+          "dispatch_id": "dispatch_605f2d7fd499497c",
+          "worker_id": null,
+          "duration_ms": 2866.681,
+          "output": {
+            "reply": "JANUS_RESUMED"
+          },
+          "events": [
+            {
+              "type": "agent_event",
+              "kind": "user",
+              "node_id": "orchestrator",
+              "at_ms": 0.081,
+              "task_id": "task_2ed05c069a284c1e",
+              "session_id": "session_6e17ec6eefde417c",
+              "dispatch_id": "dispatch_605f2d7fd499497c",
+              "worker_id": null,
+              "content": "Write 500 numbered words."
+            },
+            {
+              "type": "agent_event",
+              "kind": "step",
+              "node_id": "orchestrator",
+              "at_ms": 0.086,
+              "task_id": "task_2ed05c069a284c1e",
+              "session_id": "session_6e17ec6eefde417c",
+              "dispatch_id": "dispatch_605f2d7fd499497c",
+              "worker_id": null,
+              "n": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "llm_call",
+              "node_id": "orchestrator",
+              "at_ms": 0.092,
+              "task_id": "task_2ed05c069a284c1e",
+              "session_id": "session_6e17ec6eefde417c",
+              "dispatch_id": "dispatch_605f2d7fd499497c",
+              "worker_id": null,
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "This is a cancellation smoke test. Do not call tools. Follow output formats exactly.\n\nWork by calling tools. When the task is done, reply with plain text and no tool call — that is how you finish.\n\nTools:\n- create_worker: Spawn a worker per separable subtask. Request several in one reply to run them in parallel. tools must be a subset of your own tools.\n\nBe brief. Do not narrate what you are about to do; just do it."
+                },
+                {
+                  "role": "user",
+                  "content": "Write 500 numbered words."
+                }
+              ],
+              "total_messages": 2
+            },
+            {
+              "type": "agent_event",
+              "kind": "resource_queue_enter",
+              "node_id": "orchestrator",
+              "at_ms": 0.097,
+              "task_id": "task_2ed05c069a284c1e",
+              "session_id": "session_6e17ec6eefde417c",
+              "dispatch_id": "dispatch_605f2d7fd499497c",
+              "worker_id": null,
+              "resource": "model_generation",
+              "operation_id": "494e50c3ac5645ca",
+              "step": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "resource_lease_acquired",
+              "node_id": "orchestrator",
+              "at_ms": 0.101,
+              "task_id": "task_2ed05c069a284c1e",
+              "session_id": "session_6e17ec6eefde417c",
+              "dispatch_id": "dispatch_605f2d7fd499497c",
+              "worker_id": null,
+              "resource": "model_generation",
+              "operation_id": "494e50c3ac5645ca",
+              "step": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "model_generation_start",
+              "node_id": "orchestrator",
+              "at_ms": 0.106,
+              "task_id": "task_2ed05c069a284c1e",
+              "session_id": "session_6e17ec6eefde417c",
+              "dispatch_id": "dispatch_605f2d7fd499497c",
+              "worker_id": null,
+              "operation_id": "494e50c3ac5645ca",
+              "step": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "model_generation_end",
+              "node_id": "orchestrator",
+              "at_ms": 1171.362,
+              "task_id": "task_2ed05c069a284c1e",
+              "session_id": "session_6e17ec6eefde417c",
+              "dispatch_id": "dispatch_605f2d7fd499497c",
+              "worker_id": null,
+              "operation_id": "494e50c3ac5645ca",
+              "step": 1,
+              "status": "cancelled"
+            },
+            {
+              "type": "agent_event",
+              "kind": "done",
+              "node_id": "orchestrator",
+              "at_ms": 1171.376,
+              "task_id": "task_2ed05c069a284c1e",
+              "session_id": "session_6e17ec6eefde417c",
+              "dispatch_id": "dispatch_605f2d7fd499497c",
+              "worker_id": null,
+              "reason": "cancelled"
+            },
+            {
+              "type": "agent_event",
+              "kind": "user",
+              "node_id": "orchestrator",
+              "at_ms": 1171.529,
+              "task_id": "task_2ed05c069a284c1e",
+              "session_id": "session_6e17ec6eefde417c",
+              "dispatch_id": "dispatch_4fb15bb08f87497a",
+              "worker_id": null,
+              "content": "Reply JANUS_RESUMED only."
+            },
+            {
+              "type": "agent_event",
+              "kind": "step",
+              "node_id": "orchestrator",
+              "at_ms": 1171.534,
+              "task_id": "task_2ed05c069a284c1e",
+              "session_id": "session_6e17ec6eefde417c",
+              "dispatch_id": "dispatch_4fb15bb08f87497a",
+              "worker_id": null,
+              "n": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "llm_call",
+              "node_id": "orchestrator",
+              "at_ms": 1171.54,
+              "task_id": "task_2ed05c069a284c1e",
+              "session_id": "session_6e17ec6eefde417c",
+              "dispatch_id": "dispatch_4fb15bb08f87497a",
+              "worker_id": null,
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "This is a cancellation smoke test. Do not call tools. Follow output formats exactly.\n\nWork by calling tools. When the task is done, reply with plain text and no tool call — that is how you finish.\n\nTools:\n- create_worker: Spawn a worker per separable subtask. Request several in one reply to run them in parallel. tools must be a subset of your own tools.\n\nBe brief. Do not narrate what you are about to do; just do it."
+                },
+                {
+                  "role": "user",
+                  "content": "Write 500 numbered words."
+                },
+                {
+                  "role": "user",
+                  "content": "Reply JANUS_RESUMED only."
+                }
+              ],
+              "total_messages": 3
+            },
+            {
+              "type": "agent_event",
+              "kind": "resource_queue_enter",
+              "node_id": "orchestrator",
+              "at_ms": 1171.547,
+              "task_id": "task_2ed05c069a284c1e",
+              "session_id": "session_6e17ec6eefde417c",
+              "dispatch_id": "dispatch_4fb15bb08f87497a",
+              "worker_id": null,
+              "resource": "model_generation",
+              "operation_id": "5078fc648a2f49dd",
+              "step": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "resource_lease_acquired",
+              "node_id": "orchestrator",
+              "at_ms": 1171.549,
+              "task_id": "task_2ed05c069a284c1e",
+              "session_id": "session_6e17ec6eefde417c",
+              "dispatch_id": "dispatch_4fb15bb08f87497a",
+              "worker_id": null,
+              "resource": "model_generation",
+              "operation_id": "5078fc648a2f49dd",
+              "step": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "model_generation_start",
+              "node_id": "orchestrator",
+              "at_ms": 1171.555,
+              "task_id": "task_2ed05c069a284c1e",
+              "session_id": "session_6e17ec6eefde417c",
+              "dispatch_id": "dispatch_4fb15bb08f87497a",
+              "worker_id": null,
+              "operation_id": "5078fc648a2f49dd",
+              "step": 1
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 2510.765,
+              "task_id": "task_2ed05c069a284c1e",
+              "session_id": "session_6e17ec6eefde417c",
+              "dispatch_id": "dispatch_4fb15bb08f87497a",
+              "worker_id": null,
+              "text": "J"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 2567.95,
+              "task_id": "task_2ed05c069a284c1e",
+              "session_id": "session_6e17ec6eefde417c",
+              "dispatch_id": "dispatch_4fb15bb08f87497a",
+              "worker_id": null,
+              "text": "AN"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 2626.076,
+              "task_id": "task_2ed05c069a284c1e",
+              "session_id": "session_6e17ec6eefde417c",
+              "dispatch_id": "dispatch_4fb15bb08f87497a",
+              "worker_id": null,
+              "text": "US"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 2684.643,
+              "task_id": "task_2ed05c069a284c1e",
+              "session_id": "session_6e17ec6eefde417c",
+              "dispatch_id": "dispatch_4fb15bb08f87497a",
+              "worker_id": null,
+              "text": "_RES"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 2742.128,
+              "task_id": "task_2ed05c069a284c1e",
+              "session_id": "session_6e17ec6eefde417c",
+              "dispatch_id": "dispatch_4fb15bb08f87497a",
+              "worker_id": null,
+              "text": "UM"
+            },
+            {
+              "type": "agent_event",
+              "kind": "text_delta",
+              "node_id": "orchestrator",
+              "at_ms": 2800.696,
+              "task_id": "task_2ed05c069a284c1e",
+              "session_id": "session_6e17ec6eefde417c",
+              "dispatch_id": "dispatch_4fb15bb08f87497a",
+              "worker_id": null,
+              "text": "ED"
+            },
+            {
+              "type": "agent_event",
+              "kind": "model_generation_end",
+              "node_id": "orchestrator",
+              "at_ms": 2866.635,
+              "task_id": "task_2ed05c069a284c1e",
+              "session_id": "session_6e17ec6eefde417c",
+              "dispatch_id": "dispatch_4fb15bb08f87497a",
+              "worker_id": null,
+              "operation_id": "5078fc648a2f49dd",
+              "step": 1,
+              "status": "success"
+            },
+            {
+              "type": "agent_event",
+              "kind": "usage",
+              "node_id": "orchestrator",
+              "at_ms": 2866.649,
+              "task_id": "task_2ed05c069a284c1e",
+              "session_id": "session_6e17ec6eefde417c",
+              "dispatch_id": "dispatch_4fb15bb08f87497a",
+              "worker_id": null,
+              "step": 1,
+              "prompt_tokens": 513,
+              "completion_tokens": 7,
+              "total_tokens": 520
+            },
+            {
+              "type": "agent_event",
+              "kind": "assistant",
+              "node_id": "orchestrator",
+              "at_ms": 2866.654,
+              "task_id": "task_2ed05c069a284c1e",
+              "session_id": "session_6e17ec6eefde417c",
+              "dispatch_id": "dispatch_4fb15bb08f87497a",
+              "worker_id": null,
+              "content": "JANUS_RESUMED"
+            },
+            {
+              "type": "agent_event",
+              "kind": "done",
+              "node_id": "orchestrator",
+              "at_ms": 2866.656,
+              "task_id": "task_2ed05c069a284c1e",
+              "session_id": "session_6e17ec6eefde417c",
+              "dispatch_id": "dispatch_4fb15bb08f87497a",
+              "worker_id": null,
+              "reason": "no_tool_calls"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 513,
+            "completion_tokens": 7
+          }
+        }
+      ],
+      "telemetry": {
+        "schema_version": 1,
+        "clock": "monotonic_ns",
+        "started_at": "2026-08-22T02:49:23.545451+00:00",
+        "task_id": "task_2ed05c069a284c1e",
+        "session_id": "session_6e17ec6eefde417c",
+        "elapsed_ms": 2866.759,
+        "top_level_accounted_ms": 2866.759,
+        "top_level_unaccounted_ms": 0.0,
+        "totals_ms": {
+          "user_wait": 0.268,
+          "resource_queue": 0.007,
+          "model_generation": 2866.336,
+          "active_turn": 2866.491,
+          "verification": 0.014
+        },
+        "tokens": {
+          "prompt": 513,
+          "completion": 7,
+          "total": 520
+        },
+        "worker_count": 0,
+        "memory_snapshots": [
+          {
+            "at_ms": 0.0,
+            "reason": "session_start",
+            "process_peak_rss_bytes": 87949312
+          },
+          {
+            "at_ms": 1171.381,
+            "reason": "turn_end",
+            "process_peak_rss_bytes": 87949312
+          },
+          {
+            "at_ms": 2866.66,
+            "reason": "turn_end",
+            "process_peak_rss_bytes": 87949312
+          }
+        ],
+        "intervals": [
+          {
+            "category": "user_wait",
+            "operation_id": null,
+            "started_ms": 0.0,
+            "duration_ms": 0.057,
+            "status": "success",
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": null,
+            "worker_id": null
+          },
+          {
+            "category": "resource_queue",
+            "operation_id": "494e50c3ac5645ca",
+            "started_ms": 0.097,
+            "duration_ms": 0.004,
+            "status": "success",
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_605f2d7fd499497c",
+            "worker_id": null,
+            "node_id": "orchestrator",
+            "resource": "model_generation",
+            "step": 1
+          },
+          {
+            "category": "model_generation",
+            "operation_id": "494e50c3ac5645ca",
+            "started_ms": 0.106,
+            "duration_ms": 1171.256,
+            "status": "cancelled",
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_605f2d7fd499497c",
+            "worker_id": null,
+            "node_id": "orchestrator",
+            "step": 1
+          },
+          {
+            "category": "active_turn",
+            "operation_id": null,
+            "started_ms": 0.057,
+            "duration_ms": 1171.324,
+            "status": "cancelled",
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_605f2d7fd499497c",
+            "worker_id": null
+          },
+          {
+            "category": "user_wait",
+            "operation_id": null,
+            "started_ms": 1171.381,
+            "duration_ms": 0.111,
+            "status": "success",
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": null,
+            "worker_id": null
+          },
+          {
+            "category": "resource_queue",
+            "operation_id": "5078fc648a2f49dd",
+            "started_ms": 1171.547,
+            "duration_ms": 0.003,
+            "status": "success",
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_4fb15bb08f87497a",
+            "worker_id": null,
+            "node_id": "orchestrator",
+            "resource": "model_generation",
+            "step": 1
+          },
+          {
+            "category": "model_generation",
+            "operation_id": "5078fc648a2f49dd",
+            "started_ms": 1171.555,
+            "duration_ms": 1695.08,
+            "status": "success",
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_4fb15bb08f87497a",
+            "worker_id": null,
+            "node_id": "orchestrator",
+            "step": 1
+          },
+          {
+            "category": "active_turn",
+            "operation_id": null,
+            "started_ms": 1171.492,
+            "duration_ms": 1695.167,
+            "status": "success",
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_4fb15bb08f87497a",
+            "worker_id": null
+          },
+          {
+            "category": "verification",
+            "operation_id": "f8a7768ee5df4251",
+            "started_ms": 2866.736,
+            "duration_ms": 0.014,
+            "status": "success",
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_4fb15bb08f87497a",
+            "worker_id": null,
+            "node_id": "verifier",
+            "label": "cancel_resume"
+          },
+          {
+            "category": "user_wait",
+            "operation_id": null,
+            "started_ms": 2866.66,
+            "duration_ms": 0.099,
+            "status": "running",
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": null,
+            "worker_id": null
+          }
+        ],
+        "events": [
+          {
+            "kind": "user",
+            "node_id": "orchestrator",
+            "at_ms": 0.081,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_605f2d7fd499497c",
+            "worker_id": null,
+            "content": "Write 500 numbered words."
+          },
+          {
+            "kind": "step",
+            "node_id": "orchestrator",
+            "at_ms": 0.086,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_605f2d7fd499497c",
+            "worker_id": null,
+            "n": 1
+          },
+          {
+            "kind": "llm_call",
+            "node_id": "orchestrator",
+            "at_ms": 0.092,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_605f2d7fd499497c",
+            "worker_id": null,
+            "messages": [
+              {
+                "role": "system",
+                "content": "This is a cancellation smoke test. Do not call tools. Follow output formats exactly.\n\nWork by calling tools. When the task is done, reply with plain text and no tool call — that is how you finish.\n\nTools:\n- create_worker: Spawn a worker per separable subtask. Request several in one reply to run them in parallel. tools must be a subset of your own tools.\n\nBe brief. Do not narrate what you are about to do; just do it."
+              },
+              {
+                "role": "user",
+                "content": "Write 500 numbered words."
+              }
+            ],
+            "total_messages": 2
+          },
+          {
+            "kind": "resource_queue_enter",
+            "node_id": "orchestrator",
+            "at_ms": 0.097,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_605f2d7fd499497c",
+            "worker_id": null,
+            "resource": "model_generation",
+            "operation_id": "494e50c3ac5645ca",
+            "step": 1
+          },
+          {
+            "kind": "resource_lease_acquired",
+            "node_id": "orchestrator",
+            "at_ms": 0.101,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_605f2d7fd499497c",
+            "worker_id": null,
+            "resource": "model_generation",
+            "operation_id": "494e50c3ac5645ca",
+            "step": 1
+          },
+          {
+            "kind": "model_generation_start",
+            "node_id": "orchestrator",
+            "at_ms": 0.106,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_605f2d7fd499497c",
+            "worker_id": null,
+            "operation_id": "494e50c3ac5645ca",
+            "step": 1
+          },
+          {
+            "kind": "model_generation_end",
+            "node_id": "orchestrator",
+            "at_ms": 1171.362,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_605f2d7fd499497c",
+            "worker_id": null,
+            "operation_id": "494e50c3ac5645ca",
+            "step": 1,
+            "status": "cancelled"
+          },
+          {
+            "kind": "done",
+            "node_id": "orchestrator",
+            "at_ms": 1171.376,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_605f2d7fd499497c",
+            "worker_id": null,
+            "reason": "cancelled"
+          },
+          {
+            "kind": "user",
+            "node_id": "orchestrator",
+            "at_ms": 1171.529,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_4fb15bb08f87497a",
+            "worker_id": null,
+            "content": "Reply JANUS_RESUMED only."
+          },
+          {
+            "kind": "step",
+            "node_id": "orchestrator",
+            "at_ms": 1171.534,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_4fb15bb08f87497a",
+            "worker_id": null,
+            "n": 1
+          },
+          {
+            "kind": "llm_call",
+            "node_id": "orchestrator",
+            "at_ms": 1171.54,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_4fb15bb08f87497a",
+            "worker_id": null,
+            "messages": [
+              {
+                "role": "system",
+                "content": "This is a cancellation smoke test. Do not call tools. Follow output formats exactly.\n\nWork by calling tools. When the task is done, reply with plain text and no tool call — that is how you finish.\n\nTools:\n- create_worker: Spawn a worker per separable subtask. Request several in one reply to run them in parallel. tools must be a subset of your own tools.\n\nBe brief. Do not narrate what you are about to do; just do it."
+              },
+              {
+                "role": "user",
+                "content": "Write 500 numbered words."
+              },
+              {
+                "role": "user",
+                "content": "Reply JANUS_RESUMED only."
+              }
+            ],
+            "total_messages": 3
+          },
+          {
+            "kind": "resource_queue_enter",
+            "node_id": "orchestrator",
+            "at_ms": 1171.547,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_4fb15bb08f87497a",
+            "worker_id": null,
+            "resource": "model_generation",
+            "operation_id": "5078fc648a2f49dd",
+            "step": 1
+          },
+          {
+            "kind": "resource_lease_acquired",
+            "node_id": "orchestrator",
+            "at_ms": 1171.549,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_4fb15bb08f87497a",
+            "worker_id": null,
+            "resource": "model_generation",
+            "operation_id": "5078fc648a2f49dd",
+            "step": 1
+          },
+          {
+            "kind": "model_generation_start",
+            "node_id": "orchestrator",
+            "at_ms": 1171.555,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_4fb15bb08f87497a",
+            "worker_id": null,
+            "operation_id": "5078fc648a2f49dd",
+            "step": 1
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 2510.765,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_4fb15bb08f87497a",
+            "worker_id": null,
+            "text": "J"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 2567.95,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_4fb15bb08f87497a",
+            "worker_id": null,
+            "text": "AN"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 2626.076,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_4fb15bb08f87497a",
+            "worker_id": null,
+            "text": "US"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 2684.643,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_4fb15bb08f87497a",
+            "worker_id": null,
+            "text": "_RES"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 2742.128,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_4fb15bb08f87497a",
+            "worker_id": null,
+            "text": "UM"
+          },
+          {
+            "kind": "text_delta",
+            "node_id": "orchestrator",
+            "at_ms": 2800.696,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_4fb15bb08f87497a",
+            "worker_id": null,
+            "text": "ED"
+          },
+          {
+            "kind": "model_generation_end",
+            "node_id": "orchestrator",
+            "at_ms": 2866.635,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_4fb15bb08f87497a",
+            "worker_id": null,
+            "operation_id": "5078fc648a2f49dd",
+            "step": 1,
+            "status": "success"
+          },
+          {
+            "kind": "usage",
+            "node_id": "orchestrator",
+            "at_ms": 2866.649,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_4fb15bb08f87497a",
+            "worker_id": null,
+            "step": 1,
+            "prompt_tokens": 513,
+            "completion_tokens": 7,
+            "total_tokens": 520
+          },
+          {
+            "kind": "assistant",
+            "node_id": "orchestrator",
+            "at_ms": 2866.654,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_4fb15bb08f87497a",
+            "worker_id": null,
+            "content": "JANUS_RESUMED"
+          },
+          {
+            "kind": "done",
+            "node_id": "orchestrator",
+            "at_ms": 2866.656,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_4fb15bb08f87497a",
+            "worker_id": null,
+            "reason": "no_tool_calls"
+          },
+          {
+            "kind": "verification_start",
+            "node_id": "verifier",
+            "at_ms": 2866.736,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_4fb15bb08f87497a",
+            "worker_id": null,
+            "operation_id": "f8a7768ee5df4251",
+            "label": "cancel_resume"
+          },
+          {
+            "kind": "verification_end",
+            "node_id": "verifier",
+            "at_ms": 2866.75,
+            "task_id": "task_2ed05c069a284c1e",
+            "session_id": "session_6e17ec6eefde417c",
+            "dispatch_id": "dispatch_4fb15bb08f87497a",
+            "worker_id": null,
+            "operation_id": "f8a7768ee5df4251",
+            "status": "success",
+            "label": "cancel_resume"
+          }
+        ]
+      }
+    }
+  },
+  "finished_at": "2026-08-22T02:49:26.704535+00:00"
+}

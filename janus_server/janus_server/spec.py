@@ -12,6 +12,7 @@ from typing import Any
 import yaml
 
 APPROVAL_MODES = {"auto", "ask"}
+WORKER_POLICIES = {"none", "fixed_one", "autonomous"}
 
 
 class SpecError(ValueError):
@@ -59,6 +60,10 @@ def validate(spec: Any) -> None:
     if approval not in APPROVAL_MODES:
         errs.append(f"approval은 {sorted(APPROVAL_MODES)} 중 하나여야 합니다")
 
+    worker_policy = spec.get("worker_policy", "autonomous")
+    if worker_policy not in WORKER_POLICIES:
+        errs.append(f"worker_policy는 {sorted(WORKER_POLICIES)} 중 하나여야 합니다")
+
     # 거부 메커니즘이 제거된 모델에 셸/쓰기를 쥐여주는 것이므로 승인이 실제 안전장치다.
     risky = sorted(set(tools) & T.DANGEROUS)
     if risky and approval == "auto":
@@ -98,6 +103,7 @@ def demo():
     fails(lambda s: s.update(tools=["nope"]), "알 수 없는 도구")
     fails(lambda s: s.update(tools="grep"), "리스트여야")
     fails(lambda s: s.update(approval="whatever"), "approval은")
+    fails(lambda s: s.update(worker_policy="many"), "worker_policy는")
     fails(lambda s: s.update(max_steps=0), "max_steps는")
     fails(lambda s: s.update(max_steps=999), "max_steps는")
     # 핵심 안전 규칙 두 개

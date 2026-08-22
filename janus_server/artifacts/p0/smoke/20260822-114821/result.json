@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "started_at": "2026-08-22T02:48:21.032947+00:00",
+  "status": "failed",
+  "environment": {
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "python": "3.13.12 (main, Mar 20 2026, 00:20:47) [Clang 22.1.1 ]",
+    "model": "qwen3.8-27b",
+    "model_path": "/Users/kimsemin/.cache/huggingface/hub/models--orcarouter--Qwen3.8-27B-Uncensored-MLX/snapshots/b4603df5fd2a51e7fed2560ee7090caa4e13e4b7/4-bit"
+  },
+  "model_server": {
+    "exit_code": 1
+  },
+  "scenarios": {},
+  "error": "SmokeFailure: MLX 서버가 준비 전에 종료됐습니다(exit=1)",
+  "traceback": "Traceback (most recent call last):\n  File \"/Users/kimsemin/Desktop/로컬 LLM 실습/janus_server/scripts/p0_smoke_27b.py\", line 367, in main\n    server.start()\n    ~~~~~~~~~~~~^^\n  File \"/Users/kimsemin/Desktop/로컬 LLM 실습/janus_server/scripts/p0_smoke_27b.py\", line 100, in start\n    raise SmokeFailure(\n        f\"MLX 서버가 준비 전에 종료됐습니다(exit={self.process.returncode})\"\n    )\nSmokeFailure: MLX 서버가 준비 전에 종료됐습니다(exit=1)\n",
+  "finished_at": "2026-08-22T02:48:23.065614+00:00"
+}
