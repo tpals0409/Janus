@@ -15,7 +15,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-CURRENT_SCHEMA_VERSION = 2
+from .budget import empty_usage, merge_budget, normalize_budget
+
+CURRENT_SCHEMA_VERSION = 3
 
 TASK_STATUSES = frozenset({"todo", "preparing", "working", "needs_you", "review", "failed"})
 TASK_TRANSITIONS = {
@@ -208,7 +210,16 @@ MIGRATION_2 = """
 ALTER TABLE workspaces ADD COLUMN progress TEXT NOT NULL DEFAULT 'queued';
 """
 
-MIGRATIONS = {1: MIGRATION_1, 2: MIGRATION_2}
+MIGRATION_3 = """
+ALTER TABLE agent_profiles ADD COLUMN budget_json TEXT NOT NULL DEFAULT
+'{"dispatch":{"token_limit":32768,"time_limit_ms":900000,"step_limit":30},"worker":{"token_limit":8192,"time_limit_ms":300000,"step_limit":8},"workers":{"total_limit":4,"concurrent_limit":2},"queue":{"timeout_ms":300000,"priority":0}}';
+ALTER TABLE dispatches ADD COLUMN budget_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE dispatches ADD COLUMN usage_json TEXT NOT NULL DEFAULT
+'{"prompt_tokens":0,"completion_tokens":0,"steps":0,"active_time_ms":0.0,"workers_started":0,"peak_concurrent_workers":0}';
+ALTER TABLE dispatches ADD COLUMN budget_exhausted_reason TEXT;
+"""
+
+MIGRATIONS = {1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3}
 
 
 class DomainStore:
@@ -285,12 +296,14 @@ class DomainStore:
             connection.execute(
                 "INSERT OR IGNORE INTO agent_profiles "
                 "(id,name,description,system_prompt,tools_json,approval,worker_policy,max_steps,"
-                "model_profile_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                "model_profile_id,budget_json,created_at,updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     "agent_default", "Janus Local", "Default local coding agent",
                     "You are a local coding agent. Make verified changes in the assigned workspace.",
                     _json(["read_file", "glob", "grep", "write_file", "edit_file"]),
-                    "ask", "autonomous", 15, "model_qwen38_27b_4bit", now, now,
+                    "ask", "autonomous", 15, "model_qwen38_27b_4bit",
+                    _json(normalize_budget(None, max_steps=15)), now, now,
                 ),
             )
             connection.execute("COMMIT")
@@ -547,6 +560,7 @@ class DomainStore:
         self, *, name: str, system_prompt: str, tools: list[str],
         model_profile_id: str, approval: str = "ask", worker_policy: str = "autonomous",
         max_steps: int = 15, description: str = "", profile_id: str | None = None,
+        budget: dict | None = None,
     ) -> dict:
         now = _now()
         profile_id = profile_id or _id("agent")
@@ -554,11 +568,12 @@ class DomainStore:
             with self.transaction(immediate=True) as connection:
                 connection.execute(
                     "INSERT INTO agent_profiles(id,name,description,system_prompt,tools_json,approval,"
-                    "worker_policy,max_steps,model_profile_id,created_at,updated_at) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    "worker_policy,max_steps,model_profile_id,budget_json,created_at,updated_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         profile_id, name, description, system_prompt, _json(tools), approval,
-                        worker_policy, max_steps, model_profile_id, now, now,
+                        worker_policy, max_steps, model_profile_id,
+                        _json(normalize_budget(budget, max_steps=max_steps)), now, now,
                     ),
                 )
         except sqlite3.IntegrityError as error:
@@ -577,6 +592,14 @@ class DomainStore:
         fields = {mapping[key]: value for key, value in changes.items() if key in mapping}
         if "tools" in changes:
             fields["tools_json"] = _json(changes["tools"])
+        if "budget" in changes or "max_steps" in changes:
+            current_budget = json.loads(self.get_agent_profile(profile_id)["budget_json"])
+            override = dict(changes.get("budget") or {})
+            if "max_steps" in changes and "step_limit" not in override.get("dispatch", {}):
+                override = {**override, "dispatch": {
+                    **override.get("dispatch", {}), "step_limit": int(changes["max_steps"]),
+                }}
+            fields["budget_json"] = _json(merge_budget(current_budget, override))
         if not fields:
             return self.get_agent_profile(profile_id)
         assignments = ",".join(f"{key}=?" for key in fields)
@@ -620,16 +643,22 @@ class DomainStore:
                 )
                 if workspace["task_id"] != task_id:
                     raise Conflict("Dispatch의 Workspace가 다른 Task에 속합니다")
+                profile = self._one(
+                    connection, "SELECT * FROM agent_profiles WHERE id=?",
+                    (agent_profile_id,), "AgentProfile",
+                )
                 attempt = int(connection.execute(
                     "SELECT COALESCE(MAX(attempt),0)+1 FROM dispatches WHERE task_id=?",
                     (task_id,),
                 ).fetchone()[0])
                 connection.execute(
                     "INSERT INTO dispatches(id,task_id,workspace_id,agent_profile_id,attempt,status,"
-                    "objective_snapshot,acceptance_snapshot,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                    "objective_snapshot,acceptance_snapshot,budget_json,usage_json,created_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         dispatch_id, task_id, workspace_id, agent_profile_id, attempt, "queued",
-                        task["objective"], task["acceptance_command"], now,
+                        task["objective"], task["acceptance_command"], profile["budget_json"],
+                        _json(empty_usage()), now,
                     ),
                 )
         except sqlite3.IntegrityError as error:
@@ -639,6 +668,7 @@ class DomainStore:
     def create_execution(
         self, *, task_id: str, workspace_id: str, agent_profile_id: str,
         dispatch_id: str | None = None, session_id: str | None = None,
+        budget_override: dict | None = None,
     ) -> dict:
         """Create one Dispatch attempt and its AgentSession atomically.
 
@@ -700,12 +730,18 @@ class DomainStore:
                     "SELECT COALESCE(MAX(attempt),0)+1 FROM dispatches WHERE task_id=?",
                     (task_id,),
                 ).fetchone()[0])
+                dispatch_budget = merge_budget(
+                    json.loads(profile["budget_json"]), budget_override
+                )
                 connection.execute(
                     "INSERT INTO dispatches(id,task_id,workspace_id,agent_profile_id,attempt,status,"
-                    "objective_snapshot,acceptance_snapshot,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                    "objective_snapshot,acceptance_snapshot,budget_json,usage_json,created_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         dispatch_id, task_id, workspace_id, agent_profile_id, attempt, "queued",
-                        task["objective"], task["acceptance_command"], now,
+                        task["objective"], task["acceptance_command"],
+                        _json(dispatch_budget),
+                        _json(empty_usage()), now,
                     ),
                 )
                 connection.execute(
@@ -729,6 +765,22 @@ class DomainStore:
             return self._one(
                 connection, "SELECT * FROM dispatches WHERE id=?", (dispatch_id,), "Dispatch"
             )
+
+    def record_dispatch_budget(
+        self, dispatch_id: str, *, usage: dict,
+        exhausted_reason: str | None = None,
+    ) -> dict:
+        with self.transaction(immediate=True) as connection:
+            self._one(
+                connection, "SELECT * FROM dispatches WHERE id=?",
+                (dispatch_id,), "Dispatch",
+            )
+            connection.execute(
+                "UPDATE dispatches SET usage_json=?,budget_exhausted_reason=COALESCE(?,"
+                "budget_exhausted_reason) WHERE id=?",
+                (_json(usage), exhausted_reason, dispatch_id),
+            )
+        return self.get_dispatch(dispatch_id)
 
     def list_dispatches(self, task_id: str) -> list[dict]:
         with self._connect() as connection:

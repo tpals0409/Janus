@@ -24,7 +24,22 @@ export function seedTaskRuntimeVisualFixture(): void {
     agent_profile_id: 'agent_default',
     attempt: 2,
     status: 'needs_you' as const,
-    error: null
+    error: null,
+    budget: {
+      dispatch: { token_limit: 32768, time_limit_ms: 900000, step_limit: 15 },
+      worker: { token_limit: 8192, time_limit_ms: 300000, step_limit: 8 },
+      workers: { total_limit: 4, concurrent_limit: 2 },
+      queue: { timeout_ms: 300000, priority: 0 }
+    },
+    usage: {
+      prompt_tokens: 1240,
+      completion_tokens: 386,
+      steps: 4,
+      active_time_ms: 18432,
+      workers_started: 1,
+      peak_concurrent_workers: 1
+    },
+    budget_exhausted_reason: null
   }
   const session: AgentSessionDetail = {
     id: 'session_ced9a7b25cc546bb88844f7bce212',
@@ -96,7 +111,13 @@ export function seedTaskRuntimeVisualFixture(): void {
     approval: 'ask',
     worker_policy: 'autonomous',
     max_steps: 15,
-    model_profile_id: 'model_qwen38_27b_4bit'
+    model_profile_id: 'model_qwen38_27b_4bit',
+    budget: {
+      dispatch: { token_limit: 32768, time_limit_ms: 900000, step_limit: 15 },
+      worker: { token_limit: 8192, time_limit_ms: 300000, step_limit: 8 },
+      workers: { total_limit: 4, concurrent_limit: 2 },
+      queue: { timeout_ms: 300000, priority: 0 }
+    }
   }
   useStore.setState({
     serverUp: true,

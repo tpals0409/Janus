@@ -10,14 +10,17 @@
 
 ## 현재 판정
 
-**측정 가능한 로컬 runtime(R1/P0)과 Task·worktree·영속 AgentSession 기반
-ADE 작업 경계(R2/P1)는 완성됐다. 다음 우선순위는 로컬 ResourceScheduler(R3/P2)다.**
+**측정 가능한 로컬 runtime(R1/P0), ADE 작업 경계(R2/P1), ResourceScheduler·Lease·Budget·
+Worker Backpressure/Context 효율(R3/P2-11~14)과 처리량 재측정은 완료됐다. 후보는 40/45로
+acceptance가 회귀했으므로 기본 정책으로 승격하지 않는다. 다음 우선순위는 측정에서 드러난
+worker spawn·실패 통합 회귀를 수정하는 것이다.**
 
 현재 앱은 로컬 MLX 오케스트레이터와 런타임 워커를 실행하고 trace를 보여주는 검증된 세로
 조각이다. Project/Task 중심 화면에서 별도 Git worktree를 준비하고, AgentProfile을 선택해
 고유 Dispatch attempt와 AgentSession을 시작·재개·취소·중지할 수 있다. Session 상태,
 transcript와 runtime event는 SQLite에 영속화되고 최신 Dispatch만 Task 이벤트를 쓸 수 있다.
-local resource scheduler, Git diff review, 평가 loop가 없으므로 완성된 ADE로 부르기에는 이르다.
+Git diff review와 평가 loop가 없으므로 완성된 ADE로
+부르기에는 이르다.
 
 기존 “오케스트레이터-워커 전환으로 원래 계획과 일치했다”는 평가는 제품 목표가 런타임일 때만
 맞았다. ADE를 목표로 확정했으므로 현재 런타임은 제품 전체가 아니라 Task를 수행하는 핵심
@@ -72,14 +75,18 @@ local resource scheduler, Git diff review, 평가 loop가 없으므로 완성된
 `WorkspaceContext`(소유 Task/Workspace/Dispatch ID 포함)를 받고, 두 context의 병렬 파일
 격리와 다른 workspace 경로 거부를 회귀 테스트로 고정했다.
 
-Task UI와 영속 runtime의 분리는 해소됐다. 현재 가장 큰 제품 공백은 계측용으로만 존재하는
-queue/lease 이벤트가 실제 ResourceScheduler 정책과 자원 cap을 강제하지 않는다는 점이다.
+Task UI와 영속 runtime의 분리는 해소됐다. 계측용이던 queue/lease 이벤트는 프로세스 공유
+ResourceScheduler의 실제 실행 권한과 연결됐다. lease는 timeout·취소·예외·앱 종료에서
+실제 반환을 기다리며 queue 원인이 Task 화면에 표시된다. Dispatch/RuntimeWorker별
+token·time·step 한도와 worker cap도 강제된다. 현재 가장 큰 효율 공백은 queue 상태를
+worker spawn 정책에 반영하고 context 전달량을 줄인 후보가 실제 TaskSuite 처리량을 얼마나
+바꾸는지 아직 재측정하지 않았다는 점이다.
 
 ## 현재 검증
 
 2026-08-22 현재 체크아웃에서 직접 확인:
 
-- Python 테스트 60개 통과
+- Python 테스트 85개 통과
 - Node lifecycle 테스트 7개 통과(실제 분리 프로세스 그룹 3회 start/stop 포함)
 - 도구 자체 검사 통과
 - 오케스트레이터 spec 검사 통과
@@ -103,6 +110,55 @@ P1에서 추가로 검증한 것:
 - 새 Dispatch 이후 오래된 WebSocket/event 거부
 - 두 Task 동시 실행에서 한 Task 취소가 다른 Task 완료에 영향을 주지 않음
 
+P2-11에서 추가로 검증한 것:
+
+- 프로세스 전체 model generation 기본 1-slot과 Task 간 queue
+- `cpu_tool`, `io_tool`, `verification` 독립 concurrency cap
+- 높은 우선순위 우선 실행과 aging 기반 starvation 방지
+- model generation 중 독립 verification이 실제로 겹치는 timeline
+- 대기 Task가 선행 Task 취소 후 lease를 얻어 독립 완료
+
+P2-12에서 추가로 검증한 것:
+
+- lease queue timeout과 waiter 제거
+- 대기 취소, active generation 취소, runtime/verification 예외 후 활성 lease 0
+- scheduler close가 active cancel을 전파하고 queue를 깨운 뒤 idle까지 대기
+- FastAPI lifespan shutdown이 live Task runtime을 취소하고 lease 반환을 확인
+- Task 화면에 resource, queue 위치, active/cap, 대기 원인 표시
+
+P2-13에서 추가로 검증한 것:
+
+- AgentProfile budget의 Dispatch snapshot과 schema v3 migration
+- 멀티턴 누적 token/time/step/worker usage 영속화
+- Dispatch와 RuntimeWorker token/time/step 소진 판정
+- worker 총수·동시 실행 cap과 해당 spawn만 거부
+- Task UI에서 queue priority/deadline 지정과 budget 사용량 표시
+- 한 Dispatch 소진이 다른 Task의 Session/Budget에 영향 없는 격리
+
+P2-14에서 추가로 검증한 것:
+
+- model generation queue가 이미 대기 중이면 추가 worker spawn을 억제하고 이유를 event로 기록
+- 동일 worker 요청은 중복 실행하지 않고, 완료 결과는 같은 Session에서 재사용
+- worker name·role·system·task/context·tool subset fingerprint와 입력 길이 상한
+- verifier role의 읽기 전용 tool 교집합과 implementer/researcher 결과 통합 역할 분리
+- assistant tool call/result 쌍을 보존하는 project summary/session compaction
+- stable-prefix cache 후보, 원본/전송 input 문자·token 추정치와 절감량 계측
+- 결정적 acceptance marker를 유지하면서 합성 장기 Session 입력 40% 이상 감소
+- 실제 Qwen3.8-27B smoke 4개 시나리오 재통과와 owned MLX orphan process 0
+
+R3 TaskSuite 재측정 결과:
+
+- 동일 3개 fixture × 3개 정책 × 5회, 실제 Qwen3.8-27B/4-bit MLX 45회 완료
+- 전체 acceptance 40/45: R1 baseline 44/45보다 회귀해 후보 승격 보류
+- `none` 15/15, 평균 37.94초(+9%), prompt token은 사실상 동일
+- `fixed_one` 10/15: 작은 두 Task는 18~23% 단축됐지만 조사 Task는 0/5
+- `autonomous` 15/15, 평균 72.53초(+63%); multi-file에서 5회 모두 불필요한 worker 선택
+- 조사 fixed-one worker 5회 모두 누적 token 8,192 한도를 소진했고, 이후 반복 spawn/통합이
+  4회 timeout과 1회 실제 acceptance 실패로 이어짐
+- 짧은 단일-turn TaskSuite에서는 session compaction threshold에 도달하지 않아 절감 token 0;
+  stable-prefix 후보 계측만 확인
+- 상세 비교: `janus_server/artifacts/r3/tasksuite/20260822-183500/comparison.md`
+
 ## 완료한 마일스톤: R1 실제 27B Baseline과 계측
 
 완료 항목:
@@ -120,8 +176,10 @@ P1에서 추가로 검증한 것:
 ## 완료한 마일스톤: R2 Task/worktree/WorkspaceContext
 
 영속 도메인 모델, WorkspaceContext, WorkspaceService, Task 중심 UI와 Task–Runtime 연결을
-완료했다. 다음 R3에서 model generation 1-slot scheduler, ResourceLease와
-token/time/worker budget을 도입한다.
+완료했다. R3의 scheduler, ResourceLease 회수, Dispatch/RuntimeWorker budget, worker
+backpressure와 context 효율 및 동일 TaskSuite 재측정을 완료했다. 측정 후보는 acceptance
+regression으로 승격하지 않으며, 다음으로 Task 적합성 spawn gate와 실패 worker 결과 통합을
+수정한다.
 
 R1의 상세 출구 조건은 [ROADMAP.md](ROADMAP.md#r1-실제-27b-baseline과-계측--최적화의-기준선)를
 단일 기준으로 사용한다.

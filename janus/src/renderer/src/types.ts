@@ -49,6 +49,25 @@ export interface Dispatch {
   attempt: number
   status: 'queued' | 'running' | 'needs_you' | 'completed' | 'failed' | 'cancelled'
   error: string | null
+  budget: ExecutionBudget
+  usage: BudgetUsage
+  budget_exhausted_reason: string | null
+}
+
+export interface ExecutionBudget {
+  dispatch: { token_limit: number; time_limit_ms: number; step_limit: number }
+  worker: { token_limit: number; time_limit_ms: number; step_limit: number }
+  workers: { total_limit: number; concurrent_limit: number }
+  queue: { timeout_ms: number; priority: number }
+}
+
+export interface BudgetUsage {
+  prompt_tokens: number
+  completion_tokens: number
+  steps: number
+  active_time_ms: number
+  workers_started: number
+  peak_concurrent_workers: number
 }
 
 export type AgentSessionStatus = 'created' | 'running' | 'idle' | 'stopped' | 'failed'
@@ -90,6 +109,7 @@ export interface AgentProfile {
   worker_policy: 'none' | 'fixed_one' | 'autonomous'
   max_steps: number
   model_profile_id: string
+  budget: ExecutionBudget
 }
 
 export interface ModelProfile {

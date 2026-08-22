@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import os
+import asyncio
+import json
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -15,6 +18,7 @@ os.environ.setdefault("JANUS_ALLOWED_ORIGINS", "http://localhost:5173")
 from fastapi.testclient import TestClient
 
 from janus_server import domain, runtime, server
+from janus_server.scheduler import ResourceClass, ResourceScheduler
 from tests.fakes import FakeClient, text_chunk
 
 ORIGIN = "http://localhost:5173"
@@ -81,6 +85,33 @@ class TaskRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(200, response.status_code, response.text)
         return response.json()
+
+    def test_app_shutdown_cancels_runtime_and_waits_for_active_lease_return(self):
+        scheduler = ResourceScheduler()
+        cancel = threading.Event()
+        acquired = threading.Event()
+
+        class LiveRuntime:
+            def cancel_all(self) -> None:
+                cancel.set()
+
+        def active_work() -> None:
+            with scheduler.acquire(ResourceClass.MODEL_GENERATION, cancel=cancel):
+                acquired.set()
+                cancel.wait(2)
+
+        worker = threading.Thread(target=active_work)
+        worker.start()
+        self.assertTrue(acquired.wait(2))
+        with server._TASK_RUNTIMES_LOCK:
+            server._TASK_RUNTIMES["shutdown-test"] = LiveRuntime()  # type: ignore[assignment]
+
+        idle = asyncio.run(server.shutdown_local_resources(scheduler, timeout=2))
+        worker.join(2)
+
+        self.assertTrue(idle)
+        self.assertTrue(cancel.is_set())
+        self.assertEqual(0, scheduler.snapshot()["active_leases"])
 
     def connect(self, task_id: str, session_id: str):
         return self.client.websocket_connect(
@@ -175,14 +206,69 @@ class TaskRuntimeTests(unittest.TestCase):
         response = self.client.post(
             f"/tasks/{task['id']}/sessions",
             headers=self.headers,
-            json={"agent_profile_id": profile["id"]},
+            json={
+                "agent_profile_id": profile["id"],
+                "priority": 7,
+                "queue_timeout_ms": 1234,
+            },
         )
         self.assertEqual(200, response.status_code, response.text)
         detail = response.json()
         self.assertEqual(profile["id"], detail["agent_profile_id"])
         self.assertEqual(profile["id"], detail["dispatch"]["agent_profile_id"])
+        self.assertEqual(7, detail["dispatch"]["budget"]["queue"]["priority"])
+        self.assertEqual(1234, detail["dispatch"]["budget"]["queue"]["timeout_ms"])
         persisted = self.store.get_session(detail["id"])
         self.assertEqual(profile["id"], persisted["agent_profile_id"])
+
+    def test_dispatch_step_budget_exhaustion_is_persisted_and_fails_only_attempt(self):
+        task = self.create_ready_task("Budgeted")
+        other_task = self.create_ready_task("Unaffected")
+        profile = self.store.create_agent_profile(
+            name="One step",
+            system_prompt="Use one tool step.",
+            tools=["echo"],
+            approval="auto",
+            worker_policy="none",
+            max_steps=5,
+            model_profile_id="model_qwen38_27b_4bit",
+            budget={"dispatch": {"step_limit": 1}},
+        )
+        detail = self.client.post(
+            f"/tasks/{task['id']}/sessions", headers=self.headers,
+            json={"agent_profile_id": profile["id"]},
+        ).json()
+        other = self.start(other_task["id"])
+        fake = FakeClient([
+            {"calls": [("echo", json.dumps({"text": "one"}))]},
+            {"text": "must not run"},
+        ])
+        with (
+            patch.object(runtime, "resolve_local_model", lambda name: name),
+            patch.object(runtime, "make_client", lambda: fake),
+            self.connect(task["id"], detail["id"]) as ws,
+        ):
+            self.assertEqual("session_ready", ws.receive_json()["type"])
+            ws.send_json({"type": "message", "text": "run"})
+            events = self.drain_turn(ws)
+
+        self.assertEqual(1, len(fake.captured))
+        self.assertTrue(any(
+            event.get("type") == "agent_event"
+            and event.get("kind") == "budget_exhausted"
+            and event.get("reason") == "dispatch:step_limit"
+            for event in events
+        ))
+        persisted = self.client.get(
+            f"/sessions/{detail['id']}", headers=self.headers
+        ).json()
+        self.assertEqual("failed", persisted["status"])
+        self.assertEqual("failed", persisted["dispatch"]["status"])
+        self.assertEqual(
+            "dispatch:step_limit", persisted["dispatch"]["budget_exhausted_reason"]
+        )
+        self.assertEqual(1, persisted["dispatch"]["usage"]["steps"])
+        self.assertEqual("created", self.store.get_session(other["id"])["status"])
 
     def test_active_session_blocks_workspace_removal(self):
         task = self.create_ready_task("Protect workspace")
@@ -262,16 +348,34 @@ class TaskRuntimeTests(unittest.TestCase):
                     break
 
             second_ws.send_json({"type": "message", "text": "finish"})
-            second_events = self.drain_turn(second_ws)
+            second_events = []
+            while True:
+                event = second_ws.receive_json()
+                second_events.append(event)
+                if (event["type"] == "agent_event"
+                        and event["kind"] == "resource_queue_enter"):
+                    break
+
+            # 두 번째 Task는 같은 model slot에서 기다린다. 첫 Task만 취소하면
+            # lease가 반환되고 대기 중인 Task가 독립적으로 이어서 완료돼야 한다.
+            first_ws.send_json({"type": "cancel"})
+            first_events = self.drain_turn(first_ws)
+            self.assertTrue(first_events[-1]["cancelled"])
+
+            second_events.extend(self.drain_turn(second_ws))
+            queue_wait = next(
+                event for event in second_events
+                if event.get("type") == "agent_event"
+                and event.get("kind") == "resource_queue_wait"
+            )
+            self.assertEqual("capacity_exhausted", queue_wait["reason"])
+            self.assertEqual("model_generation", queue_wait["resource"])
+            self.assertEqual(1, queue_wait["cap"])
             self.assertTrue(any(
                 event.get("type") == "agent_event"
                 and event.get("content") == "finished independently"
                 for event in second_events
             ))
-
-            first_ws.send_json({"type": "cancel"})
-            first_events = self.drain_turn(first_ws)
-            self.assertTrue(first_events[-1]["cancelled"])
 
         self.assertEqual("idle", self.store.get_session(first_session["id"])["status"])
         self.assertEqual("idle", self.store.get_session(second_session["id"])["status"])

@@ -208,13 +208,13 @@ Janus가 느린 이유와 worker가 도움 되는지를 숫자로 볼 수 있다
 
 ### 출구 조건
 
-- [ ] 두 Task가 들어와도 model generation이 설정된 slot을 넘지 않는다.
-- [ ] 모델 생성 중 독립 tool I/O 또는 verification이 겹치는 timeline이 확인된다.
-- [ ] 높은 우선순위 Task가 starvation 없이 먼저 lease를 얻는다.
-- [ ] 한 Task 취소가 다른 Task의 session과 lease에 영향을 주지 않는다.
-- [ ] token/time/worker budget 초과가 해당 Dispatch만 종료한다.
-- [ ] 모든 예외·취소 테스트 후 ResourceLease가 0으로 돌아온다.
-- [ ] R1 TaskSuite에서 baseline 대비 처리량 변화가 수치로 보고된다.
+- [x] 두 Task가 들어와도 model generation이 설정된 slot을 넘지 않는다.
+- [x] 모델 생성 중 독립 tool I/O 또는 verification이 겹치는 timeline이 확인된다.
+- [x] 높은 우선순위 Task가 starvation 없이 먼저 lease를 얻는다.
+- [x] 한 Task 취소가 다른 Task의 session과 lease에 영향을 주지 않는다.
+- [x] token/time/worker budget 초과가 해당 Dispatch만 종료한다.
+- [x] 모든 예외·취소 테스트 후 ResourceLease가 0으로 돌아온다.
+- [x] R1 TaskSuite에서 baseline 대비 처리량 변화가 수치로 보고된다.
 
 ---
 
@@ -342,21 +342,53 @@ Task를 떠나지 않고 파일 편집, terminal, 앱 미리보기와 UI 피드�
 
 ## 현재 우선순위
 
-### 지금 — R1
+### 완료 — R1/R2와 R3 ResourceScheduler
 
-1. timing event schema와 monotonic duration
-2. 실제 MLX smoke harness
-3. 최소 TaskSuite fixture와 acceptance command
-4. worker 없음/고정 worker/자율 worker baseline
-5. backend/model PID 소유권과 orphan 검사
+1. timing event schema, 실제 MLX smoke와 TaskSuite baseline
+2. Task/worktree/WorkspaceContext와 영속 AgentSession
+3. process-wide model generation 1-slot
+4. CPU/IO/verification concurrency cap
+5. priority aging과 독립 verification overlap
 
-### 다음 — R2
+### 완료 — R3 ResourceLease
 
-1. Project/Task/Workspace schema
-2. WorkspaceService create/inspect/archive/delete
-3. 전역 `tools.WORKSPACE` 제거
-4. 두 WorkspaceContext 병렬 격리 테스트
-5. Project/Task 중심 shell
+1. lease timeout과 queue 대기 원인
+2. 취소·예외·앱 종료 시 자동 회수
+3. 앱 종료 시 active cancel과 실제 idle 대기
+4. Task runtime queue 원인 표시
+
+### 완료 — R3 Budget
+
+1. Dispatch/RuntimeWorker token·time·step budget
+2. worker 총수·동시 worker cap
+3. queue deadline과 user priority
+4. budget 소진 사유 영속 기록
+
+### 완료 — R3 Worker Backpressure와 Context 효율
+
+1. queue와 자원 상태 기반 worker spawn 허용
+2. 중복 worker 억제와 완료 결과 재사용
+3. worker 최소 context·tool subset과 read-only verifier 역할 분리
+4. tool call/result 블록을 보존하는 project summary/session compaction
+5. stable-prefix cache 후보와 입력 절감량 계측
+
+### 완료 — R3 처리량 재측정
+
+1. scheduler/lease/budget/backpressure 적용 후보를 R1과 같은 TaskSuite로 실행
+2. acceptance, wall time, prompt/completion token, queue wait 비교
+3. regression이면 기본 정책 승격을 보류하고 원인 trace 저장
+
+결과는 40/45로 R1의 44/45보다 acceptance가 악화됐다. `none`은 15/15를 유지했지만 평균
+wall time이 9% 증가했고, `autonomous`는 15/15를 유지하면서도 불필요한 worker 선택으로 평균
+wall time이 63% 증가했다. `fixed_one`은 작은 두 fixture에서 18~23% 빨라졌지만 조사 Task가
+0/5로 실패했다. 따라서 후보를 기본 정책으로 승격하지 않는다.
+
+### 지금 — R3 회귀 수정
+
+1. Task 형태와 예상 작업량으로 첫 worker spawn의 최소 이득을 판정한다.
+2. worker budget 소진 시 partial result를 버리지 않고 오케스트레이터가 통합하게 한다.
+3. fixed-one worker 실패 뒤 같은 spawn을 반복하는 loop를 차단한다.
+4. 실패 submatrix 5회와 전체 TaskSuite 순서로 회귀를 재검증한다.
 
 ### 현재 커밋하지 않는 선택적 확장
 
@@ -370,11 +402,10 @@ Task를 떠나지 않고 파일 편집, terminal, 앱 미리보기와 UI 피드�
 
 ## 다음 코드 작업
 
-첫 구현은 UI가 아니라 **R1 Timing + Smoke Harness**다.
+다음 작업은 **R3 TaskSuite에서 발견된 worker 회귀 수정**이다.
 
-1. runtime event에 queue/generation/tool 구간을 추가한다.
-2. 실제 MLX를 선택적으로 사용하는 smoke 명령을 만든다.
-3. 작은 저장소 Task 하나에 objective와 acceptance command를 고정한다.
-4. 현재 orchestrator/worker 정책을 5회 실행해 baseline을 저장한다.
+1. `investigate_code_tests / fixed_one`의 worker token 소진 결과를 partial result로 통합한다.
+2. worker 실패 후 반복 spawn을 억제하되 오케스트레이터가 직접 완료할 수 있는 결과를 준다.
+3. `autonomous`가 작은 병렬 이득 없이 worker를 선택하는 것을 Task 적합성 gate로 제한한다.
 
-이 숫자가 생긴 뒤에만 worker 정책, scheduler, context 최적화를 변경한다.
+acceptance 44/45 이상을 회복한 뒤 R4의 Git ChangeSet 구현으로 넘어간다.

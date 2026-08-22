@@ -17,8 +17,9 @@ os.environ.setdefault("JANUS_ALLOWED_ORIGINS", "http://localhost:5173")
 
 from fastapi.testclient import TestClient
 
-from janus_server import runtime, server
+from janus_server import agent, runtime, server
 from janus_server import spec as S
+from janus_server.workspace import WorkspaceContext
 from tests.fakes import FakeClient, text_chunk
 
 ORIGIN = "http://localhost:5173"
@@ -166,6 +167,66 @@ class RuntimeTests(unittest.TestCase):
             tool_msgs = [m for m in final_call if m["role"] == "tool"]
             self.assertEqual(["worker done"], [m["content"] for m in tool_msgs])
 
+    def test_duplicate_worker_request_is_suppressed(self):
+        duplicate = worker_args("same", task="same isolated task")
+        fake = FakeClient([
+            {"calls": [("create_worker", duplicate), ("create_worker", duplicate)]},
+            {"text": "worker done"},
+            {"text": "final"},
+        ])
+        with orch_env(fake) as runs, self.connect() as ws:
+            ws.send_json({"type": "message", "text": "go"})
+            seen = self.drain_turn(ws)
+            saved = self.saved_run(runs)
+
+        workers = [span for span in saved["spans"] if span["worker_id"] is not None]
+        self.assertEqual(1, len(workers))
+        suppressed = [
+            message for message in seen
+            if message["type"] == "agent_event"
+            and message["kind"] == "worker_spawn_suppressed"
+        ]
+        reused = [
+            message for message in seen
+            if message["type"] == "agent_event"
+            and message["kind"] == "worker_result_reused"
+        ]
+        self.assertEqual(1, len(suppressed) + len(reused))
+        if suppressed:
+            self.assertEqual("duplicate_worker_running", suppressed[0]["reason"])
+
+    def test_verifier_worker_is_read_only_and_receives_bounded_context(self):
+        args = json.dumps({
+            "name": "verify", "role": "verifier", "system_prompt": "s" * 3_000,
+            "task": "check result", "context": "c" * 6_000,
+            "tools": ["grep", "run_bash"],
+        })
+        fake = FakeClient([
+            {"calls": [("create_worker", args)]},
+            {"text": "verified"},
+            {"text": "final"},
+        ])
+        spec = {
+            **SPEC, "tools": ["grep", "run_bash"], "approval": "ask",
+        }
+        with orch_env(fake, spec), self.connect() as ws:
+            ws.send_json({"type": "message", "text": "go"})
+            seen = self.drain_turn(ws)
+
+        worker_call = fake.captured[1]
+        self.assertEqual(
+            ["grep"], [tool["function"]["name"] for tool in worker_call["tools"]]
+        )
+        self.assertIn("read-only verifier", worker_call["messages"][0]["content"])
+        prepared = next(
+            message for message in seen
+            if message["type"] == "agent_event"
+            and message["kind"] == "worker_context_prepared"
+        )
+        self.assertEqual("verifier", prepared["role"])
+        self.assertEqual(4_000, prepared["context_chars"])
+        self.assertTrue(prepared["truncated"])
+
     def test_fixed_one_policy_rejects_additional_workers(self):
         fake = FakeClient([
             {"calls": [("create_worker", worker_args("first")),
@@ -183,16 +244,24 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(1, len(workers))
         self.assertEqual(1, saved["telemetry"]["worker_count"])
 
-    def test_parallel_workers_run_concurrently(self):
-        barrier = threading.Barrier(2, timeout=10)  # 순차 실행이면 타임아웃으로 깨진다
+    def test_parallel_workers_share_one_model_generation_slot(self):
+        active = 0
+        max_active = 0
+        generation_lock = threading.Lock()
 
         def worker_turn():
-            barrier.wait()
+            nonlocal active, max_active
+            with generation_lock:
+                active += 1
+                max_active = max(max_active, active)
+            time.sleep(0.02)
+            with generation_lock:
+                active -= 1
             return {"text": "wdone"}
 
         fake = FakeClient([
-            {"calls": [("create_worker", worker_args("a")),
-                       ("create_worker", worker_args("b"))]},
+            {"calls": [("create_worker", worker_args("a", task="task a")),
+                       ("create_worker", worker_args("b", task="task b"))]},
             worker_turn, worker_turn,
             {"text": "final"},
         ])
@@ -204,6 +273,7 @@ class RuntimeTests(unittest.TestCase):
                        if m["type"] == "span_end" and m["span"]["node_id"] != "orchestrator"]
             self.assertEqual(2, len(workers))
             self.assertEqual({"success"}, {s["status"] for s in workers})
+            self.assertEqual(1, max_active)
 
     def test_stop_worker_cancels_only_that_worker(self):
         def endless():
@@ -257,6 +327,99 @@ class RuntimeTests(unittest.TestCase):
             history = [m["content"] for m in fake.captured[1]["messages"]]
             self.assertIn("first", history)   # 중단된 턴도 세션에 남아 있다
             self.assertIn("second", history)
+
+
+class SessionContextTests(unittest.TestCase):
+    def test_compaction_preserves_recent_objective_and_tool_pairs(self):
+        session = agent.Session(
+            "system", context_max_chars=4_000, context_recent_blocks=4,
+        )
+        for index in range(12):
+            call_id = f"call-{index}"
+            session.append("user", content=f"objective {index} " + "u" * 240)
+            session.append("assistant", content=f"decision {index}", tool_calls=[{
+                "id": call_id, "type": "function",
+                "function": {"name": "echo", "arguments": "{}"},
+            }])
+            session.append(
+                "tool_result", tool_call_id=call_id, name="echo",
+                value={"text": "r" * 240},
+            )
+        session.append("user", content="current objective must survive")
+
+        baseline = session.derive_messages(compact=False)
+        baseline_chars = session._chars(baseline)
+        compacted = session.derive_messages()
+        stats = session.context_stats
+
+        self.assertTrue(stats["compacted"])
+        self.assertLess(stats["sent_chars"], baseline_chars)
+        self.assertGreater(stats["saved_chars"], 0)
+        self.assertIn("current objective must survive", [
+            message["content"] for message in compacted if message["role"] == "user"
+        ])
+        call_ids = {
+            call["id"] for message in compacted if message["role"] == "assistant"
+            for call in message.get("tool_calls") or []
+        }
+        self.assertTrue(all(
+            message["tool_call_id"] in call_ids
+            for message in compacted if message["role"] == "tool"
+        ))
+
+    def test_stable_prefix_probe_reports_reuse_without_claiming_cache_hit(self):
+        session = agent.Session("stable system")
+        session.append("user", content="one")
+        session.derive_messages()
+        self.assertFalse(session.context_stats["prefix_reused"])
+        session.append("assistant", content="answer")
+        session.append("user", content="two")
+        session.derive_messages()
+        self.assertTrue(session.context_stats["prefix_reused"])
+
+    def test_compaction_keeps_acceptance_result_with_less_input(self):
+        compact = agent.Session("system", context_max_chars=3_000)
+        baseline = agent.Session("system", context_max_chars=None)
+        for index in range(20):
+            for session in (compact, baseline):
+                session.append("user", content=f"old request {index} " + "u" * 220)
+                session.append("assistant", content=f"old result {index} " + "a" * 220)
+        compact_client = FakeClient([{"text": "ACCEPTED"}])
+        baseline_client = FakeClient([{"text": "ACCEPTED"}])
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = WorkspaceContext(
+                Path(tmp), "task-context", "workspace-context", "dispatch-context",
+            )
+            common = {
+                "model": "fake", "system_prompt": "", "task": "finish current task",
+                "tool_names": [], "workspace_context": workspace,
+                "approve": lambda _name, _args: True,
+                "emit": lambda _kind, **_data: None,
+            }
+            compact_result, _ = agent.run(
+                client=compact_client, session=compact, **common,
+            )
+            baseline_result, _ = agent.run(
+                client=baseline_client, session=baseline, **common,
+            )
+
+        self.assertEqual("ACCEPTED", compact_result)
+        self.assertEqual(compact_result, baseline_result)
+        compact_chars = agent.Session._chars(compact_client.captured[0]["messages"])
+        baseline_chars = agent.Session._chars(baseline_client.captured[0]["messages"])
+        self.assertLess(compact_chars, baseline_chars)
+        self.assertGreater((baseline_chars - compact_chars) / baseline_chars, 0.4)
+
+    def test_worker_spawn_pressure_uses_model_queue_state(self):
+        snapshot = {
+            "closed": False,
+            "resources": {"model_generation": {"active": 1, "queued": 1, "cap": 1}},
+        }
+        self.assertEqual(
+            "model_queue_backpressure", runtime.worker_spawn_pressure(snapshot)
+        )
+        snapshot["resources"]["model_generation"]["queued"] = 0
+        self.assertIsNone(runtime.worker_spawn_pressure(snapshot))
 
 
 if __name__ == "__main__":

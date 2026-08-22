@@ -508,6 +508,19 @@ function TaskRuntimeCard({ task }: { task: Task }) {
   const [message, setMessage] = useState('')
   const ready = task.workspace?.state === 'ready'
   const resumable = session?.status === 'created' || session?.status === 'idle'
+  const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId)
+  const budget = session?.dispatch.budget ?? selectedProfile?.budget
+  const usage = session?.dispatch.usage
+  const [priority, setPriority] = useState(selectedProfile?.budget.queue.priority ?? 0)
+  const [queueTimeout, setQueueTimeout] = useState(
+    Math.round((selectedProfile?.budget.queue.timeout_ms ?? 300000) / 1000)
+  )
+
+  useEffect(() => {
+    if (!selectedProfile) return
+    setPriority(selectedProfile.budget.queue.priority)
+    setQueueTimeout(Math.round(selectedProfile.budget.queue.timeout_ms / 1000))
+  }, [selectedProfile])
 
   const transcript = useMemo(() => {
     const persisted = events.filter((event) => event.kind === 'transcript')
@@ -528,6 +541,20 @@ function TaskRuntimeCard({ task }: { task: Task }) {
   }, [events])
 
   const activity = events.filter((event) => event.kind !== 'transcript').slice(-7)
+  const queueWait = useMemo(() => {
+    const waiting = new Map<string, Record<string, unknown>>()
+    for (const event of events) {
+      if (event.kind !== 'agent_event') continue
+      const kind = String(event.payload.kind ?? '')
+      const operationId = String(event.payload.operation_id ?? '')
+      if (!operationId) continue
+      if (kind === 'resource_queue_wait') waiting.set(operationId, event.payload)
+      if (kind === 'resource_lease_acquired' || kind === 'resource_queue_end') {
+        waiting.delete(operationId)
+      }
+    }
+    return [...waiting.values()].at(-1) ?? null
+  }, [events])
   const submit = (event: FormEvent) => {
     event.preventDefault()
     if (!message.trim()) return
@@ -570,10 +597,31 @@ function TaskRuntimeCard({ task }: { task: Task }) {
               ))}
             </select>
           </label>
+          <label>
+            <span className="task-label">Priority</span>
+            <input
+              type="number"
+              value={priority}
+              onChange={(event) => setPriority(Number(event.target.value))}
+              disabled={busy}
+              className="task-input mt-1 w-16"
+            />
+          </label>
+          <label>
+            <span className="task-label">Queue sec</span>
+            <input
+              type="number"
+              min={1}
+              value={queueTimeout}
+              onChange={(event) => setQueueTimeout(Math.max(1, Number(event.target.value)))}
+              disabled={busy}
+              className="task-input mt-1 w-20"
+            />
+          </label>
           <button
             onClick={() => {
               if (session && resumable && !window.confirm('Start a new attempt and stop the resumable one?')) return
-              void startSession()
+              void startSession({ priority, queue_timeout_ms: queueTimeout * 1000 })
             }}
             disabled={!ready || busy || active}
             className="task-primary-action"
@@ -592,9 +640,37 @@ function TaskRuntimeCard({ task }: { task: Task }) {
         </div>
       )}
 
+      {budget && (
+        <div className="mt-3 grid grid-cols-4 gap-2 rounded-md border border-border bg-[#08080d] px-3 py-2 font-mono text-[9px] text-faint">
+          <span>TOKENS · {usage ? usage.prompt_tokens + usage.completion_tokens : 0}/{budget.dispatch.token_limit}</span>
+          <span>STEPS · {usage?.steps ?? 0}/{budget.dispatch.step_limit}</span>
+          <span>TIME · {Math.round((usage?.active_time_ms ?? 0) / 1000)}s/{Math.round(budget.dispatch.time_limit_ms / 1000)}s</span>
+          <span>WORKERS · {usage?.workers_started ?? 0}/{budget.workers.total_limit}</span>
+          {session?.dispatch.budget_exhausted_reason && (
+            <strong className="col-span-4 text-danger">
+              EXHAUSTED · {session.dispatch.budget_exhausted_reason}
+            </strong>
+          )}
+        </div>
+      )}
+
       {runtimeError && (
         <div className="mt-3 rounded-md border border-[#f8717140] bg-[#f8717112] px-3 py-2 text-[10.5px] text-danger">
           {runtimeError}
+        </div>
+      )}
+
+      {queueWait && (
+        <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-[#fbbf2440] bg-[#fbbf240d] px-3 py-2 text-[10.5px] text-warn">
+          <span>
+            Waiting for <strong>{String(queueWait.resource).replaceAll('_', ' ')}</strong>
+            {' · '}{queueWait.reason === 'capacity_exhausted'
+              ? 'local capacity is in use'
+              : 'higher-priority work is ahead'}
+          </span>
+          <span className="shrink-0 font-mono text-[9.5px]">
+            queue {String(queueWait.position)} · active {String(queueWait.active)}/{String(queueWait.cap)}
+          </span>
         </div>
       )}
 

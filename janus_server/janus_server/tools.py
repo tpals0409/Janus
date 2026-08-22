@@ -217,12 +217,13 @@ def _r_docs(v):
 
 def _t(
     name, handler, render, schema, description, guidance="", needs_approval=False,
-    requires_workspace=False,
+    requires_workspace=False, resource_class="io_tool",
 ):
     return {"name": name, "handler": handler, "render": render, "schema": schema,
             "description": description, "guidance": guidance,
             "needs_approval": needs_approval,
-            "requires_workspace": requires_workspace}
+            "requires_workspace": requires_workspace,
+            "resource_class": resource_class}
 
 
 def _obj(required, **props):
@@ -255,15 +256,15 @@ TOOLS = [
     _t("search_docs", _search_docs, _r_docs,
        _obj(["query"], query={**_S, "description": "Search terms."}),
        "Search a small built-in document set. Demo data, not a real index.",
-       "Use search_docs to look up a topic before answering."),
+       "Use search_docs to look up a topic before answering.", resource_class="cpu_tool"),
     _t("mock_order_lookup", _mock_order_lookup, _r_json,
        _obj(["order_id"], order_id={**_S, "description": "Order id."}),
        "Look up an order in a fixed demo dataset. Not a real integration.",
-       "Use mock_order_lookup when the user asks about an order."),
+       "Use mock_order_lookup when the user asks about an order.", resource_class="cpu_tool"),
     _t("echo", _echo, _r_echo,
        _obj(["text"], text={**_S, "description": "Text to return."}),
        "Return the input unchanged. Useful for testing a graph.",
-       "Use echo only for testing."),
+       "Use echo only for testing.", resource_class="cpu_tool"),
 
     # ── 승인 필요 ──
     _t("write_file", _write_file, _r_write,
@@ -287,7 +288,7 @@ TOOLS = [
        "Run a shell command in the working directory.",
        "Check the [exit code: N] on every result. "
        "A non-zero code means it failed — investigate before continuing.",
-       needs_approval=True, requires_workspace=True),
+       needs_approval=True, requires_workspace=True, resource_class="cpu_tool"),
 ]
 
 REGISTRY: dict[str, dict] = {t["name"]: t for t in TOOLS}
@@ -336,6 +337,13 @@ def dispatch(
         return {"error": f"{type(e).__name__}: {e}"}
 
 
+def resource_class_for(name: str, registry: dict | None = None) -> str:
+    """Return the scheduler resource class declared by a tool."""
+    reg = registry or REGISTRY
+    tool = reg.get(name)
+    return str((tool or {}).get("resource_class") or "io_tool")
+
+
 def render(name: str, value: dict, registry: dict | None = None) -> str:
     """모델에게 보낼 텍스트. 여기서만 자른다 — 원본 dict는 온전히 남는다."""
     reg = registry or REGISTRY
@@ -364,6 +372,7 @@ def listing() -> list[dict]:
     return [{"name": t["name"], "description": t["description"],
              "needs_approval": t["needs_approval"],
              "requires_workspace": t["requires_workspace"],
+             "resource_class": t["resource_class"],
              "params": list(t["schema"]["properties"])}
             for t in sorted(TOOLS, key=lambda t: (t["needs_approval"], t["name"]))]
 

@@ -14,4 +14,6 @@ out/
 /janus_server/janus_server/workspace/
 # 실행 기록 — 로컬 산출물, 커밋 안 함
 /janus_server/janus_server/runs/
+# R3 TaskSuite의 실행별 workspace/trace는 로컬 진단용이다. 공개 저장소에는 집계만 둔다.
+/janus_server/artifacts/r3/**/runs/
 /.serena/

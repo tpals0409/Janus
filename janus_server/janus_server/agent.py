@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 import uuid
@@ -18,10 +19,15 @@ from typing import Callable
 from openai import OpenAI
 
 from . import tools as T
+from . import budget as budget_mod
+from . import scheduler as scheduler_mod
 from .workspace import WorkspaceContext
 
 DEFAULT_MAX_STEPS = 15
 CIRCUIT_BREAK = 3  # 같은 도구가 연속 N회 실패하면 중단
+DEFAULT_CONTEXT_MAX_CHARS = 24_000
+DEFAULT_CONTEXT_RECENT_BLOCKS = 8
+MAX_PROJECT_SUMMARY_CHARS = 4_000
 
 
 class Session:
@@ -31,30 +37,150 @@ class Session:
     tool_result 이벤트는 도구가 반환한 dict 원본을 그대로 보관한다.
     """
 
-    def __init__(self, system_prompt: str, registry: dict | None = None):
+    def __init__(self, system_prompt: str, registry: dict | None = None, *,
+                 context_max_chars: int | None = DEFAULT_CONTEXT_MAX_CHARS,
+                 context_recent_blocks: int = DEFAULT_CONTEXT_RECENT_BLOCKS):
         self.system_prompt = system_prompt
         self.events: list[dict] = []
         self.registry = registry  # 실행별 도구(create_worker 등)의 렌더러를 찾기 위해
+        self.context_max_chars = context_max_chars
+        self.context_recent_blocks = max(1, int(context_recent_blocks))
+        self.context_stats: dict = {}
+        self._last_prefix_hash: str | None = None
 
     def append(self, kind: str, **data):
         self.events.append({"kind": kind, **data})
 
-    def derive_messages(self) -> list[dict]:
-        msgs = [{"role": "system", "content": self.system_prompt}]
+    def _event_blocks(self) -> list[list[dict]]:
+        """assistant와 뒤따르는 tool result를 한 블록으로 묶는다.
+
+        압축 경계가 tool call/result 쌍을 찢으면 OpenAI 호환 서버가 요청을
+        거부한다. 그래서 단순히 마지막 N개 message를 자르지 않는다.
+        """
+        blocks: list[list[dict]] = []
         for e in self.events:
             if e["kind"] == "user":
-                msgs.append({"role": "user", "content": e["content"]})
+                blocks.append([{"role": "user", "content": e["content"]}])
             elif e["kind"] == "assistant":
                 m = {"role": "assistant", "content": e.get("content") or ""}
                 if e.get("tool_calls"):
                     m["tool_calls"] = e["tool_calls"]
-                msgs.append(m)
+                blocks.append([m])
             elif e["kind"] == "tool_result":
                 # 원본 dict는 e["value"]에 남고, 모델에겐 렌더링된 텍스트만 보낸다
-                msgs.append({"role": "tool", "tool_call_id": e["tool_call_id"],
-                             "content": T.render(e["name"], e["value"],
-                                                 registry=self.registry)})
-        return msgs
+                message = {
+                    "role": "tool", "tool_call_id": e["tool_call_id"],
+                    "content": T.render(e["name"], e["value"], registry=self.registry),
+                }
+                if blocks and blocks[-1][0]["role"] == "assistant":
+                    blocks[-1].append(message)
+                else:  # 손상된/legacy 로그도 전송 가능한 형태로 보존
+                    blocks.append([message])
+        return blocks
+
+    @staticmethod
+    def _chars(messages: list[dict]) -> int:
+        return len(json.dumps(messages, ensure_ascii=False, separators=(",", ":")))
+
+    @staticmethod
+    def _brief(value: str, limit: int = 240) -> str:
+        value = " ".join(str(value).split())
+        return value if len(value) <= limit else value[:limit] + "…"
+
+    def _project_summary(self, blocks: list[list[dict]]) -> str:
+        """이전 대화를 재생하지 않고 목표·결정·도구 결과만 압축한다."""
+        lines: list[str] = []
+        for block in blocks:
+            for message in block:
+                role = message["role"]
+                content = self._brief(message.get("content") or "")
+                if role == "user" and content:
+                    lines.append(f"Objective/request: {content}")
+                elif role == "assistant":
+                    if content:
+                        lines.append(f"Agent result/decision: {content}")
+                    names = [
+                        call.get("function", {}).get("name", "tool")
+                        for call in message.get("tool_calls") or []
+                    ]
+                    if names:
+                        lines.append("Tools called: " + ", ".join(names))
+                elif role == "tool" and content:
+                    lines.append(f"Tool result: {content}")
+        summary = "\n".join(lines)
+        if len(summary) > MAX_PROJECT_SUMMARY_CHARS:
+            # 최초 objective와 최근 결정/결과를 함께 남긴다. 앞부분만 자르면
+            # 현재 작업으로 이어지는 최신 상태가 사라진다.
+            head = lines[0] if lines else ""
+            remaining = MAX_PROJECT_SUMMARY_CHARS - len(head) - 2
+            tail: list[str] = []
+            for line in reversed(lines[1:]):
+                if len(line) + 1 > remaining:
+                    break
+                tail.append(line)
+                remaining -= len(line) + 1
+            summary = head + "\n…\n" + "\n".join(reversed(tail))
+        return summary or "Earlier session activity omitted; no durable result was recorded."
+
+    def derive_messages(self, *, compact: bool = True) -> list[dict]:
+        system = {"role": "system", "content": self.system_prompt}
+        blocks = self._event_blocks()
+        full = [system, *(message for block in blocks for message in block)]
+        baseline_chars = self._chars(full)
+        omitted: list[list[dict]] = []
+        kept = blocks
+
+        max_chars = self.context_max_chars if compact else None
+        if max_chars is not None and baseline_chars > max_chars and len(blocks) > 1:
+            # 압축이 필요하다고 판정했으면 최소 한 블록은 실제로 요약한다.
+            split = max(1, len(blocks) - self.context_recent_blocks)
+            omitted = blocks[:split]
+            kept = blocks[split:]
+            while True:
+                summary = self._project_summary(omitted)
+                summary_message = {
+                    "role": "system",
+                    "content": "Project/session summary (older context):\n" + summary,
+                }
+                candidate = [
+                    system, summary_message,
+                    *(message for block in kept for message in block),
+                ]
+                if self._chars(candidate) <= max_chars or len(kept) <= 1:
+                    full = candidate
+                    break
+                omitted.append(kept.pop(0))
+
+        summary_content = (
+            full[1]["content"] if omitted and len(full) > 1 else ""
+        )
+        stable_prefix = self.system_prompt + "\n" + summary_content
+        prefix_hash = hashlib.sha256(stable_prefix.encode("utf-8")).hexdigest()[:16]
+        prefix_reused = self._last_prefix_hash == prefix_hash
+        if compact:
+            self._last_prefix_hash = prefix_hash
+        sent_chars = self._chars(full)
+        baseline_token_estimate = (baseline_chars + 3) // 4
+        sent_token_estimate = (sent_chars + 3) // 4
+        self.context_stats = {
+            "compacted": bool(omitted),
+            "baseline_messages": 1 + sum(len(block) for block in blocks),
+            "sent_messages": len(full),
+            "baseline_chars": baseline_chars,
+            "sent_chars": sent_chars,
+            "saved_chars": max(0, baseline_chars - sent_chars),
+            "baseline_token_estimate": baseline_token_estimate,
+            "sent_token_estimate": sent_token_estimate,
+            "saved_token_estimate": max(
+                0, baseline_token_estimate - sent_token_estimate
+            ),
+            "summary_chars": len(summary_content),
+            "omitted_blocks": len(omitted),
+            "prefix_hash": prefix_hash,
+            "prefix_reused": prefix_reused,
+            "cache_candidate_chars": len(stable_prefix),
+        }
+        return full
 
 
 def build_system_prompt(base: str, tool_names: list[str],
@@ -128,6 +254,10 @@ def run(
     cancel: threading.Event | None = None,
     extra_tools: list[dict] | None = None,
     session: Session | None = None,
+    scheduler: scheduler_mod.ResourceScheduler | None = None,
+    priority: int = 0,
+    queue_timeout: float | None = scheduler_mod.DEFAULT_QUEUE_TIMEOUT,
+    budget_trackers: list[budget_mod.BudgetTracker] | None = None,
 ) -> tuple[str, list[dict]]:
     """에이전트를 한 턴 돌린다.
 
@@ -152,14 +282,44 @@ def run(
     fail_streak: dict[str, int] = {}
     last_text = ""
     tok_prompt = tok_completion = 0
+    scheduler = scheduler or scheduler_mod.default_scheduler()
+    trackers = list(budget_trackers or [])
+    effective_cancel = budget_mod.BudgetCancel(cancel, trackers)
+    emitted_budget_reasons: set[str] = set()
+
+    def emit_budget_exhaustion() -> bool:
+        exhausted = False
+        for tracker in trackers:
+            reason = tracker.exhausted_reason
+            if reason is None:
+                continue
+            exhausted = True
+            if reason not in emitted_budget_reasons:
+                emitted_budget_reasons.add(reason)
+                emit("budget_exhausted", reason=reason, budget=tracker.snapshot())
+        return exhausted
 
     for step in range(max_steps):
         if cancel is not None and cancel.is_set():
             emit("done", reason="cancelled")
             return last_text, session.events
+        if not budget_mod.claim_step_all(trackers):
+            emit_budget_exhaustion()
+            emit("done", reason="budget_exhausted")
+            return last_text, session.events
 
         emit("step", n=step + 1)
         msgs = session.derive_messages()
+        context_stats = dict(session.context_stats)
+        emit("context_window", **context_stats)
+        emit(
+            "prompt_cache_probe",
+            prefix_hash=context_stats["prefix_hash"],
+            prefix_reused=context_stats["prefix_reused"],
+            cache_candidate_chars=context_stats["cache_candidate_chars"],
+            # 서버 cache hit을 주장하지 않는다. 안정 prefix 재사용 가능성만 계측한다.
+            mode="stable_prefix_probe",
+        )
         # 실제 전송분을 트레이스에. 매 step 전체를 실으면 스팬이 비대해지므로
         # 첫 step만 전체, 이후엔 직전 assistant/tool 응답 이후의 증분(마지막 2개)만.
         emit("llm_call", messages=msgs if step == 0 else msgs[-2:],
@@ -171,29 +331,68 @@ def run(
         generation_id = uuid.uuid4().hex[:16]
         emit("resource_queue_enter", resource="model_generation",
              operation_id=generation_id, step=step + 1)
-        # P2 scheduler 전에는 즉시 lease다. 같은 이벤트 계약을 먼저 남겨 baseline도
-        # 이후 scheduler 결과와 직접 비교할 수 있게 한다.
-        emit("resource_lease_acquired", resource="model_generation",
-             operation_id=generation_id, step=step + 1)
-        emit("model_generation_start", operation_id=generation_id, step=step + 1)
         try:
-            text, calls, usage = _assemble(
-                client.chat.completions.create(**kwargs), emit, cancel
+            generation_lease = scheduler.acquire(
+                scheduler_mod.ResourceClass.MODEL_GENERATION,
+                priority=priority,
+                owner_id=workspace_context.dispatch_id,
+                cancel=effective_cancel,
+                timeout=queue_timeout,
+                on_wait=lambda wait: emit(
+                    "resource_queue_wait", operation_id=generation_id,
+                    step=step + 1, **wait,
+                ),
             )
-        except Exception:
-            emit("model_generation_end", operation_id=generation_id,
-                 step=step + 1, status="error")
+        except scheduler_mod.LeaseCancelled:
+            emit("resource_queue_end", resource="model_generation",
+                 operation_id=generation_id, step=step + 1, status="cancelled")
+            budget_exhausted = emit_budget_exhaustion()
+            emit("done", reason="budget_exhausted" if budget_exhausted else "cancelled")
+            return last_text, session.events
+        except scheduler_mod.LeaseTimeout:
+            emit("resource_queue_end", resource="model_generation",
+                 operation_id=generation_id, step=step + 1, status="timeout")
             raise
-        else:
-            emit("model_generation_end", operation_id=generation_id,
-                 step=step + 1,
-                 status="cancelled" if cancel is not None and cancel.is_set()
-                 else "success")
+        except scheduler_mod.SchedulerClosed:
+            emit("resource_queue_end", resource="model_generation",
+                 operation_id=generation_id, step=step + 1, status="shutdown")
+            raise
+        except Exception:
+            emit("resource_queue_end", resource="model_generation",
+                 operation_id=generation_id, step=step + 1, status="error")
+            raise
+        with generation_lease:
+            emit("resource_lease_acquired", resource="model_generation",
+                 operation_id=generation_id, lease_id=generation_lease.id,
+                 step=step + 1)
+            emit("model_generation_start", operation_id=generation_id, step=step + 1)
+            try:
+                text, calls, usage = _assemble(
+                    client.chat.completions.create(**kwargs), emit, effective_cancel
+                )
+            except Exception:
+                emit("model_generation_end", operation_id=generation_id,
+                     step=step + 1, status="error")
+                raise
+            else:
+                emit("model_generation_end", operation_id=generation_id,
+                     step=step + 1,
+                     status=("cancelled" if cancel is not None and cancel.is_set()
+                             else "budget_exhausted" if emit_budget_exhaustion()
+                             else "success"))
         if usage:
             tok_prompt += usage["prompt_tokens"]
             tok_completion += usage["completion_tokens"]
             # step별 토큰 — 어느 step이 컨텍스트를 부풀려 느려지는지 보인다
             emit("usage", step=step + 1, **usage)
+            for tracker in trackers:
+                tracker.add_tokens(
+                    usage["prompt_tokens"], usage["completion_tokens"]
+                )
+
+        if emit_budget_exhaustion():
+            emit("done", reason="budget_exhausted")
+            return last_text, session.events
 
         if cancel is not None and cancel.is_set():
             emit("done", reason="cancelled")
@@ -215,27 +414,62 @@ def run(
             except json.JSONDecodeError as e:
                 return name, {"error": f"인자 JSON 파싱 실패: {e}"}
             operation_id = uuid.uuid4().hex[:16]
-            emit("resource_queue_enter", resource="tool", operation_id=operation_id,
+            resource_class = T.resource_class_for(name, registry=reg)
+            emit("resource_queue_enter", resource=resource_class, operation_id=operation_id,
                  tool=name, call_id=call["id"])
-            emit("resource_lease_acquired", resource="tool", operation_id=operation_id,
-                 tool=name, call_id=call["id"])
-            emit("tool_run_start", operation_id=operation_id, name=name,
-                 call_id=call["id"])
-            emit("tool_start", name=name, args=args, call_id=call["id"])
-            # 승인 강제는 모든 호출 경로가 공유하는 dispatch의 책임이다.
-            # 여기서 미리 검사하면 다른 호출 경로가 또 뚫린다.
             try:
-                value = T.dispatch(
-                    name, args, approve=approve, registry=reg,
-                    context=workspace_context,
+                tool_lease = scheduler.acquire(
+                    resource_class,
+                    priority=priority,
+                    owner_id=workspace_context.dispatch_id,
+                    cancel=effective_cancel,
+                    timeout=queue_timeout,
+                    on_wait=lambda wait: emit(
+                        "resource_queue_wait", operation_id=operation_id,
+                        tool=name, call_id=call["id"], **wait,
+                    ),
                 )
+            except scheduler_mod.LeaseCancelled:
+                emit("resource_queue_end", resource=resource_class,
+                     operation_id=operation_id, tool=name, call_id=call["id"],
+                     status="cancelled")
+                return name, {"error": "도구 resource lease 대기가 취소됨"}
+            except scheduler_mod.LeaseTimeout:
+                emit("resource_queue_end", resource=resource_class,
+                     operation_id=operation_id, tool=name, call_id=call["id"],
+                     status="timeout")
+                return name, {"error": f"도구 resource lease timeout({queue_timeout:g}s)"}
+            except scheduler_mod.SchedulerClosed:
+                emit("resource_queue_end", resource=resource_class,
+                     operation_id=operation_id, tool=name, call_id=call["id"],
+                     status="shutdown")
+                return name, {"error": "ResourceScheduler가 종료됨"}
             except Exception:
-                emit("tool_run_end", operation_id=operation_id, name=name,
-                     call_id=call["id"], status="error")
+                emit("resource_queue_end", resource=resource_class,
+                     operation_id=operation_id, tool=name, call_id=call["id"],
+                     status="error")
                 raise
-            emit("tool_run_end", operation_id=operation_id, name=name,
-                 call_id=call["id"],
-                 status="error" if "error" in value else "success")
+            with tool_lease:
+                emit("resource_lease_acquired", resource=resource_class,
+                     operation_id=operation_id, lease_id=tool_lease.id,
+                     tool=name, call_id=call["id"])
+                emit("tool_run_start", operation_id=operation_id, name=name,
+                     call_id=call["id"])
+                emit("tool_start", name=name, args=args, call_id=call["id"])
+                # 승인 강제는 모든 호출 경로가 공유하는 dispatch의 책임이다.
+                # 여기서 미리 검사하면 다른 호출 경로가 또 뚫린다.
+                try:
+                    value = T.dispatch(
+                        name, args, approve=approve, registry=reg,
+                        context=workspace_context,
+                    )
+                except Exception:
+                    emit("tool_run_end", operation_id=operation_id, name=name,
+                         call_id=call["id"], status="error")
+                    raise
+                emit("tool_run_end", operation_id=operation_id, name=name,
+                     call_id=call["id"],
+                     status="error" if "error" in value else "success")
             return name, value
 
         if len(calls) > 1:
@@ -273,5 +507,15 @@ def run(
             else:
                 fail_streak[name] = 0
 
-    emit("done", reason="max_steps")
+        if any(not tracker.available() for tracker in trackers):
+            emit_budget_exhaustion()
+            emit("done", reason="budget_exhausted")
+            return last_text, session.events
+
+    for tracker in trackers:
+        tracker.exhaust_if_step_limit_reached()
+    if emit_budget_exhaustion():
+        emit("done", reason="budget_exhausted")
+    else:
+        emit("done", reason="max_steps")
     return last_text, session.events

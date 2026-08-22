@@ -15,7 +15,7 @@ import sys
 import tempfile
 import threading
 import uuid
-from contextlib import suppress
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime
 from pathlib import Path
 
@@ -25,6 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from . import runtime
+from . import scheduler as scheduler_mod
 from . import domain as D
 from . import spec as S
 from . import tools as T
@@ -213,7 +214,30 @@ def _save_run(
         "telemetry": telemetry,
     }, ensure_ascii=False), encoding="utf-8")
 
-app = FastAPI(title="Janus", version="0.1.0")
+async def shutdown_local_resources(
+    scheduler: scheduler_mod.ResourceScheduler | None = None,
+    *,
+    timeout: float = 10.0,
+) -> bool:
+    """Cancel live Task runtimes and wait for acquired leases to be returned."""
+    with _TASK_RUNTIMES_LOCK:
+        runtimes = list(_TASK_RUNTIMES.values())
+    for orchestration in runtimes:
+        orchestration.cancel_all()
+    target = scheduler or scheduler_mod.default_scheduler()
+    target.close()
+    return await asyncio.to_thread(target.wait_for_idle, timeout)
+
+
+@asynccontextmanager
+async def app_lifespan(_app: FastAPI):
+    yield
+    idle = await shutdown_local_resources()
+    if not idle:
+        print("[janus] scheduler shutdown timed out with active leases", file=sys.stderr)
+
+
+app = FastAPI(title="Janus", version="0.1.0", lifespan=app_lifespan)
 
 
 @app.exception_handler(D.NotFound)
@@ -350,7 +374,9 @@ def create_task(project_id: str, body: dict):
 def get_task(task_id: str):
     task = get_domain_store().get_task(task_id)
     task["workspace"] = get_domain_store().get_task_workspace(task_id)
-    task["dispatches"] = get_domain_store().list_dispatches(task_id)
+    task["dispatches"] = [
+        _dispatch_json(item) for item in get_domain_store().list_dispatches(task_id)
+    ]
     return task
 
 
@@ -577,11 +603,23 @@ def delete_task_workspace_branch(task_id: str, body: dict):
 
 
 def _agent_profile_json(profile: dict) -> dict:
-    return {**profile, "tools": json.loads(profile["tools_json"])}
+    return {
+        **profile,
+        "tools": json.loads(profile["tools_json"]),
+        "budget": json.loads(profile["budget_json"]),
+    }
 
 
 def _model_profile_json(profile: dict) -> dict:
     return {**profile, "config": json.loads(profile["config_json"])}
+
+
+def _dispatch_json(dispatch: dict) -> dict:
+    return {
+        **dispatch,
+        "budget": json.loads(dispatch["budget_json"]),
+        "usage": json.loads(dispatch["usage_json"]),
+    }
 
 
 @app.get("/profiles/models")
@@ -596,29 +634,38 @@ def list_agent_profiles():
 
 @app.post("/profiles/agents")
 def create_agent_profile(body: dict):
-    profile = get_domain_store().create_agent_profile(
-        name=str(body.get("name") or ""),
-        description=str(body.get("description") or ""),
-        system_prompt=str(body.get("system_prompt") or ""),
-        tools=[str(item) for item in body.get("tools") or []],
-        approval=str(body.get("approval") or "ask"),
-        worker_policy=str(body.get("worker_policy") or "autonomous"),
-        max_steps=int(body.get("max_steps") or 15),
-        model_profile_id=str(body.get("model_profile_id") or "model_qwen38_27b_4bit"),
-    )
+    try:
+        profile = get_domain_store().create_agent_profile(
+            name=str(body.get("name") or ""),
+            description=str(body.get("description") or ""),
+            system_prompt=str(body.get("system_prompt") or ""),
+            tools=[str(item) for item in body.get("tools") or []],
+            approval=str(body.get("approval") or "ask"),
+            worker_policy=str(body.get("worker_policy") or "autonomous"),
+            max_steps=int(body.get("max_steps") or 15),
+            model_profile_id=str(body.get("model_profile_id") or "model_qwen38_27b_4bit"),
+            budget=body.get("budget") if isinstance(body.get("budget"), dict) else None,
+        )
+    except (TypeError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
     return _agent_profile_json(profile)
 
 
 @app.put("/profiles/agents/{profile_id}")
 def update_agent_profile(profile_id: str, body: dict):
-    profile = get_domain_store().update_agent_profile(profile_id, **body)
+    try:
+        profile = get_domain_store().update_agent_profile(profile_id, **body)
+    except (TypeError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
     return _agent_profile_json(profile)
 
 
 # ─────────────────────────── Task AgentSession runtime ───────────────────────────
 
 
-def _task_runtime_spec(store: D.DomainStore, agent_profile_id: str) -> dict:
+def _task_runtime_spec(
+    store: D.DomainStore, agent_profile_id: str, *, budget: dict | None = None,
+) -> dict:
     profile = _agent_profile_json(store.get_agent_profile(agent_profile_id))
     model = _model_profile_json(store.get_model_profile(profile["model_profile_id"]))
     return {
@@ -630,12 +677,13 @@ def _task_runtime_spec(store: D.DomainStore, agent_profile_id: str) -> dict:
         "approval": profile["approval"],
         "worker_policy": profile["worker_policy"],
         "max_steps": profile["max_steps"],
+        "budget": budget or profile["budget"],
     }
 
 
 def _task_session_detail(store: D.DomainStore, session_id: str) -> dict:
     session = store.get_session(session_id)
-    dispatch = store.get_dispatch(session["dispatch_id"])
+    dispatch = _dispatch_json(store.get_dispatch(session["dispatch_id"]))
     workspace = store.get_workspace(dispatch["workspace_id"])
     return {
         **session,
@@ -663,11 +711,20 @@ def start_task_session(task_id: str, body: dict):
     if workspace is None:
         raise D.Conflict("Task Workspace를 먼저 준비하세요")
     profile_id = str(body.get("agent_profile_id") or "agent_default")
-    execution = store.create_execution(
-        task_id=task_id,
-        workspace_id=workspace["id"],
-        agent_profile_id=profile_id,
-    )
+    try:
+        queue_override = {
+            key: int(body[source])
+            for key, source in (("priority", "priority"), ("timeout_ms", "queue_timeout_ms"))
+            if source in body
+        }
+        execution = store.create_execution(
+            task_id=task_id,
+            workspace_id=workspace["id"],
+            agent_profile_id=profile_id,
+            budget_override={"queue": queue_override} if queue_override else None,
+        )
+    except (TypeError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
     _cancel_live_task_runtimes(task_id)
     return _task_session_detail(store, execution["session"]["id"])
 
@@ -972,7 +1029,7 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
         session = store.get_session(session_id)
         if session["task_id"] != task_id:
             raise D.Conflict("AgentSession이 다른 Task에 속합니다")
-        dispatch = store.get_dispatch(session["dispatch_id"])
+        dispatch = _dispatch_json(store.get_dispatch(session["dispatch_id"]))
         latest = store.latest_dispatch(task_id)
         if latest is None or latest["id"] != dispatch["id"]:
             raise D.StaleDispatch(f"오래된 Dispatch의 Session입니다: {dispatch['id']}")
@@ -981,7 +1038,9 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
         workspace = store.get_workspace(dispatch["workspace_id"])
         if workspace["state"] != "ready" or not workspace["root_path"]:
             raise D.Conflict("ready Workspace가 있어야 Session을 실행할 수 있습니다")
-        spec = _task_runtime_spec(store, session["agent_profile_id"])
+        spec = _task_runtime_spec(
+            store, session["agent_profile_id"], budget=dispatch["budget"]
+        )
     except D.DomainError:
         await ws.close(code=1008)
         return
@@ -1109,6 +1168,8 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
                 workspace_context=context,
                 task_id=task_id,
                 session_id=session_id,
+                budget=spec["budget"],
+                budget_usage=dispatch["usage"],
             )
             orch.session.events = [dict(item) for item in transcript_events]
             with _TASK_RUNTIMES_LOCK:
@@ -1145,6 +1206,9 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
             send({"type": "run_start", "agent_profile_id": session["agent_profile_id"]})
             await asyncio.to_thread(current.turn, text, dispatch_id=dispatch["id"])
             persist_transcript(current)
+            if current.budget_exhausted_reason:
+                failure = f"budget exhausted: {current.budget_exhausted_reason}"
+                send({"type": "run_error", "error": failure})
         except D.StaleDispatch:
             stale_notified.set()
             if current is not None:
@@ -1168,6 +1232,13 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
             try:
                 if current is not None and len(current.session.events) > transcript_count:
                     persist_transcript(current)
+                if current is not None:
+                    budget_snapshot = current.snapshot_budget()
+                    store.record_dispatch_budget(
+                        dispatch["id"],
+                        usage=budget_snapshot["usage"],
+                        exhausted_reason=budget_snapshot["exhausted_reason"],
+                    )
                 persisted = store.get_session(session_id)
                 if stop_requested or persisted["status"] == "stopped":
                     if persisted["status"] != "stopped":

@@ -196,41 +196,69 @@
 
 ### 11. ResourceScheduler
 
-- [ ] `model_generation` 자원 클래스와 기본 1-slot
-- [ ] `cpu_tool`, `io_tool`, `verification` 자원 클래스
-- [ ] 우선순위 queue
-- [ ] starvation 방지
-- [ ] 자원별 concurrency cap
-- [ ] 모델 생성과 독립 tool/verification 병렬 timeline 검증
+발견된 분기·문제:
+
+- [x] 기존 병렬 worker 테스트가 model generation 동시 진입을 전제해 1-slot 계약으로 교정
+- [x] Task A가 model slot을 점유한 동안 Task B가 완료된다는 테스트를 queue 후 독립 재개로 교정
+- [x] 취소·scheduler 오류로 lease 획득 전 종료해도 queue interval이 닫히도록 `resource_queue_end` 추가
+
+- [x] `model_generation` 자원 클래스와 기본 1-slot
+- [x] `cpu_tool`, `io_tool`, `verification` 자원 클래스
+- [x] 우선순위 queue
+- [x] starvation 방지
+- [x] 자원별 concurrency cap
+- [x] 모델 생성과 독립 tool/verification 병렬 timeline 검증
 
 ### 12. ResourceLease
 
-- [ ] lease 획득·반환·timeout
-- [ ] queue 대기 원인 표시
-- [ ] 취소 시 자동 회수
-- [ ] 예외 시 자동 회수
-- [ ] 앱 종료 시 자동 회수
-- [ ] 모든 실패 테스트 후 활성 lease 0 확인
+발견된 분기·문제:
+
+- [x] scheduler 종료 시 카운터만 지우지 않고 active cancel → 실제 반환 → idle 대기 순서로 처리
+- [x] 종료 시 active lease뿐 아니라 queued waiter가 모두 빠질 때까지 drain
+- [x] FastAPI deprecated shutdown hook 대신 lifespan 계약으로 앱 종료 연결
+- [x] queue 대기를 `capacity_exhausted`와 `higher_priority_waiter`로 구분해 Task UI에 표시
+
+- [x] lease 획득·반환·timeout
+- [x] queue 대기 원인 표시
+- [x] 취소 시 자동 회수
+- [x] 예외 시 자동 회수
+- [x] 앱 종료 시 자동 회수
+- [x] 모든 실패 테스트 후 활성 lease 0 확인
 
 ### 13. 실행 Budget
 
-- [ ] Dispatch별 token/time/step budget
-- [ ] RuntimeWorker별 token/time/step budget
-- [ ] worker 총수와 동시 worker cap
-- [ ] queue deadline과 user priority
-- [ ] budget 소진 사유 기록
-- [ ] 한 Task 폭주가 다른 Task를 고갈시키지 않는 테스트
+발견된 분기·문제:
+
+- [x] AgentProfile 수정이 실행 중 attempt를 바꾸지 않도록 Dispatch 생성 시 budget snapshot 저장
+- [x] 멀티턴·재시작 후에도 누적 사용량이 이어지도록 Dispatch usage를 매 turn 영속화
+- [x] worker 요청 max_steps와 profile worker step limit 중 더 작은 값을 실제 worker budget으로 적용
+- [x] worker cap 거부는 전체 Dispatch budget 소진으로 오인하지 않고 해당 spawn만 거부
+
+- [x] Dispatch별 token/time/step budget
+- [x] RuntimeWorker별 token/time/step budget
+- [x] worker 총수와 동시 worker cap
+- [x] queue deadline과 user priority
+- [x] budget 소진 사유 기록
+- [x] 한 Task 폭주가 다른 Task를 고갈시키지 않는 테스트
 
 ### 14. Worker Backpressure와 Context 효율
 
-- [ ] queue와 자원 상태 기반 spawn 허용
-- [ ] 불필요한 worker 생성 억제
-- [ ] worker별 최소 context 전달
-- [ ] worker별 tool subset 유지
-- [ ] 결과 통합과 verifier 역할 분리
-- [ ] project summary와 session compaction
-- [ ] prompt/session cache 실험
-- [ ] acceptance 유지 + 입력 token 감소 검증
+발견된 분기·문제:
+
+- [x] message 수 기준 단순 절단이 assistant tool call과 tool result 쌍을 찢지 않도록 블록 단위 압축
+- [x] 같은 task라도 worker name·role·system·context·tool subset이 다르면 중복으로 오인하지 않도록 fingerprint 구성
+- [x] verifier가 요청한 쓰기 도구는 오케스트레이터 도구에 있어도 읽기 전용 교집합에서 제거
+- [x] prompt cache hit을 알 수 없는 MLX 경로에서 실제 hit로 표시하지 않고 stable-prefix 재사용 후보만 계측
+- [x] 샌드박스 Metal 차단 실패와 host 실모델 성공을 분리하고 owned process orphan 0 확인
+
+- [x] queue와 자원 상태 기반 spawn 허용
+- [x] 불필요한 worker 생성 억제
+- [x] worker별 최소 context 전달
+- [x] worker별 tool subset 유지
+- [x] 결과 통합과 verifier 역할 분리
+- [x] project summary와 session compaction
+- [x] prompt/session cache 실험
+- [x] acceptance 유지 + 입력 token 감소 검증
 
 ---
 
@@ -362,3 +390,10 @@
 - [x] P0-3 TaskSuite v0
 - [x] P0-4 현재 worker 정책 baseline
 - [x] P0-5 backend/model orphan 정리
+- [x] P1 Task/worktree/영속 AgentSession 기반
+- [x] P2-11 ResourceScheduler
+- [x] P2-12 ResourceLease 회수·timeout·대기 원인
+- [x] P2-13 Dispatch/RuntimeWorker 실행 Budget
+- [x] P2-14 Worker Backpressure와 Context 효율
+- [x] R3 TaskSuite scheduler/budget/backpressure 처리량 재측정
+- [ ] **R3 회귀 수정: Task 적합성 spawn gate와 실패 worker 결과 통합**

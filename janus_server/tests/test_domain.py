@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import tempfile
 import threading
@@ -159,6 +160,42 @@ class DomainStoreTests(unittest.TestCase):
         self.assertEqual(self.workspace["id"], reopened.get_task_workspace(self.task["id"])["id"])
         self.assertEqual(dispatch["id"], reopened.list_dispatches(self.task["id"])[0]["id"])
         self.assertEqual("resume", reopened.list_session_events(session["id"])[0]["payload"]["next"])
+
+    def test_dispatch_snapshots_profile_budget_and_persists_usage(self):
+        profile = self.store.create_agent_profile(
+            name="Budget", system_prompt="work", tools=[],
+            model_profile_id="model_qwen38_27b_4bit", max_steps=9,
+            budget={
+                "dispatch": {"token_limit": 99, "step_limit": 3},
+                "workers": {"total_limit": 2, "concurrent_limit": 1},
+            },
+        )
+        dispatch = self.store.create_dispatch(
+            task_id=self.task["id"], workspace_id=self.workspace["id"],
+            agent_profile_id=profile["id"],
+        )
+        snapshot = json.loads(dispatch["budget_json"])
+        self.assertEqual(99, snapshot["dispatch"]["token_limit"])
+        self.assertEqual(3, snapshot["dispatch"]["step_limit"])
+
+        self.store.update_agent_profile(
+            profile["id"], budget={"dispatch": {"token_limit": 1000}}
+        )
+        self.assertEqual(
+            99, json.loads(self.store.get_dispatch(dispatch["id"])["budget_json"])
+            ["dispatch"]["token_limit"]
+        )
+        usage = {
+            "prompt_tokens": 7, "completion_tokens": 2, "steps": 1,
+            "active_time_ms": 12.5, "workers_started": 0,
+            "peak_concurrent_workers": 0,
+        }
+        self.store.record_dispatch_budget(
+            dispatch["id"], usage=usage, exhausted_reason="dispatch:token_limit"
+        )
+        reopened = DomainStore(self.db_path).get_dispatch(dispatch["id"])
+        self.assertEqual(usage, json.loads(reopened["usage_json"]))
+        self.assertEqual("dispatch:token_limit", reopened["budget_exhausted_reason"])
 
 
 if __name__ == "__main__":

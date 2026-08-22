@@ -25,7 +25,7 @@ if str(PROJECT_DIR) not in sys.path:
 from janus_server import runtime  # noqa: E402
 from janus_server import verification  # noqa: E402
 from janus_server.workspace import WorkspaceContext  # noqa: E402
-from p0_smoke_27b import ModelServer, SmokeFailure  # noqa: E402
+from scripts.p0_smoke_27b import ModelServer, SmokeFailure  # noqa: E402
 
 POLICIES = ("none", "fixed_one", "autonomous")
 IGNORED_PARTS = {"__pycache__", ".pytest_cache", ".git"}
@@ -52,9 +52,12 @@ def changed_files(before: dict[str, str], after: dict[str, str]) -> list[str]:
 
 SEMANTIC_EVENT_KINDS = {
     "resource_queue_enter", "resource_lease_acquired",
+    "resource_queue_wait", "resource_queue_end",
     "model_generation_start", "model_generation_end",
     "tool_run_start", "tool_run_end", "tool_start", "tool_result",
     "verification_start", "verification_end", "usage", "done",
+    "context_window", "prompt_cache_probe", "worker_context_prepared",
+    "worker_spawn_suppressed", "worker_result_reused", "budget_exhausted",
 }
 
 
@@ -86,6 +89,35 @@ def aggregate_run_result(result: dict) -> dict:
     return {
         key: value for key, value in result.items()
         if key not in {"telemetry", "spans", "reply"}
+    }
+
+
+def efficiency_summary(telemetry: dict) -> dict:
+    events = telemetry.get("events") or []
+    windows = [event for event in events if event.get("kind") == "context_window"]
+    probes = [event for event in events if event.get("kind") == "prompt_cache_probe"]
+    suppressed = [
+        event for event in events if event.get("kind") == "worker_spawn_suppressed"
+    ]
+    reasons: dict[str, int] = {}
+    for event in suppressed:
+        reason = str(event.get("reason") or "unknown")
+        reasons[reason] = reasons.get(reason, 0) + 1
+    return {
+        "llm_calls": len(windows),
+        "baseline_input_chars": sum(int(e.get("baseline_chars", 0)) for e in windows),
+        "sent_input_chars": sum(int(e.get("sent_chars", 0)) for e in windows),
+        "saved_input_chars": sum(int(e.get("saved_chars", 0)) for e in windows),
+        "saved_token_estimate": sum(
+            int(e.get("saved_token_estimate", 0)) for e in windows
+        ),
+        "compacted_calls": sum(bool(e.get("compacted")) for e in windows),
+        "stable_prefix_reuses": sum(bool(e.get("prefix_reused")) for e in probes),
+        "worker_spawn_suppressions": len(suppressed),
+        "worker_spawn_suppression_reasons": reasons,
+        "worker_result_reuses": sum(
+            event.get("kind") == "worker_result_reused" for event in events
+        ),
     }
 
 
@@ -250,6 +282,9 @@ def run_once(task: dict, policy: str, repeat: int, run_dir: Path, timeout: float
         "user_inputs": 1,
         "reply": orch.last_text,
         "tokens": telemetry["tokens"],
+        "budget": orch.snapshot_budget(),
+        "timing_ms": telemetry.get("totals_ms") or {},
+        "efficiency": efficiency_summary(telemetry),
         "telemetry": telemetry,
         "spans": compact_spans(orch.snapshot_spans()),
     }
@@ -281,6 +316,16 @@ def summarize(runs: list[dict]) -> list[dict]:
                 statistics.mean(run["approval_requests"] for run in group), 1
             ),
             "worker_count_mean": round(statistics.mean(run["worker_count"] for run in group), 1),
+            "queue_ms_mean": round(statistics.mean(
+                run.get("timing_ms", {}).get("resource_queue", 0) for run in group
+            ), 3),
+            "saved_token_estimate_mean": round(statistics.mean(
+                run.get("efficiency", {}).get("saved_token_estimate", 0) for run in group
+            ), 1),
+            "spawn_suppressions": sum(
+                run.get("efficiency", {}).get("worker_spawn_suppressions", 0)
+                for run in group
+            ),
         })
     return rows
 
@@ -298,10 +343,10 @@ def write_summary(output_dir: Path, report: dict) -> None:
         writer.writeheader()
         writer.writerows(rows)
     lines = [
-        "# TaskSuite v0 baseline",
+        f"# TaskSuite v0 — {report.get('label', 'result')}",
         "",
-        "| Task | Policy | Success | Policy | Wall mean ± σ (s) | Prompt / Completion tok | Approvals | Workers |",
-        "|---|---|---:|---:|---:|---:|---:|---:|",
+        "| Task | Policy | Success | Policy | Wall mean ± σ (s) | Prompt / Completion tok | Queue ms | Saved tok est. | Suppress | Workers |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in rows:
         lines.append(
@@ -310,7 +355,8 @@ def write_summary(output_dir: Path, report: dict) -> None:
             f"{row['policy_conformant_runs']}/{row['runs']} | "
             f"{row['wall_mean_ms'] / 1000:.2f} ± {row['wall_stdev_ms'] / 1000:.2f} | "
             f"{row['prompt_tokens_mean']:.1f} / {row['completion_tokens_mean']:.1f} | "
-            f"{row['approval_requests_mean']:.1f} | {row['worker_count_mean']:.1f} |"
+            f"{row['queue_ms_mean']:.1f} | {row['saved_token_estimate_mean']:.1f} | "
+            f"{row['spawn_suppressions']} | {row['worker_count_mean']:.1f} |"
         )
     lines.extend([
         "",
@@ -349,6 +395,7 @@ def main() -> int:
     parser.add_argument("--tasks", nargs="+", default=[task["id"] for task in manifest["tasks"]])
     parser.add_argument("--turn-timeout", type=float, default=180)
     parser.add_argument("--model-startup-timeout", type=float, default=240)
+    parser.add_argument("--label", default="candidate")
     parser.add_argument(
         "--output-dir", type=Path,
         default=PROJECT_DIR / "artifacts" / "p0" / "tasksuite" /
@@ -366,6 +413,7 @@ def main() -> int:
     report = {
         "schema_version": 1,
         "suite": manifest["suite"],
+        "label": args.label,
         "started_at": utc_now(),
         "status": "running",
         "conditions": {
@@ -377,6 +425,13 @@ def main() -> int:
             "repeats": args.repeats,
             "policies": args.policies,
             "tasks": [task["id"] for task in tasks],
+            "workspace_execution": (
+                "sequential for R1 comparability; immutable WorkspaceContext isolated"
+            ),
+            "runtime_features": [
+                "resource_scheduler", "resource_lease", "dispatch_worker_budget",
+                "worker_backpressure", "session_compaction",
+            ],
         },
         "model_server": {},
         "runs": [],

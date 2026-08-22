@@ -149,7 +149,7 @@ interface State {
   clearTaskError(): void
   loadLatestTaskSession(): Promise<void>
   selectAgentProfile(id: string): void
-  startTaskSession(): Promise<void>
+  startTaskSession(options?: { priority?: number; queue_timeout_ms?: number }): Promise<void>
   resumeTaskSession(): Promise<void>
   connectTaskSession(session: AgentSessionDetail): void
   sendTaskMessage(text: string): void
@@ -589,7 +589,7 @@ export const useStore = create<State>((set, get) => ({
     set({ selectedAgentProfileId: id })
   },
 
-  async startTaskSession() {
+  async startTaskSession(options) {
     const { taskId, selectedAgentProfileId } = get()
     if (!taskId) return
     set({ taskBusy: true, taskRuntimeError: null })
@@ -597,7 +597,7 @@ export const useStore = create<State>((set, get) => ({
       const session = (await apiJson(`${BASE}/tasks/${taskId}/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agent_profile_id: selectedAgentProfileId })
+        body: JSON.stringify({ agent_profile_id: selectedAgentProfileId, ...options })
       })) as AgentSessionDetail
       set({ taskSession: session, taskSessionEvents: session.events })
       get().connectTaskSession(session)

@@ -40,10 +40,12 @@ class ExecutionTelemetry:
     """
 
     _PAIRS = {
-        "resource_queue_enter": ("resource_queue", "resource_lease_acquired"),
-        "model_generation_start": ("model_generation", "model_generation_end"),
-        "tool_run_start": ("tool_run", "tool_run_end"),
-        "verification_start": ("verification", "verification_end"),
+        "resource_queue_enter": (
+            "resource_queue", {"resource_lease_acquired", "resource_queue_end"}
+        ),
+        "model_generation_start": ("model_generation", {"model_generation_end"}),
+        "tool_run_start": ("tool_run", {"tool_run_end"}),
+        "verification_start": ("verification", {"verification_end"}),
     }
 
     def __init__(
@@ -162,8 +164,8 @@ class ExecutionTelemetry:
                 category, _ = pair
                 self._open[(category, operation_id)] = (now, dict(event))
             elif operation_id:
-                for start_kind, (category, end_kind) in self._PAIRS.items():
-                    if kind != end_kind:
+                for start_kind, (category, end_kinds) in self._PAIRS.items():
+                    if kind not in end_kinds:
                         continue
                     opened = self._open.pop((category, operation_id), None)
                     if opened is not None:
