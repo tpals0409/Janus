@@ -77,6 +77,32 @@ export interface Dispatch {
   budget: ExecutionBudget
   usage: BudgetUsage
   budget_exhausted_reason: string | null
+  adaptive_decision: AdaptiveDecision
+}
+
+export interface AdaptiveDecision {
+  version?: number
+  task_class?: 'single_file_bug' | 'multi_file_refactor' | 'investigation' | 'test_heavy' | 'general'
+  task_signals?: string[]
+  scheduler?: {
+    closed: boolean
+    model_generation: { cap: number; active: number; queued: number; free: number }
+  }
+  effective?: {
+    worker_policy: 'none' | 'fixed_one' | 'autonomous'
+    worker_roles: Array<'implementer' | 'researcher' | 'verifier'>
+    worker_role_sequence: Array<'implementer' | 'researcher' | 'verifier'>
+    allow_autonomous_workers: boolean
+    budget: ExecutionBudget
+  }
+  retry?: {
+    previous_dispatch_id: string | null
+    failure_type: string | null
+    evidence: string | null
+    strategy: string
+    allowed: boolean
+  }
+  reasons?: string[]
 }
 
 export interface ExecutionBudget {

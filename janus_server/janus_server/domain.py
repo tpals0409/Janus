@@ -17,7 +17,7 @@ from typing import Any
 
 from .budget import empty_usage, merge_budget, normalize_budget
 
-CURRENT_SCHEMA_VERSION = 7
+CURRENT_SCHEMA_VERSION = 8
 
 TASK_STATUSES = frozenset({"todo", "preparing", "working", "needs_you", "review", "failed"})
 TASK_TRANSITIONS = {
@@ -322,9 +322,13 @@ CREATE INDEX idx_evaluation_experiments_created ON evaluation_experiments(create
 CREATE INDEX idx_evaluation_comparisons_created ON evaluation_comparisons(created_at DESC);
 """
 
+MIGRATION_8 = """
+ALTER TABLE dispatches ADD COLUMN adaptive_decision_json TEXT NOT NULL DEFAULT '{}';
+"""
+
 MIGRATIONS = {
     1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3, 4: MIGRATION_4,
-    5: MIGRATION_5, 6: MIGRATION_6, 7: MIGRATION_7,
+    5: MIGRATION_5, 6: MIGRATION_6, 7: MIGRATION_7, 8: MIGRATION_8,
 }
 
 
@@ -1094,7 +1098,7 @@ class DomainStore:
     def create_execution(
         self, *, task_id: str, workspace_id: str, agent_profile_id: str,
         dispatch_id: str | None = None, session_id: str | None = None,
-        budget_override: dict | None = None,
+        budget_override: dict | None = None, adaptive_decision: dict | None = None,
     ) -> dict:
         """Create one Dispatch attempt and its AgentSession atomically.
 
@@ -1161,13 +1165,13 @@ class DomainStore:
                 )
                 connection.execute(
                     "INSERT INTO dispatches(id,task_id,workspace_id,agent_profile_id,attempt,status,"
-                    "objective_snapshot,acceptance_snapshot,budget_json,usage_json,created_at) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    "objective_snapshot,acceptance_snapshot,budget_json,usage_json,"
+                    "adaptive_decision_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         dispatch_id, task_id, workspace_id, agent_profile_id, attempt, "queued",
                         task["objective"], task["acceptance_command"],
                         _json(dispatch_budget),
-                        _json(empty_usage()), now,
+                        _json(empty_usage()), _json(adaptive_decision or {}), now,
                     ),
                 )
                 connection.execute(

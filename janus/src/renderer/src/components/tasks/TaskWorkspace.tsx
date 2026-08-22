@@ -511,6 +511,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId)
   const budget = session?.dispatch.budget ?? selectedProfile?.budget
   const usage = session?.dispatch.usage
+  const adaptive = session?.dispatch.adaptive_decision
   const [priority, setPriority] = useState(selectedProfile?.budget.queue.priority ?? 0)
   const [queueTimeout, setQueueTimeout] = useState(
     Math.round((selectedProfile?.budget.queue.timeout_ms ?? 300000) / 1000)
@@ -650,6 +651,34 @@ function TaskRuntimeCard({ task }: { task: Task }) {
             <strong className="col-span-4 text-danger">
               EXHAUSTED · {session.dispatch.budget_exhausted_reason}
             </strong>
+          )}
+        </div>
+      )}
+
+      {adaptive?.effective && (
+        <div className="mt-3 rounded-md border border-[#8b5cf640] bg-[#8b5cf60a] px-3 py-2.5">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[9px] uppercase tracking-[0.08em]">
+            <span className="text-[#b9a7ff]">Adaptive · {adaptive.task_class?.replaceAll('_', ' ')}</span>
+            <span className="text-muted">policy {adaptive.effective.worker_policy}</span>
+            <span className="text-muted">
+              roles {adaptive.effective.worker_roles.length
+                ? adaptive.effective.worker_roles.join(' → ')
+                : 'parent only'}
+            </span>
+            <span className="text-muted">
+              slots {adaptive.scheduler?.model_generation.active ?? 0}/
+              {adaptive.scheduler?.model_generation.cap ?? 1} · queue {adaptive.scheduler?.model_generation.queued ?? 0}
+            </span>
+          </div>
+          {adaptive.retry?.failure_type && (
+            <div className="mt-2 flex items-center justify-between gap-3 border-t border-[#8b5cf626] pt-2 text-[10px]">
+              <span className="text-warn">
+                RETRY · {adaptive.retry.failure_type.replaceAll('_', ' ')} → {adaptive.retry.strategy.replaceAll('_', ' ')}
+              </span>
+              <span className="font-mono text-[9px] text-faint">
+                {adaptive.retry.allowed ? 'bounded retry' : 'manual only'}
+              </span>
+            </div>
           )}
         </div>
       )}

@@ -320,12 +320,12 @@
 
 ### 20. Adaptive Orchestration
 
-- [ ] Task 특성별 worker 전략
-- [ ] queue 상태 기반 fan-out
-- [ ] 동적 budget
-- [ ] 실패 유형별 retry
-- [ ] implementer/verifier 분리
-- [ ] baseline 대비 개선·악화 자동 판정
+- [x] Task 특성별 worker 전략
+- [x] queue 상태 기반 fan-out
+- [x] 동적 budget
+- [x] 실패 유형별 retry
+- [x] implementer/verifier 분리
+- [x] baseline 대비 개선·악화 자동 판정
 
 ### 21. 운영 Dashboard
 

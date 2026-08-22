@@ -11,7 +11,8 @@
 ## 현재 판정
 
 **측정 가능한 로컬 runtime(R1/P0), ADE 작업 경계(R2/P1), 자원 효율 엔진
-(R3/P2), Git-derived ChangeSet·Verification·Review·Ship(R4/P3)까지 완료됐다. Janus는
+(R3/P2), Git-derived ChangeSet·Verification·Review·Ship(R4/P3), Evaluation Lab과
+Adaptive Orchestration(R5/P4-20)까지 완료됐다. Janus는
 이제 Task 생성부터 격리 worktree 실행, 독립 검증, revision-aware review, Task branch
 commit/push 또는 명시적 cherry-pick handoff까지 앱 안에서 연결한다.**
 
@@ -79,15 +80,18 @@ Task UI와 영속 runtime의 분리는 해소됐다. 계측용이던 queue/lease
 ResourceScheduler의 실제 실행 권한과 연결됐다. lease는 timeout·취소·예외·앱 종료에서
 실제 반환을 기다리며 queue 원인이 Task 화면에 표시된다. Dispatch/RuntimeWorker별
 token·time·step 한도와 worker cap도 강제된다. queue 상태와 단일 model slot 비용을 worker
-정책에 반영했고 실제 TaskSuite로 재측정했다. P3 ADE loop까지 완성된 현재 다음
-제품 공백은 고정 TaskSuite에서 AgentProfile·prompt·budget·worker policy를 자동 비교하는
-P4 Evaluation Lab과 Adaptive Orchestration이다.
+정책에 반영했고 실제 TaskSuite로 재측정했다. Evaluation Lab은 고정 TaskSuite에서
+AgentProfile·prompt·budget·worker policy를 반복 비교하고 acceptance regression을 자동
+판정한다. Task 실행은 분류·model queue·직전 실패에 따라 worker 역할 순서와 fan-out,
+Dispatch budget을 결정하고 그 근거를 Dispatch에 불변 스냅샷으로 남긴다. 현재 다음 제품
+공백은 평가에서 선택한 프로필의 기본값 승격과 10개 Task를 한 화면에서 감독하는 운영
+Dashboard다.
 
 ## 현재 검증
 
 2026-08-22 현재 체크아웃에서 직접 확인:
 
-- Python 테스트 105개 통과
+- Python 테스트 111개 통과
 - Node lifecycle 테스트 7개 통과(실제 분리 프로세스 그룹 3회 start/stop 포함)
 - 도구 자체 검사 통과
 - 오케스트레이터 spec 검사 통과

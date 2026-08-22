@@ -221,6 +221,29 @@ class TaskRuntimeTests(unittest.TestCase):
         persisted = self.store.get_session(detail["id"])
         self.assertEqual(profile["id"], persisted["agent_profile_id"])
 
+    def test_adaptive_decision_is_persisted_and_drives_runtime_spec(self):
+        task = self.create_ready_task("Investigate cache invalidation cause")
+        response = self.client.post(
+            f"/tasks/{task['id']}/sessions",
+            headers=self.headers,
+            json={"agent_profile_id": "agent_default"},
+        )
+        self.assertEqual(200, response.status_code, response.text)
+        dispatch = response.json()["dispatch"]
+        decision = dispatch["adaptive_decision"]
+        self.assertEqual("investigation", decision["task_class"])
+        self.assertEqual("fixed_one", decision["effective"]["worker_policy"])
+        self.assertEqual(["researcher"], decision["effective"]["worker_roles"])
+        self.assertEqual(decision["effective"]["budget"], dispatch["budget"])
+
+        spec = server._task_runtime_spec(
+            self.store, "agent_default", budget=dispatch["budget"],
+            adaptive_decision=decision,
+        )
+        self.assertEqual("fixed_one", spec["worker_policy"])
+        self.assertEqual(["researcher"], spec["worker_roles"])
+        self.assertEqual(["researcher"], spec["worker_role_sequence"])
+
     def test_dispatch_step_budget_exhaustion_is_persisted_and_fails_only_attempt(self):
         task = self.create_ready_task("Budgeted")
         other_task = self.create_ready_task("Unaffected")

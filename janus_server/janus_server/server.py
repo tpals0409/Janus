@@ -28,6 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.responses import Response
 
+from . import adaptive
 from . import runtime
 from . import scheduler as scheduler_mod
 from . import domain as D
@@ -1280,6 +1281,7 @@ def _dispatch_json(dispatch: dict) -> dict:
         **dispatch,
         "budget": json.loads(dispatch["budget_json"]),
         "usage": json.loads(dispatch["usage_json"]),
+        "adaptive_decision": json.loads(dispatch.get("adaptive_decision_json") or "{}"),
     }
 
 
@@ -1326,9 +1328,12 @@ def update_agent_profile(profile_id: str, body: dict):
 
 def _task_runtime_spec(
     store: D.DomainStore, agent_profile_id: str, *, budget: dict | None = None,
+    adaptive_decision: dict | None = None,
 ) -> dict:
     profile = _agent_profile_json(store.get_agent_profile(agent_profile_id))
     model = _model_profile_json(store.get_model_profile(profile["model_profile_id"]))
+    decision = adaptive_decision or {}
+    effective = decision.get("effective") or {}
     return {
         "name": profile["name"],
         "description": profile["description"],
@@ -1336,7 +1341,10 @@ def _task_runtime_spec(
         "system_prompt": profile["system_prompt"],
         "tools": profile["tools"],
         "approval": profile["approval"],
-        "worker_policy": profile["worker_policy"],
+        "worker_policy": effective.get("worker_policy", profile["worker_policy"]),
+        "worker_roles": effective.get("worker_roles", ["implementer", "researcher", "verifier"]),
+        "worker_role_sequence": effective.get("worker_role_sequence", []),
+        "allow_autonomous_workers": bool(effective.get("allow_autonomous_workers", False)),
         "max_steps": profile["max_steps"],
         "budget": budget or profile["budget"],
     }
@@ -1373,16 +1381,33 @@ def start_task_session(task_id: str, body: dict):
         raise D.Conflict("Task Workspace를 먼저 준비하세요")
     profile_id = str(body.get("agent_profile_id") or "agent_default")
     try:
+        task = store.get_task(task_id)
+        profile = _agent_profile_json(store.get_agent_profile(profile_id))
+        previous = store.latest_dispatch(task_id)
+        decision = adaptive.decide(
+            task=task,
+            base_profile=profile,
+            scheduler_snapshot=scheduler_mod.default_scheduler().snapshot(),
+            previous_dispatch=previous,
+            verification_runs=store.list_verification_runs(task_id),
+        )
         queue_override = {
             key: int(body[source])
             for key, source in (("priority", "priority"), ("timeout_ms", "queue_timeout_ms"))
             if source in body
         }
+        effective_budget = decision["effective"]["budget"]
+        if queue_override:
+            effective_budget = D.merge_budget(
+                effective_budget, {"queue": queue_override}
+            )
+            decision["effective"]["budget"] = effective_budget
         execution = store.create_execution(
             task_id=task_id,
             workspace_id=workspace["id"],
             agent_profile_id=profile_id,
-            budget_override={"queue": queue_override} if queue_override else None,
+            budget_override=effective_budget,
+            adaptive_decision=decision,
         )
     except (TypeError, ValueError) as error:
         raise HTTPException(400, str(error)) from error
@@ -1700,7 +1725,8 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
         if workspace["state"] != "ready" or not workspace["root_path"]:
             raise D.Conflict("ready Workspace가 있어야 Session을 실행할 수 있습니다")
         spec = _task_runtime_spec(
-            store, session["agent_profile_id"], budget=dispatch["budget"]
+            store, session["agent_profile_id"], budget=dispatch["budget"],
+            adaptive_decision=dispatch["adaptive_decision"],
         )
     except D.DomainError:
         await ws.close(code=1008)

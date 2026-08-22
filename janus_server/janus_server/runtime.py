@@ -211,6 +211,8 @@ class Orchestration:
         self.max_steps = spec.get("max_steps", 15)
         self.worker_policy = spec.get("worker_policy", "autonomous")
         self.allow_autonomous_workers = bool(spec.get("allow_autonomous_workers", False))
+        self.worker_roles = set(spec.get("worker_roles") or WORKER_ROLES)
+        self.worker_role_sequence = list(spec.get("worker_role_sequence") or [])
         self.worker_enabled = self.worker_policy != "none"
         if task_id is not None and task_id != workspace_context.task_id:
             raise ValueError("task_id와 WorkspaceContext.task_id가 다릅니다")
@@ -335,6 +337,12 @@ class Orchestration:
             requested_role = str(role).lower().strip()
             if requested_role not in WORKER_ROLES:
                 return {"error": f"알 수 없는 worker role: {requested_role}"}
+            if requested_role not in self.worker_roles:
+                return {
+                    "error": f"adaptive policy가 worker role을 허용하지 않습니다: {requested_role}",
+                    "reason": "worker_role_not_allowed",
+                    "allowed_roles": sorted(self.worker_roles),
+                }
             scheduler_state = self.scheduler.snapshot()
             model_state = scheduler_state["resources"][
                 scheduler_mod.ResourceClass.MODEL_GENERATION.value
@@ -345,6 +353,13 @@ class Orchestration:
                 int(self.budget["dispatch"]["step_limit"]),
                 scheduler_state,
             )
+            if self.worker_role_sequence:
+                expected = self.worker_role_sequence[
+                    min(self.worker_seq, len(self.worker_role_sequence) - 1)
+                ]
+                if expected in self.worker_roles and role != expected:
+                    role = expected
+                    role_adaptation = "adaptive_role_sequence"
             # 부분집합 규칙: 워커 도구 ⊆ 오케스트레이터의 spec.tools.
             # researcher/verifier는 결과를 수정하지 못하도록 읽기 전용 교집합만 받는다.
             requested_tools = list(dict.fromkeys(str(t) for t in (tools or [])))
