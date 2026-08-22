@@ -415,6 +415,61 @@ class WorkspaceService:
             "branch_name": status.get("branch_name"),
         }
 
+    def commit_changes(
+        self, *, repo_path: str | Path, root_path: str | Path, message: str,
+    ) -> dict:
+        repo = Path(self.validate_repo(repo_path, "HEAD")["repo_path"])
+        root = self._owned_root(root_path)
+        status = self.inspect(repo, root)
+        branch = str(status.get("branch_name") or "")
+        if not branch.startswith("janus/"):
+            raise UnsafeWorkspace(f"Janus Task branch가 아닙니다: {branch}")
+        if status["unmerged"]:
+            raise UnsafeWorkspace("unmerged 변경은 commit할 수 없습니다")
+        if not str(message).strip():
+            raise WorkspaceConflict("commit message가 필요합니다")
+        self._git(root, "add", "-A")
+        staged = self._git(root, "diff", "--cached", "--quiet", check=False)
+        if staged.returncode == 0:
+            raise WorkspaceConflict("commit할 변경이 없습니다")
+        if staged.returncode != 1:
+            raise WorkspaceServiceError("staged diff를 확인할 수 없습니다")
+        self._git(root, "commit", "-m", message.strip())
+        commit_sha = self._git(root, "rev-parse", "HEAD^{commit}").stdout.strip()
+        return {"commit_sha": commit_sha, "branch_name": branch, "message": message.strip()}
+
+    def push_branch(
+        self, *, repo_path: str | Path, root_path: str | Path, remote: str = "origin",
+    ) -> dict:
+        repo = Path(self.validate_repo(repo_path, "HEAD")["repo_path"])
+        root = self._owned_root(root_path)
+        status = self.inspect(repo, root)
+        branch = str(status.get("branch_name") or "")
+        if not branch.startswith("janus/"):
+            raise UnsafeWorkspace(f"Janus Task branch가 아닙니다: {branch}")
+        if status["dirty"]:
+            raise UnsafeWorkspace("commit되지 않은 변경이 있어 push할 수 없습니다")
+        remote_name = str(remote).strip()
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", remote_name):
+            raise WorkspaceConflict(f"안전하지 않은 remote 이름: {remote_name}")
+        if self._git(root, "remote", "get-url", remote_name, check=False).returncode != 0:
+            raise WorkspaceConflict(f"없는 Git remote: {remote_name}")
+        self._git(root, "push", "-u", remote_name, branch)
+        commit_sha = self._git(root, "rev-parse", "HEAD^{commit}").stdout.strip()
+        return {
+            "commit_sha": commit_sha, "branch_name": branch,
+            "remote": remote_name, "pushed": True,
+        }
+
+    def current_head(self, *, repo_path: str | Path, root_path: str | Path) -> dict:
+        repo = Path(self.validate_repo(repo_path, "HEAD")["repo_path"])
+        root = self._owned_root(root_path)
+        status = self.inspect(repo, root)
+        return {
+            "commit_sha": self._git(root, "rev-parse", "HEAD^{commit}").stdout.strip(),
+            "branch_name": status.get("branch_name"), "dirty": status["dirty"],
+        }
+
     def force_remove(self, *, repo_path: str | Path, root_path: str | Path) -> dict:
         repo = Path(self.validate_repo(repo_path, "HEAD")["repo_path"])
         root = self._owned_root(root_path)

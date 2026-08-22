@@ -11,6 +11,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import sys
 import tempfile
 import threading
@@ -808,6 +809,91 @@ def decide_task_review(task_id: str, body: dict):
         comment_ids=comment_ids, message=str(body.get("message") or ""),
     )
     return {"decision": recorded, "task": task}
+
+
+def _shipping_gate(task_id: str, revision: str) -> tuple[dict, dict, dict]:
+    task, workspace, changes = _review_snapshot(task_id)
+    if revision != changes["revision"]:
+        raise D.Conflict("ChangeSet revision이 바뀌었습니다. review를 다시 완료하세요")
+    if changes["unmerged"]:
+        raise D.Conflict("unmerged 변경은 shipping할 수 없습니다")
+    decisions = get_domain_store().list_review_decisions(task_id)
+    latest = decisions[-1] if decisions else None
+    if latest is None or latest["decision"] != "accept" or latest["revision"] != revision:
+        raise D.Conflict("현재 revision에 대한 accept review가 필요합니다")
+    return task, workspace, changes
+
+
+@app.get("/tasks/{task_id}/shipments")
+def list_task_shipments(task_id: str):
+    get_domain_store().get_task(task_id)
+    return get_domain_store().list_task_shipments(task_id)
+
+
+def _committed_shipment(task_id: str, workspace: dict) -> tuple[dict, dict]:
+    head = get_workspace_service().current_head(
+        repo_path=workspace["repo_path"], root_path=workspace["root_path"]
+    )
+    commits = [
+        item for item in get_domain_store().list_task_shipments(task_id)
+        if item["action"] == "commit" and item["status"] == "completed"
+    ]
+    latest = commits[-1] if commits else None
+    if latest is None or latest["commit_sha"] != head["commit_sha"]:
+        raise D.Conflict("Janus가 기록한 현재 commit이 있어야 handoff/push할 수 있습니다")
+    return latest, head
+
+
+@app.post("/tasks/{task_id}/ship/commit")
+def commit_task_changes(task_id: str, body: dict):
+    _task, workspace, changes = _shipping_gate(
+        task_id, str(body.get("revision") or "")
+    )
+    result = get_workspace_service().commit_changes(
+        repo_path=workspace["repo_path"], root_path=workspace["root_path"],
+        message=str(body.get("message") or ""),
+    )
+    shipment = get_domain_store().record_task_shipment(
+        task_id=task_id, action="commit", commit_sha=result["commit_sha"],
+        branch_name=result["branch_name"],
+    )
+    return {"result": result, "shipment": shipment}
+
+
+@app.post("/tasks/{task_id}/ship/push")
+def push_task_branch(task_id: str, body: dict):
+    _task, workspace, _changes = _review_snapshot(task_id)
+    _shipment, head = _committed_shipment(task_id, workspace)
+    current_sha = head["commit_sha"]
+    if str(body.get("confirm_commit_sha") or "") != current_sha:
+        raise D.Conflict("정확한 confirm_commit_sha가 필요합니다")
+    result = get_workspace_service().push_branch(
+        repo_path=workspace["repo_path"], root_path=workspace["root_path"],
+        remote=str(body.get("remote") or "origin"),
+    )
+    shipment = get_domain_store().record_task_shipment(
+        task_id=task_id, action="push", commit_sha=result["commit_sha"],
+        branch_name=result["branch_name"], remote=result["remote"],
+    )
+    return {"result": result, "shipment": shipment}
+
+
+@app.get("/tasks/{task_id}/ship/handoff")
+def task_ship_handoff(task_id: str):
+    _task, workspace, _changes = _review_snapshot(task_id)
+    _shipment, current = _committed_shipment(task_id, workspace)
+    head = current["commit_sha"]
+    repo = shlex.quote(str(workspace["repo_path"]))
+    branch = shlex.quote(str(workspace["branch_name"]))
+    sha = shlex.quote(head)
+    return {
+        "executed": False,
+        "commit_sha": head,
+        "branch_name": workspace["branch_name"],
+        "local_apply_command": f"git -C {repo} cherry-pick {sha}",
+        "push_command": f"git -C {repo} push origin {branch}",
+        "notice": "Janus did not modify the main checkout; run a handoff command explicitly.",
+    }
 
 
 def _workspace_for_removal(task_id: str, body: dict) -> dict:

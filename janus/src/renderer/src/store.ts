@@ -2,7 +2,8 @@ import { create } from 'zustand'
 import type {
   AgentEvent, AgentProfile, AgentSessionDetail, AgentSummary, ApprovalRequest, ChangeSet,
   BackendStatus, ModelProfile, Project, RunDetail, RunSummary, SessionEvent, Span,
-  ReviewSnapshot, Spec, Task, ToolInfo, TreeEntry, VerificationCommand, VerificationRun,
+  ReviewSnapshot, ShipHandoff, Spec, Task, TaskShipment, ToolInfo, TreeEntry,
+  VerificationCommand, VerificationRun,
   WorkspaceInspection
 } from './types'
 
@@ -81,6 +82,8 @@ interface State {
   verificationRuns: VerificationRun[]
   verificationBusy: boolean
   review: ReviewSnapshot | null
+  shipments: TaskShipment[]
+  shipHandoff: ShipHandoff | null
   taskBusy: boolean
   taskActionError: string | null
   taskSession: AgentSessionDetail | null
@@ -161,6 +164,10 @@ interface State {
     decision: 'accept' | 'request_changes' | 'discard'; message?: string
     confirm_workspace_id?: string; confirm_discard?: string
   }): Promise<void>
+  loadShipments(): Promise<void>
+  commitTask(message: string): Promise<void>
+  pushTask(remote?: string): Promise<void>
+  loadShipHandoff(): Promise<void>
   archiveWorkspace(force?: boolean): Promise<void>
   deleteWorkspaceBranch(): Promise<void>
   archiveSelectedTask(): Promise<void>
@@ -234,6 +241,8 @@ export const useStore = create<State>((set, get) => ({
   verificationRuns: [],
   verificationBusy: false,
   review: null,
+  shipments: [],
+  shipHandoff: null,
   taskBusy: false,
   taskActionError: null,
   taskSession: null,
@@ -372,6 +381,8 @@ export const useStore = create<State>((set, get) => ({
       changeSet: null,
       verificationRuns: [],
       review: null,
+      shipments: [],
+      shipHandoff: null,
       taskActionError: null
     })
     try {
@@ -395,6 +406,8 @@ export const useStore = create<State>((set, get) => ({
       changeSet: null,
       verificationRuns: [],
       review: null,
+      shipments: [],
+      shipHandoff: null,
       taskActionError: null,
       taskSession: null,
       taskSessionEvents: [],
@@ -411,6 +424,7 @@ export const useStore = create<State>((set, get) => ({
       await get().loadLatestTaskSession()
       await get().loadVerifications()
       if (task.workspace?.state === 'ready') await get().loadReview()
+      if (task.workspace?.state === 'ready') await get().loadShipments()
       if (task.workspace?.state === 'ready') await get().inspectWorkspace()
     } catch (error) {
       if (sequence === openTaskSequence) set({ taskActionError: errorMessage(error) })
@@ -651,6 +665,66 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
+  async loadShipments() {
+    const taskId = get().taskId
+    if (!taskId) return
+    try {
+      const shipments = await apiJson(`${BASE}/tasks/${taskId}/shipments`) as TaskShipment[]
+      if (get().taskId === taskId) set({ shipments })
+    } catch (error) {
+      if (get().taskId === taskId) set({ taskActionError: errorMessage(error) })
+    }
+  },
+
+  async commitTask(message) {
+    const taskId = get().taskId
+    const revision = get().changeSet?.revision
+    if (!taskId || !revision) return
+    set({ taskBusy: true, taskActionError: null })
+    try {
+      await apiJson(`${BASE}/tasks/${taskId}/ship/commit`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ revision, message })
+      })
+      await get().inspectWorkspace()
+      await get().loadShipments()
+      await get().loadShipHandoff()
+    } catch (error) {
+      set({ taskActionError: errorMessage(error) })
+    } finally {
+      set({ taskBusy: false })
+    }
+  },
+
+  async pushTask(remote = 'origin') {
+    const taskId = get().taskId
+    const commit = [...get().shipments].reverse().find((item) => item.action === 'commit')
+    if (!taskId || !commit) return
+    set({ taskBusy: true, taskActionError: null })
+    try {
+      await apiJson(`${BASE}/tasks/${taskId}/ship/push`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ remote, confirm_commit_sha: commit.commit_sha })
+      })
+      await get().loadShipments()
+    } catch (error) {
+      set({ taskActionError: errorMessage(error) })
+    } finally {
+      set({ taskBusy: false })
+    }
+  },
+
+  async loadShipHandoff() {
+    const taskId = get().taskId
+    if (!taskId) return
+    try {
+      const shipHandoff = await apiJson(`${BASE}/tasks/${taskId}/ship/handoff`) as ShipHandoff
+      if (get().taskId === taskId) set({ shipHandoff })
+    } catch (error) {
+      if (get().taskId === taskId) set({ taskActionError: errorMessage(error) })
+    }
+  },
+
   async archiveWorkspace(force = false) {
     const task = get().task
     const workspace = task?.workspace
@@ -665,7 +739,7 @@ export const useStore = create<State>((set, get) => ({
           body: JSON.stringify({ confirm_workspace_id: workspace.id })
         }
       )
-      set({ workspaceInspection: null, changeSet: null, verificationRuns: [], review: null })
+      set({ workspaceInspection: null, changeSet: null, verificationRuns: [], review: null, shipments: [], shipHandoff: null })
       await get().refreshSelectedTask()
     } catch (error) {
       set({ taskActionError: errorMessage(error) })
@@ -701,7 +775,7 @@ export const useStore = create<State>((set, get) => ({
     try {
       await apiJson(`${BASE}/tasks/${taskId}`, { method: 'DELETE' })
       const tasks = (await apiJson(`${BASE}/projects/${projectId}/tasks`)) as Task[]
-      set({ tasks, taskId: null, task: null, workspaceInspection: null, changeSet: null, verificationRuns: [], review: null })
+      set({ tasks, taskId: null, task: null, workspaceInspection: null, changeSet: null, verificationRuns: [], review: null, shipments: [], shipHandoff: null })
       if (tasks[0]) await get().selectTask(tasks[0].id)
     } catch (error) {
       set({ taskActionError: errorMessage(error) })

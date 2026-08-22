@@ -217,6 +217,27 @@ export interface ReviewSnapshot {
   decisions: ReviewDecision[]
 }
 
+export interface TaskShipment {
+  id: string
+  task_id: string
+  action: 'commit' | 'push'
+  commit_sha: string
+  branch_name: string
+  remote: string | null
+  status: 'completed' | 'failed'
+  error: string | null
+  created_at: string
+}
+
+export interface ShipHandoff {
+  executed: false
+  commit_sha: string
+  branch_name: string
+  local_apply_command: string
+  push_command: string
+  notice: string
+}
+
 /** 에이전트 = 오케스트레이터 1개의 평평한 설정. 워커는 런타임에 만들어져 트레이스에만 존재한다. */
 export interface Spec {
   name: string

@@ -272,38 +272,38 @@
 
 ### 15. Git ChangeSet
 
-- [ ] base ref 대비 committed/staged/unstaged/untracked 변경
-- [ ] 파일별 diff
-- [ ] rename/delete 표시
-- [ ] binary/large file 처리
-- [ ] Git에서 매번 파생하고 별도 진실 원천을 만들지 않음
+- [x] base ref 대비 committed/staged/unstaged/untracked 변경
+- [x] 파일별 diff
+- [x] rename/delete 표시
+- [x] binary/large file 처리
+- [x] Git에서 매번 파생하고 별도 진실 원천을 만들지 않음
 
 ### 16. Verification Runner
 
-- [ ] 프로젝트별 test/lint/typecheck 명령
-- [ ] exit code, duration, stdout/stderr 요약
-- [ ] agent 주장과 Janus 직접 검증 구분
-- [ ] 수동 재실행
-- [ ] verification concurrency 제한
-- [ ] 실패 결과를 성공으로 표시하지 않는 테스트
+- [x] 프로젝트별 test/lint/typecheck 명령
+- [x] exit code, duration, stdout/stderr 요약
+- [x] agent 주장과 Janus 직접 검증 구분
+- [x] 수동 재실행
+- [x] verification concurrency 제한
+- [x] 실패 결과를 성공으로 표시하지 않는 테스트
 
 ### 17. Review Loop
 
-- [ ] 파일·hunk 탐색
-- [ ] 라인 코멘트
-- [ ] 코멘트 일괄 revision 요청
-- [ ] unresolved/resolved 상태
-- [ ] accept/request changes/discard
-- [ ] revision 후 diff 갱신
-- [ ] 미병합 변경의 무확인 손실 방지
+- [x] 파일·hunk 탐색
+- [x] 라인 코멘트
+- [x] 코멘트 일괄 revision 요청
+- [x] unresolved/resolved 상태
+- [x] accept/request changes/discard
+- [x] revision 후 diff 갱신
+- [x] 미병합 변경의 무확인 손실 방지
 
 ### 18. 최소 출하
 
-- [ ] Janus에서 commit 생성
-- [ ] Task branch에 결과 보존
-- [ ] push 또는 local apply/cherry-pick 흐름
-- [ ] main checkout 자동 수정 금지
-- [ ] Task 생성 → 실행 → 검증 → 리뷰 → commit E2E 테스트
+- [x] Janus에서 commit 생성
+- [x] Task branch에 결과 보존
+- [x] push 또는 local apply/cherry-pick 흐름
+- [x] main checkout 자동 수정 금지
+- [x] Task 생성 → 실행 → 검증 → 리뷰 → commit E2E 테스트
 
 ---
 
@@ -383,7 +383,7 @@
 - [ ] 실제 27B TaskSuite 결과를 반복 재현할 수 있다.
 - [ ] 두 Task가 격리된 worktree에서 교차 오염 없이 진행된다.
 - [ ] 모델·도구 자원이 scheduler와 budget을 따른다.
-- [ ] Task 생성부터 diff review와 commit까지 앱 안에서 완료된다.
+- [x] Task 생성부터 diff review와 commit까지 앱 안에서 완료된다.
 - [ ] worker 정책 효율을 baseline 대비 숫자로 설명할 수 있다.
 - [ ] 실패·취소·재시작 후 workspace, lease, process가 고아로 남지 않는다.
 - [ ] 알려진 P0 보안·데이터 손실·거짓 상태 결함이 없다.
@@ -402,4 +402,8 @@
 - [x] P2-13 Dispatch/RuntimeWorker 실행 Budget
 - [x] P2-14 Worker Backpressure와 Context 효율
 - [x] R3 TaskSuite scheduler/budget/backpressure 처리량 재측정
-- [ ] **R3 회귀 수정: Task 적합성 spawn gate와 실패 worker 결과 통합**
+- [x] **R3 회귀 수정: Task 적합성 spawn gate와 실패 worker 결과 통합**
+- [x] P3-15 Git-derived ChangeSet
+- [x] P3-16 Independent Verification Runner
+- [x] P3-17 revision-aware Review Loop
+- [x] P3-18 Task branch commit/push/handoff

@@ -255,12 +255,12 @@ Janus가 느린 이유와 worker가 도움 되는지를 숫자로 볼 수 있다
 
 ### ADE MVP 출구 조건
 
-- [ ] Task 생성부터 worktree, agent 실행, diff review, commit까지 앱 안에서 완료된다.
-- [ ] review는 agent 답변과 독립적으로 실제 Git 변경을 정확히 보여준다.
-- [ ] 실패한 verification을 성공으로 표시하지 않는다.
-- [ ] review 코멘트 후 같은 workspace에서 수정하고 diff가 갱신된다.
-- [ ] 결과 폐기 시 미병합 변경이 확인 없이 손실되지 않는다.
-- [ ] 두 Task의 end-to-end 실행에서 변경 교차 오염이 없다.
+- [x] Task 생성부터 worktree, agent 실행, diff review, commit까지 앱 안에서 완료된다.
+- [x] review는 agent 답변과 독립적으로 실제 Git 변경을 정확히 보여준다.
+- [x] 실패한 verification을 성공으로 표시하지 않는다.
+- [x] review 코멘트 후 같은 workspace에서 수정하고 diff가 갱신된다.
+- [x] 결과 폐기 시 미병합 변경이 확인 없이 손실되지 않는다.
+- [x] 두 Task의 end-to-end 실행에서 변경 교차 오염이 없다.
 
 ---
 

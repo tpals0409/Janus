@@ -10,17 +10,17 @@
 
 ## 현재 판정
 
-**측정 가능한 로컬 runtime(R1/P0), ADE 작업 경계(R2/P1), ResourceScheduler·Lease·Budget·
-Worker Backpressure/Context 효율(R3/P2-11~14)과 처리량 회귀 수정까지 완료됐다. 단일 model
-slot에서는 자율 worker를 기본 억제하고, 강제 fixed-one implementer는 1-step read-only scout로
-전환한다. 다음 우선순위는 P3의 Git 파생 ChangeSet·Verification·Review·Ship 흐름이다.**
+**측정 가능한 로컬 runtime(R1/P0), ADE 작업 경계(R2/P1), 자원 효율 엔진
+(R3/P2), Git-derived ChangeSet·Verification·Review·Ship(R4/P3)까지 완료됐다. Janus는
+이제 Task 생성부터 격리 worktree 실행, 독립 검증, revision-aware review, Task branch
+commit/push 또는 명시적 cherry-pick handoff까지 앱 안에서 연결한다.**
 
 현재 앱은 로컬 MLX 오케스트레이터와 런타임 워커를 실행하고 trace를 보여주는 검증된 세로
 조각이다. Project/Task 중심 화면에서 별도 Git worktree를 준비하고, AgentProfile을 선택해
 고유 Dispatch attempt와 AgentSession을 시작·재개·취소·중지할 수 있다. Session 상태,
 transcript와 runtime event는 SQLite에 영속화되고 최신 Dispatch만 Task 이벤트를 쓸 수 있다.
-Git diff review와 평가 loop가 없으므로 완성된 ADE로
-부르기에는 이르다.
+ChangeSet과 review는 agent 답변과 독립적으로 Git에서 매번 다시 파생되며,
+현재 revision의 Janus verification이 모두 성공해야 accept·commit할 수 있다.
 
 기존 “오케스트레이터-워커 전환으로 원래 계획과 일치했다”는 평가는 제품 목표가 런타임일 때만
 맞았다. ADE를 목표로 확정했으므로 현재 런타임은 제품 전체가 아니라 Task를 수행하는 핵심
@@ -66,10 +66,10 @@ Git diff review와 평가 loop가 없으므로 완성된 ADE로
 | 에이전트 | 단일 Janus Local 설정 | 측정·비교 가능한 로컬 Agent/Model Profile |
 | 실행 시도 | Dispatch/AgentSession 영속 실행·resume·stale 거부 | 예산·lease·완료 판정 |
 | 자원 제어 | 모델 서버에 즉시 요청 | generation lease + tool/verification scheduler |
-| 결과 | 답변과 trace | Git ChangeSet + Verification |
+| 결과 | Git-derived ChangeSet + 독립 Verification | Evaluation Lab의 반복 비교 |
 | 최적화 | token/latency 표시 | 고정 TaskSuite의 품질·시간·token·개입 비교 |
-| 완료 | 턴 종료 | review 수락과 ship |
-| 기본 화면 | Task 상태·Workspace·AgentSession | ChangeSet review와 ship |
+| 완료 | review 수락과 Task branch ship | 적응형 최적화와 회귀 판정 |
+| 기본 화면 | Task·ChangeSet·Verification·Review·Ship | 운영 Dashboard와 Evaluation Lab |
 
 `tools.WORKSPACE` 전역 mutable 상태는 제거됐다. 파일·셸·검증은 불변
 `WorkspaceContext`(소유 Task/Workspace/Dispatch ID 포함)를 받고, 두 context의 병렬 파일
@@ -79,14 +79,15 @@ Task UI와 영속 runtime의 분리는 해소됐다. 계측용이던 queue/lease
 ResourceScheduler의 실제 실행 권한과 연결됐다. lease는 timeout·취소·예외·앱 종료에서
 실제 반환을 기다리며 queue 원인이 Task 화면에 표시된다. Dispatch/RuntimeWorker별
 token·time·step 한도와 worker cap도 강제된다. queue 상태와 단일 model slot 비용을 worker
-정책에 반영했고 실제 TaskSuite로 재측정했다. 현재 가장 큰 제품 공백은 runtime 결과를 Git
-ChangeSet으로 검토하고 Janus가 직접 검증·승인·commit하는 P3 ADE loop다.
+정책에 반영했고 실제 TaskSuite로 재측정했다. P3 ADE loop까지 완성된 현재 다음
+제품 공백은 고정 TaskSuite에서 AgentProfile·prompt·budget·worker policy를 자동 비교하는
+P4 Evaluation Lab과 Adaptive Orchestration이다.
 
 ## 현재 검증
 
 2026-08-22 현재 체크아웃에서 직접 확인:
 
-- Python 테스트 85개 통과
+- Python 테스트 96개 통과
 - Node lifecycle 테스트 7개 통과(실제 분리 프로세스 그룹 3회 start/stop 포함)
 - 도구 자체 검사 통과
 - 오케스트레이터 spec 검사 통과
@@ -99,11 +100,13 @@ ChangeSet으로 검토하고 Janus가 직접 검증·승인·commit하는 P3 ADE
   정상 turn 종료 14/15. 마지막 1회는 변경·acceptance 성공 후 최종 응답 생성 중 120.12초로
   120초 실험 제한을 0.12초 초과했으며 사용자 판단으로 P2 완료 범위에 포함
 - smoke 종료 후 owned MLX PID 종료와 orphan process 0 확인
+- P3 Task 생성→Session 시작→검증→review→commit→push E2E와 main checkout 불변 통과
+- 두 Task의 ChangeSet·commit 파일과 branch가 서로 교차 오염되지 않음을 통합 테스트로 확인
 
 아직 검증하지 못한 것:
 
-- 실제 27B를 Task UI에서 시작해 ChangeSet review까지 끝내는 전체 흐름
-- scheduler/lease/budget 적용 후 baseline 대비 개선
+- 실제 27B Task UI 실행에서 ChangeSet review·ship까지 사람이 한 번에
+  완주하는 acceptance
 
 P1에서 추가로 검증한 것:
 
@@ -175,6 +178,19 @@ P2 회귀 수정 결과:
 - 최종 fixed-one 15회에서 independent acceptance·필수/허용 변경·worker 1개 정책은 15/15;
   정상 종료는 14/15이며 마지막 1회만 acceptance 성공 후 최종 응답에서 0.12초 초과
 - 최종 요약: `janus_server/artifacts/r3/tasksuite/20260822-p2-final-fixed-one-v2/baseline.md`
+
+P3 ADE MVP 결과:
+
+- ChangeSet은 base ref 대비 committed·staged·unstaged·untracked를 Git에서 매번 다시
+  파생하고 rename/delete, binary, large diff 절단을 포함한다.
+- ChangeSet 전체를 해시한 revision ID로 staged/unstaged 변화까지 stale comment·accept·
+  commit에서 거부한다.
+- Project별 acceptance/test/lint/typecheck를 verification scheduler에서 실행하고 exit code,
+  duration, stdout/stderr, agent claim, Janus result를 분리 저장한다.
+- 파일·hunk·line review, resolve/reopen, 일괄 request changes, 검증 gate accept, 명시적
+  discard를 제공하며 unmerged 변경은 accept/discard하지 않는다.
+- commit/push는 Janus 소유 Task worktree와 `janus/` branch에서만 실행한다. local apply는
+  main checkout을 수정하지 않고 사용자가 명시적으로 실행할 cherry-pick 명령을 준다.
 
 ## 완료한 마일스톤: R1 실제 27B Baseline과 계측
 

@@ -17,11 +17,11 @@ from typing import Any
 
 from .budget import empty_usage, merge_budget, normalize_budget
 
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 
 TASK_STATUSES = frozenset({"todo", "preparing", "working", "needs_you", "review", "failed"})
 TASK_TRANSITIONS = {
-    "todo": {"preparing", "working", "review"},
+    "todo": {"preparing", "working"},
     "preparing": {"todo", "working", "failed"},
     "working": {"todo", "needs_you", "review", "failed"},
     "needs_you": {"todo", "working", "review", "failed"},
@@ -275,9 +275,24 @@ CREATE TABLE review_decisions (
 CREATE INDEX idx_review_decisions_task ON review_decisions(task_id, created_at);
 """
 
+MIGRATION_6 = """
+CREATE TABLE task_shipments (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    action TEXT NOT NULL CHECK(action IN ('commit','push')),
+    commit_sha TEXT NOT NULL,
+    branch_name TEXT NOT NULL,
+    remote TEXT,
+    status TEXT NOT NULL CHECK(status IN ('completed','failed')),
+    error TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX idx_task_shipments_task ON task_shipments(task_id, created_at);
+"""
+
 MIGRATIONS = {
     1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3, 4: MIGRATION_4,
-    5: MIGRATION_5,
+    5: MIGRATION_5, 6: MIGRATION_6,
 }
 
 
@@ -578,6 +593,36 @@ class DomainStore:
         for item in rows:
             item["comment_ids"] = json.loads(item.pop("comment_ids_json"))
         return rows
+
+    def record_task_shipment(
+        self, *, task_id: str, action: str, commit_sha: str,
+        branch_name: str, remote: str | None = None, status: str = "completed",
+        error: str | None = None, shipment_id: str | None = None,
+    ) -> dict:
+        shipment_id = shipment_id or _id("shipment")
+        try:
+            with self.transaction(immediate=True) as connection:
+                self._one(connection, "SELECT * FROM tasks WHERE id=?", (task_id,), "Task")
+                connection.execute(
+                    "INSERT INTO task_shipments(id,task_id,action,commit_sha,branch_name,"
+                    "remote,status,error,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (shipment_id, task_id, action, commit_sha, branch_name, remote,
+                     status, error, _now()),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise Conflict(f"Task shipment 기록 충돌: {exc}") from exc
+        with self._connect() as connection:
+            return self._one(
+                connection, "SELECT * FROM task_shipments WHERE id=?",
+                (shipment_id,), "TaskShipment",
+            )
+
+    def list_task_shipments(self, task_id: str) -> list[dict]:
+        with self._connect() as connection:
+            return [dict(row) for row in connection.execute(
+                "SELECT * FROM task_shipments WHERE task_id=? ORDER BY created_at,id",
+                (task_id,),
+            )]
 
     def archive_project(self, project_id: str) -> dict:
         now = _now()

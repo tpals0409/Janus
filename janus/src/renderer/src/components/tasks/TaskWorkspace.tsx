@@ -1129,6 +1129,83 @@ function ReviewDecisionCard({ task }: { task: Task }) {
   )
 }
 
+function TaskShippingCard() {
+  const review = useStore((state) => state.review)
+  const changeSet = useStore((state) => state.changeSet)
+  const shipments = useStore((state) => state.shipments)
+  const handoff = useStore((state) => state.shipHandoff)
+  const busy = useStore((state) => state.taskBusy)
+  const commitTask = useStore((state) => state.commitTask)
+  const pushTask = useStore((state) => state.pushTask)
+  const loadHandoff = useStore((state) => state.loadShipHandoff)
+  const [message, setMessage] = useState('')
+  const latestDecision = review?.decisions[review.decisions.length - 1]
+  const accepted = Boolean(
+    latestDecision?.decision === 'accept' && latestDecision.revision === changeSet?.revision
+  )
+  const commit = [...shipments].reverse().find((item) => item.action === 'commit')
+  const pushed = commit && shipments.some(
+    (item) => item.action === 'push' && item.commit_sha === commit.commit_sha
+  )
+
+  useEffect(() => {
+    if (commit && !handoff) void loadHandoff()
+  }, [commit?.id, handoff, loadHandoff])
+
+  return (
+    <section className="task-card">
+      <div className="task-label">Ship Task branch</div>
+      <div className="mt-2 flex gap-2">
+        <input
+          value={message}
+          onChange={(event) => setMessage(event.target.value)}
+          placeholder="Commit message"
+          className="task-input mt-0 min-w-0 flex-1"
+        />
+        <button
+          onClick={() => void commitTask(message.trim())}
+          disabled={busy || !accepted || !message.trim()}
+          className="task-primary-action"
+        >
+          <GitBranch size={11} /> Commit in Janus
+        </button>
+        <button
+          onClick={() => void pushTask('origin')}
+          disabled={busy || !commit || Boolean(pushed)}
+          className="task-quiet-action"
+        >
+          <Send size={11} /> {pushed ? 'Pushed' : 'Push branch'}
+        </button>
+      </div>
+      <p className="mt-2 text-[9.5px] text-faint">
+        Janus commits only inside the Task worktree. It never checks out or edits the main checkout.
+      </p>
+      {commit && (
+        <div className="mt-3 rounded-md border border-border bg-raised/40 p-2.5">
+          <div className="flex items-center gap-2 text-[10px]">
+            <span className="text-ok">Committed</span>
+            <code className="text-muted">{commit.commit_sha.slice(0, 12)}</code>
+            <code className="min-w-0 flex-1 truncate text-faint">{commit.branch_name}</code>
+          </div>
+          {handoff && (
+            <div className="mt-2 flex items-center gap-2">
+              <code className="min-w-0 flex-1 truncate rounded bg-[#08080d] px-2 py-1.5 text-[9px] text-faint">
+                {handoff.local_apply_command}
+              </code>
+              <button
+                onClick={() => void navigator.clipboard.writeText(handoff.local_apply_command)}
+                className="task-quiet-action"
+              >
+                Copy cherry-pick
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
 function TaskDetail({ task }: { task: Task }) {
   const archiveTask = useStore((state) => state.archiveSelectedTask)
   const busy = useStore((state) => state.taskBusy)
@@ -1187,6 +1264,7 @@ function TaskDetail({ task }: { task: Task }) {
             {task.workspace?.state === 'ready' && <ChangeSetCard />}
             {task.workspace?.state === 'ready' && <VerificationCard task={task} />}
             {task.workspace?.state === 'ready' && <ReviewDecisionCard task={task} />}
+            {task.workspace?.state === 'ready' && <TaskShippingCard />}
           </div>
 
           <aside className="space-y-4">
