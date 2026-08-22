@@ -1,16 +1,17 @@
 # Janus 구현 상태
 
-기준일: 2026-08-22
+기준일: 2026-08-23
 제품 목표: **제한된 로컬 하드웨어에서 로컬 에이전트가 가장 적은 시간·토큰·사용자 개입으로
 검증된 변경을 만들도록 격리·스케줄·감독·평가하는 ADE**
 
 - 제품 정의: [PRODUCT.md](PRODUCT.md)
 - 구현 순서와 출구 조건: [ROADMAP.md](ROADMAP.md)
 - 실행 체크리스트: [CHECKLIST.md](CHECKLIST.md)
+- v1 조건별 완료 증거: [V1_AUDIT.md](V1_AUDIT.md)
 
 ## 현재 판정
 
-**측정 가능한 로컬 runtime(R1/P0), ADE 작업 경계(R2/P1), 자원 효율 엔진
+**Janus v1.0.0 완료. 측정 가능한 로컬 runtime(R1/P0), ADE 작업 경계(R2/P1), 자원 효율 엔진
 (R3/P2), Git-derived ChangeSet·Verification·Review·Ship(R4/P3), Evaluation Lab·
 Adaptive Orchestration·Operations Dashboard(R5/P4), PR·CI와 Task 개발 표면,
 견고성·데이터 복구와 배포 품질(R6~R9/P5)까지 완료됐다. Janus는
@@ -100,6 +101,10 @@ Janus memory peak, budget 소진율, generation/tool/verification 흔적을 2초
 - 오케스트레이터 spec 검사 통과
 - TypeScript 타입 검사 통과
 - Electron production build 통과
+- v1 actual-model artifact audit 통과: baseline 44/45, scheduler candidate 40/45,
+  final fixed-one 14/15, real-model smoke 4/4, owned model orphan 0
+- production Node와 pinned backend/model Python dependency advisory audit: 알려진 취약점 0
+- clean-source 1.0.0 install/package smoke: schema v11, backup·diagnostics·shutdown 통과
 - 정적 그래프/LangGraph 의존성 제거 완료
 - 실제 Qwen3.8-27B smoke 4개 시나리오 통과: 멀티턴, worker spawn/stop, cancel 후 재개
 - TaskSuite 3개 × 정책 3개 × 5회 = 45회 완료, acceptance 44/45
@@ -110,7 +115,7 @@ Janus memory peak, budget 소진율, generation/tool/verification 흔적을 2초
 - P3 Task 생성→Session 시작→검증→review→commit→push E2E와 main checkout 불변 통과
 - 두 Task의 ChangeSet·commit 파일과 branch가 서로 교차 오염되지 않음을 통합 테스트로 확인
 
-아직 검증하지 못한 것:
+별도 UX acceptance 범위:
 
 - 실제 27B Task UI 실행에서 ChangeSet review·ship까지 사람이 한 번에
   완주하는 acceptance

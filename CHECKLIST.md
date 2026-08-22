@@ -380,14 +380,14 @@
 
 ## v1.0 완료 조건
 
-- [ ] 실제 27B TaskSuite 결과를 반복 재현할 수 있다.
-- [ ] 두 Task가 격리된 worktree에서 교차 오염 없이 진행된다.
-- [ ] 모델·도구 자원이 scheduler와 budget을 따른다.
+- [x] 실제 27B TaskSuite 결과를 반복 재현할 수 있다.
+- [x] 두 Task가 격리된 worktree에서 교차 오염 없이 진행된다.
+- [x] 모델·도구 자원이 scheduler와 budget을 따른다.
 - [x] Task 생성부터 diff review와 commit까지 앱 안에서 완료된다.
-- [ ] worker 정책 효율을 baseline 대비 숫자로 설명할 수 있다.
-- [ ] 실패·취소·재시작 후 workspace, lease, process가 고아로 남지 않는다.
-- [ ] 알려진 P0 보안·데이터 손실·거짓 상태 결함이 없다.
-- [ ] 외부 모델 없이 핵심 제품 가치가 완성된다.
+- [x] worker 정책 효율을 baseline 대비 숫자로 설명할 수 있다.
+- [x] 실패·취소·재시작 후 workspace, lease, process가 고아로 남지 않는다.
+- [x] 알려진 P0 보안·데이터 손실·거짓 상태 결함이 없다.
+- [x] 외부 모델 없이 핵심 제품 가치가 완성된다.
 
 ## 지금 시작할 작업
 

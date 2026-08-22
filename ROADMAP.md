@@ -443,7 +443,7 @@ wall time이 9% 증가했고, `autonomous`는 15/15를 유지하면서도 불필
 wall time이 63% 증가했다. `fixed_one`은 작은 두 fixture에서 18~23% 빨라졌지만 조사 Task가
 0/5로 실패했다. 따라서 후보를 기본 정책으로 승격하지 않는다.
 
-### 지금 — R3 회귀 수정
+### 완료 — R3 회귀 수정
 
 1. Task 형태와 예상 작업량으로 첫 worker spawn의 최소 이득을 판정한다.
 2. worker budget 소진 시 partial result를 버리지 않고 오케스트레이터가 통합하게 한다.
