@@ -39,7 +39,8 @@ export function seedTaskRuntimeVisualFixture(): void {
       workers_started: 1,
       peak_concurrent_workers: 1
     },
-    budget_exhausted_reason: null
+    budget_exhausted_reason: null,
+    adaptive_decision: {}
   }
   const session: AgentSessionDetail = {
     id: 'session_ced9a7b25cc546bb88844f7bce212',
@@ -100,7 +101,11 @@ export function seedTaskRuntimeVisualFixture(): void {
     repo_path: '/Users/local/Janus',
     created_at: now,
     updated_at: now,
-    archived_at: null
+    archived_at: null,
+    verification_commands: [],
+    default_agent_profile_id: null,
+    promoted_comparison_id: null,
+    profile_promoted_at: null
   }
   const profile: AgentProfile = {
     id: 'agent_default',

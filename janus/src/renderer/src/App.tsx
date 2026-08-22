@@ -10,6 +10,7 @@ import FileTree from './components/FileTree'
 import { AgentList, NavRail, StatusBar } from './components/Shell'
 import TaskWorkspace from './components/tasks/TaskWorkspace'
 import EvaluationLab from './components/evaluations/EvaluationLab'
+import OperationsDashboard from './components/operations/OperationsDashboard'
 
 // Monaco는 무겁다 — YAML 뷰를 열기 전엔 로드하지 않는다
 const YamlView = lazy(() => import('./components/YamlView'))
@@ -223,6 +224,7 @@ export default function App() {
             {nav === 'tasks'
               ? task?.title ?? projects.find((project) => project.id === projectId)?.name ?? 'Tasks'
               : nav === 'evals' ? 'Evaluation Lab'
+              : nav === 'monitor' ? 'Operations Monitor'
               : spec?.name ?? '—'}
           </span>
           {nav === 'agents' && (
@@ -274,6 +276,8 @@ export default function App() {
           <TaskWorkspace />
         ) : nav === 'evals' ? (
           <EvaluationLab />
+        ) : nav === 'monitor' ? (
+          <OperationsDashboard onOpenTask={() => setNav('tasks')} />
         ) : (
           <>
             <AgentList />

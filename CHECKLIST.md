@@ -329,11 +329,11 @@
 
 ### 21. 운영 Dashboard
 
-- [ ] Queue/Working/Needs You/Review
-- [ ] model slot과 memory 상태
-- [ ] generation/tool/verification timeline
-- [ ] Task별 budget 소진율
-- [ ] 10개 Task 동시 감독 검증
+- [x] Queue/Working/Needs You/Review
+- [x] model slot과 memory 상태
+- [x] generation/tool/verification timeline
+- [x] Task별 budget 소진율
+- [x] 10개 Task 동시 감독 검증
 
 ---
 

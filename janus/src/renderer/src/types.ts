@@ -328,6 +328,51 @@ export interface EvaluationComparison {
   created_at: string
 }
 
+export type OperationsLane = 'queue' | 'working' | 'needs_you' | 'review' | 'failed'
+
+export interface OperationsTimelineItem {
+  category: 'generation' | 'tool' | 'verification' | 'queue' | 'worker'
+  kind: string
+  at: string
+  status: string | null
+  label: string | null
+}
+
+export interface OperationsTask {
+  id: string
+  project_id: string
+  project_name: string
+  title: string
+  status: TaskStatus
+  lane: OperationsLane
+  updated_at: string
+  dispatch: Dispatch | null
+  session: { id: string; status: AgentSessionStatus; updated_at: string } | null
+  budget_progress: {
+    tokens: number; steps: number; time: number; workers: number; peak: number
+  }
+  timeline: OperationsTimelineItem[]
+  attention: boolean
+}
+
+export interface OperationsSnapshot {
+  generated_at: string
+  summary: {
+    total: number
+    attention: number
+    lanes: Record<OperationsLane, number>
+  }
+  scheduler: {
+    closed: boolean
+    resources: Record<string, {
+      cap: number; active: number; queued: number; next_priority: number | null
+    }>
+    active_leases: number
+  }
+  memory: { janus_process_peak_rss_bytes: number }
+  tasks: OperationsTask[]
+}
+
 /** 에이전트 = 오케스트레이터 1개의 평평한 설정. 워커는 런타임에 만들어져 트레이스에만 존재한다. */
 export interface Spec {
   name: string

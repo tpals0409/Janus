@@ -24,7 +24,7 @@ const NAV: { id: string; label: string; Icon: typeof Home; wired?: boolean }[] =
   { id: 'context', label: 'Context', Icon: BookOpen },
   { id: 'evals', label: 'Evals', Icon: FlaskConical, wired: true },
   { id: 'deployments', label: 'Deployments', Icon: Rocket },
-  { id: 'monitor', label: 'Monitor', Icon: ChartNoAxesColumn }
+  { id: 'monitor', label: 'Monitor', Icon: ChartNoAxesColumn, wired: true }
 ]
 
 export function NavRail({

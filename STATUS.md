@@ -11,8 +11,8 @@
 ## 현재 판정
 
 **측정 가능한 로컬 runtime(R1/P0), ADE 작업 경계(R2/P1), 자원 효율 엔진
-(R3/P2), Git-derived ChangeSet·Verification·Review·Ship(R4/P3), Evaluation Lab과
-Adaptive Orchestration(R5/P4-20)까지 완료됐다. Janus는
+(R3/P2), Git-derived ChangeSet·Verification·Review·Ship(R4/P3), Evaluation Lab·
+Adaptive Orchestration·Operations Dashboard(R5/P4)까지 완료됐다. Janus는
 이제 Task 생성부터 격리 worktree 실행, 독립 검증, revision-aware review, Task branch
 commit/push 또는 명시적 cherry-pick handoff까지 앱 안에서 연결한다.**
 
@@ -84,14 +84,16 @@ token·time·step 한도와 worker cap도 강제된다. queue 상태와 단일 m
 AgentProfile·prompt·budget·worker policy를 반복 비교하고 acceptance regression을 자동
 판정한다. Task 실행은 분류·model queue·직전 실패에 따라 worker 역할 순서와 fan-out,
 Dispatch budget을 결정하고 그 근거를 Dispatch에 불변 스냅샷으로 남긴다. 현재 다음 제품
-공백은 평가에서 선택한 프로필의 기본값 승격과 10개 Task를 한 화면에서 감독하는 운영
-Dashboard다.
+평가에서 선택한 runner 후보는 improved/equivalent gate를 통과해야 Project 기본
+AgentProfile로 승격되며 comparison provenance가 남는다. Operations Monitor는 모든
+Project의 Task를 Queue/Working/Needs You/Review/Failed lane에 모으고 model slot·queue,
+Janus memory peak, budget 소진율, generation/tool/verification 흔적을 2초 간격으로 갱신한다.
 
 ## 현재 검증
 
 2026-08-22 현재 체크아웃에서 직접 확인:
 
-- Python 테스트 114개 통과
+- Python 테스트 115개 통과
 - Node lifecycle 테스트 7개 통과(실제 분리 프로세스 그룹 3회 start/stop 포함)
 - 도구 자체 검사 통과
 - 오케스트레이터 spec 검사 통과
@@ -207,6 +209,18 @@ P4-19 Evaluation Lab 결과:
 - hardware/model/quantization이 다르면 비용 결론을 `incomparable_conditions`로 차단하고,
   JSON/CSV/Markdown으로 결과를 export한다.
 
+P4-20/21 Adaptive Orchestration과 Operations 결과:
+
+- Task를 narrow bug/investigation/test-heavy/multi-file/general로 분류하고 model queue와
+  직전 Dispatch·verification 실패에 따라 worker policy, 역할 순서, fan-out, budget을
+  결정한다. 결정 근거와 유효 예산은 Dispatch에 불변 스냅샷으로 저장된다.
+- verification 실패는 read-only verifier 진단 후 implementer repair, budget/timeout/tool/
+  runtime 실패는 각각 다른 bounded retry 전략으로 다음 attempt를 구성한다.
+- regression·조건 불일치·import-only 후보는 기본값 승격을 거부하고, 검증된 runner 후보만
+  Project 기본 AgentProfile과 provenance로 저장한다.
+- Operations Monitor 한 화면에서 10개 Task의 queue와 attention, model slot·memory,
+  Task별 budget, generation/tool/verification timeline을 감독하는 통합 테스트를 고정했다.
+
 ## 완료한 마일스톤: R1 실제 27B Baseline과 계측
 
 완료 항목:
@@ -225,9 +239,8 @@ P4-19 Evaluation Lab 결과:
 
 영속 도메인 모델, WorkspaceContext, WorkspaceService, Task 중심 UI와 Task–Runtime 연결을
 완료했다. R3의 scheduler, ResourceLease 회수, Dispatch/RuntimeWorker budget, worker
-backpressure와 context 효율 및 동일 TaskSuite 재측정을 완료했다. 측정 후보는 acceptance
-regression으로 승격하지 않으며, 다음으로 Task 적합성 spawn gate와 실패 worker 결과 통합을
-수정한다.
+backpressure와 context 효율 및 동일 TaskSuite 재측정을 완료했다. R4의 ADE loop와 R5의
+Evaluation Lab, adaptive policy, profile promotion, operations supervision도 완료했다.
 
 R1의 상세 출구 조건은 [ROADMAP.md](ROADMAP.md#r1-실제-27b-baseline과-계측--최적화의-기준선)를
 단일 기준으로 사용한다.

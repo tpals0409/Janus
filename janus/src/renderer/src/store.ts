@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type {
   AgentEvent, AgentProfile, AgentSessionDetail, AgentSummary, ApprovalRequest, ChangeSet,
   BackendStatus, ModelProfile, Project, RunDetail, RunSummary, SessionEvent, Span,
-  EvaluationComparison, EvaluationExperiment, ReviewSnapshot, ShipHandoff, Spec,
+  EvaluationComparison, EvaluationExperiment, OperationsSnapshot, ReviewSnapshot, ShipHandoff, Spec,
   Task, TaskShipment, ToolInfo, TreeEntry,
   VerificationCommand, VerificationRun,
   WorkspaceInspection
@@ -89,6 +89,8 @@ interface State {
   evaluationComparisons: EvaluationComparison[]
   evaluationBusy: boolean
   evaluationError: string | null
+  operations: OperationsSnapshot | null
+  operationsError: string | null
   taskBusy: boolean
   taskActionError: string | null
   taskSession: AgentSessionDetail | null
@@ -174,6 +176,7 @@ interface State {
   pushTask(remote?: string): Promise<void>
   loadShipHandoff(): Promise<void>
   loadEvaluations(): Promise<void>
+  loadOperations(): Promise<void>
   startEvaluation(input: {
     role: 'baseline' | 'candidate'; label: string; agent_profile_id: string
     repeats: number; tasks: string[]; turn_timeout_seconds: number
@@ -264,6 +267,8 @@ export const useStore = create<State>((set, get) => ({
   evaluationComparisons: [],
   evaluationBusy: false,
   evaluationError: null,
+  operations: null,
+  operationsError: null,
   taskBusy: false,
   taskActionError: null,
   taskSession: null,
@@ -759,6 +764,15 @@ export const useStore = create<State>((set, get) => ({
       set({ evaluationExperiments, evaluationComparisons, evaluationError: null })
     } catch (error) {
       set({ evaluationError: errorMessage(error) })
+    }
+  },
+
+  async loadOperations() {
+    try {
+      const operations = await apiJson(`${BASE}/operations/dashboard`) as OperationsSnapshot
+      set({ operations, operationsError: null })
+    } catch (error) {
+      set({ operationsError: errorMessage(error) })
     }
   },
 
