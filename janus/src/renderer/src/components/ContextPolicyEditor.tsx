@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { BookOpen, Save } from 'lucide-react'
 import type { ContextPolicy } from '../types'
 import { useStore } from '../store'
-import { Button, EmptyState, Field, Input, Section, Select, Status } from './ui'
+import { Button, Checkbox, EmptyState, Field, Input, Section, Select, Status } from './ui'
 
 const fallback: ContextPolicy = {
   max_chars: 24_000,
@@ -89,11 +89,13 @@ export default function ContextPolicyEditor() {
             <Section label="고정 소스" description="새 세션의 안정 prefix에 포함할 정보를 선택합니다.">
               <div>
                 {sources.map(([key, label, description]) => (
-                  <label key={key} className="ui-checkbox-row">
-                    <input type="checkbox" checked={Boolean(policy[key])} onChange={(event) => patch({ [key]: event.target.checked })} className="ui-checkbox" />
-                    <span className="min-w-0"><strong className="block text-[11px] font-medium text-fg">{label}</strong><span className="mt-0.5 block text-[10px] text-faint">{description}</span></span>
-                    <Status tone={policy[key] ? 'success' : 'muted'}>{policy[key] ? '포함' : '제외'}</Status>
-                  </label>
+                  <Checkbox
+                    key={key}
+                    checked={Boolean(policy[key])}
+                    onChange={(event) => patch({ [key]: event.target.checked })}
+                    label={<strong className="block text-[11px] font-medium text-fg">{label}</strong>}
+                    description={description}
+                  />
                 ))}
               </div>
             </Section>

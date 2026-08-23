@@ -27,7 +27,7 @@ import { useStore } from '../../store'
 import { useDomainEvent } from '../../domainEvents'
 import type { ChangeLayer, ChangeSetFile, Project, Task, TaskStatus } from '../../types'
 import ContextInspector from './ContextInspector'
-import { Button, EmptyState, Field, IconButton, Input, Status, Textarea } from '../ui'
+import { Button, ConfirmDialog, EmptyState, Field, IconButton, Input, Status, Textarea } from '../ui'
 
 const TaskDevelopmentSurface = lazy(() => import('./TaskDevelopmentSurface'))
 
@@ -95,6 +95,7 @@ function ProjectPicker() {
   const addProject = useStore((state) => state.addProjectFromPicker)
   const archiveProject = useStore((state) => state.archiveProject)
   const busy = useStore((state) => state.taskBusy)
+  const [pendingArchive, setPendingArchive] = useState<Project | null>(null)
 
   return (
     <div className="border-b border-border py-2">
@@ -129,11 +130,7 @@ function ProjectPicker() {
               </div>
             </button>
             <button
-              onClick={() => {
-                if (window.confirm(`“${project.name}” 프로젝트를 목록에서 제거할까요?\n작업 기록과 Git 브랜치는 보존됩니다.`)) {
-                  void archiveProject(project.id)
-                }
-              }}
+              onClick={() => setPendingArchive(project)}
               disabled={busy}
               title="프로젝트 목록에서 제거"
               className="absolute right-2 top-2 p-1 text-faint opacity-50 hover:text-danger hover:opacity-100 focus:opacity-100 disabled:opacity-30"
@@ -148,6 +145,19 @@ function ProjectPicker() {
           </Button>
         )}
       </div>
+      <ConfirmDialog
+        open={Boolean(pendingArchive)}
+        title={`“${pendingArchive?.name ?? ''}” 프로젝트를 제거할까요?`}
+        description="Janus 목록에서만 제거합니다. 작업 기록과 Git 브랜치는 보존됩니다."
+        confirmLabel="프로젝트 제거"
+        danger
+        onClose={() => setPendingArchive(null)}
+        onConfirm={() => {
+          const id = pendingArchive?.id
+          setPendingArchive(null)
+          if (id) void archiveProject(id)
+        }}
+      />
     </div>
   )
 }
@@ -510,6 +520,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
   const respondApproval = useStore((state) => state.respondTaskApproval)
   const [message, setMessage] = useState('')
   const [runtimeView, setRuntimeView] = useState<'conversation' | 'context'>('conversation')
+  const [confirmNewAttempt, setConfirmNewAttempt] = useState(false)
   const ready = task.workspace?.state === 'ready'
   const resumable = session?.status === 'created' || session?.status === 'idle'
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId)
@@ -625,8 +636,8 @@ function TaskRuntimeCard({ task }: { task: Task }) {
           </label>
           <button
             onClick={() => {
-              if (session && resumable && !window.confirm('재개 가능한 세션을 중단하고 새 시도를 시작할까요?')) return
-              void startSession({ priority, queue_timeout_ms: queueTimeout * 1000 })
+              if (session && resumable) setConfirmNewAttempt(true)
+              else void startSession({ priority, queue_timeout_ms: queueTimeout * 1000 })
             }}
             disabled={!ready || busy || active}
             className="task-primary-action"
@@ -802,6 +813,17 @@ function TaskRuntimeCard({ task }: { task: Task }) {
           </button>
         )}
       </form>
+      <ConfirmDialog
+        open={confirmNewAttempt}
+        title="새 시도를 시작할까요?"
+        description="현재 재개 가능한 세션은 중단되고 새 디스패치가 실행 권한을 갖습니다."
+        confirmLabel="새 시도 시작"
+        onClose={() => setConfirmNewAttempt(false)}
+        onConfirm={() => {
+          setConfirmNewAttempt(false)
+          void startSession({ priority, queue_timeout_ms: queueTimeout * 1000 })
+        }}
+      />
     </section>
   )
 }
@@ -1437,6 +1459,7 @@ function TaskDetail({ task }: { task: Task }) {
   const session = useStore((state) => state.taskSession)
   const connected = useStore((state) => state.taskConnected)
   const canArchiveTask = !task.workspace || task.workspace.state === 'archived'
+  const [confirmArchive, setConfirmArchive] = useState(false)
 
   return (
     <main className="workspace-surface min-w-0 flex-1 overflow-y-auto">
@@ -1452,9 +1475,7 @@ function TaskDetail({ task }: { task: Task }) {
             </h1>
           </div>
           <Button
-            onClick={() => {
-              if (window.confirm(`“${task.title}” 작업을 보관할까요?`)) archiveTask()
-            }}
+            onClick={() => setConfirmArchive(true)}
             disabled={busy || !canArchiveTask}
             title={canArchiveTask ? '작업 보관' : '먼저 작업 공간을 보관하세요'}
             variant="ghost"
@@ -1462,6 +1483,15 @@ function TaskDetail({ task }: { task: Task }) {
           >
             <Archive size={12} /> 작업 보관
           </Button>
+          <ConfirmDialog
+            open={confirmArchive}
+            title={`“${task.title}” 작업을 보관할까요?`}
+            description="보관된 작업은 활성 작업 목록에서 숨겨집니다."
+            confirmLabel="작업 보관"
+            danger
+            onClose={() => setConfirmArchive(false)}
+            onConfirm={() => { setConfirmArchive(false); void archiveTask() }}
+          />
         </div>
 
         <TaskRunway status={task.status} />

@@ -1,5 +1,17 @@
 import Editor, { loader } from '@monaco-editor/react'
-import * as monaco from 'monaco-editor'
+import * as monaco from 'monaco-editor/editor/editor.api'
+import 'monaco-editor/languages/definitions/css/register'
+import 'monaco-editor/languages/definitions/go/register'
+import 'monaco-editor/languages/definitions/html/register'
+import 'monaco-editor/languages/definitions/javascript/register'
+import 'monaco-editor/languages/definitions/markdown/register'
+import 'monaco-editor/languages/definitions/python/register'
+import 'monaco-editor/languages/definitions/rust/register'
+import 'monaco-editor/languages/definitions/shell/register'
+import 'monaco-editor/languages/definitions/sql/register'
+import 'monaco-editor/languages/definitions/typescript/register'
+import 'monaco-editor/languages/definitions/xml/register'
+import 'monaco-editor/languages/definitions/yaml/register'
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Camera, Clipboard, Code2, Columns2, ExternalLink, FileSearch, FolderTree,
@@ -7,12 +19,10 @@ import {
 } from 'lucide-react'
 import type { Task, TaskBrowserInspection, TaskBrowserStatus } from '../../types'
 import { useDomainEvent } from '../../domainEvents'
+import { janusApi as api } from '../../api'
 import { Button, EmptyState } from '../ui'
 
 loader.config({ monaco })
-
-const BASE = 'http://127.0.0.1:8765'
-const TOKEN = window.janus?.authToken ?? import.meta.env.VITE_JANUS_TOKEN ?? ''
 
 interface TerminalRecord {
   id: string; task_id: string; pane_id: 'primary' | 'secondary'; cwd: string
@@ -26,19 +36,6 @@ interface OpenFile {
 
 interface SearchMatch { path: string; line: number; text: string }
 type SurfaceTab = 'terminal' | 'editor' | 'preview'
-
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${BASE}${path}`, {
-    ...init,
-    headers: { 'x-janus-token': TOKEN, ...(init?.headers ?? {}) }
-  })
-  if (!response.ok) {
-    let detail = `${response.status} ${response.statusText}`
-    try { detail = String((await response.json()).detail ?? detail) } catch { /* textless */ }
-    throw new Error(detail)
-  }
-  return response.json() as Promise<T>
-}
 
 function stripAnsi(value: string): string {
   // Covers CSI color/cursor sequences emitted by ordinary shells without mutating persistence.

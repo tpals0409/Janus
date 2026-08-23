@@ -7,59 +7,14 @@ import type {
   VerificationCommand, VerificationRun,
   WorkspaceInspection
 } from './types'
+import {
+  ApiError, JANUS_BASE as BASE, apiFetch, apiJson, errorMessage,
+  janusAuthToken, readBackendStatus, websocketUrl,
+} from './api'
 
-// Backend는 loopback IPv4에 bind한다. `localhost`를 쓰면 Chromium이 ::1을
-// 선택한 환경에서 요청이 서버에 도달하지 않고 무한 재시도로 남을 수 있다.
-const BASE = import.meta.env.VITE_JANUS_BASE ?? 'http://127.0.0.1:8765'
-const TOKEN = window.janus?.authToken ?? import.meta.env.VITE_JANUS_TOKEN ?? ''
-
-function websocketUrl(path: string): string {
-  const url = new URL(path, BASE)
-  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-  return url.toString()
-}
 let openAgentSequence = 0
 let openProjectSequence = 0
 let openTaskSequence = 0
-
-function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
-  const headers = new Headers(init.headers)
-  headers.set('X-Janus-Token', TOKEN)
-  return fetch(input, { ...init, headers })
-}
-
-/** 상태 코드를 실어 나른다 — 인증 실패(401/403)와 연결 실패를 UI가 구분해야 한다. */
-class ApiError extends Error {
-  constructor(readonly status: number, detail?: string) {
-    super(detail || `Janus API ${status}`)
-  }
-}
-
-async function apiJson(input: RequestInfo | URL, init: RequestInit = {}) {
-  const response = await apiFetch(input, init)
-  if (!response.ok) {
-    let detail = ''
-    try {
-      detail = String((await response.clone().json()).detail ?? '')
-    } catch {
-      detail = await response.text()
-    }
-    throw new ApiError(response.status, detail)
-  }
-  return response.json()
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
-async function readBackendStatus(): Promise<BackendStatus | null> {
-  try {
-    return (await window.janus?.backendStatus()) ?? null
-  } catch {
-    return null
-  }
-}
 
 export const ORCH_ID = 'orchestrator'
 
@@ -1257,7 +1212,7 @@ export const useStore = create<State>((set, get) => ({
     get().taskWs?.close()
     const socket = new WebSocket(
       websocketUrl(`/tasks/${session.task_id}/sessions/${session.id}`),
-      ['janus', TOKEN]
+      ['janus', janusAuthToken()]
     )
     set({
       taskWs: socket,
@@ -1536,7 +1491,7 @@ export const useStore = create<State>((set, get) => ({
       runError: null, cancelled: false, viewingRunId: null,
       turnActive: true, firstMessage: trimmed
     })
-    const sock = new WebSocket(`ws://127.0.0.1:8765/run/${agentId}`, ['janus', TOKEN])
+    const sock = new WebSocket(websocketUrl(`/run/${agentId}`), ['janus', janusAuthToken()])
     set({ ws: sock, connected: false })
 
     sock.onopen = () => {

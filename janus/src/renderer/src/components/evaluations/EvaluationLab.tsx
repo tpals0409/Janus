@@ -5,7 +5,7 @@ import {
 import { useStore } from '../../store'
 import { useDomainEvent } from '../../domainEvents'
 import type { EvaluationExperiment } from '../../types'
-import { Button, EmptyState, Field, Input, Select, Status } from '../ui'
+import { Button, Checkbox, EmptyState, Field, Input, Select, Status } from '../ui'
 
 const TASKS = [
   ['single_file_bug', '단일 파일 버그'],
@@ -78,16 +78,15 @@ function ExperimentLane({ role }: { role: 'baseline' | 'candidate' }) {
         <span className="task-label">작업 모양</span>
         <div className="mt-1.5 space-y-1">
           {TASKS.map(([id, name]) => (
-            <label key={id} className="ui-checkbox-row">
-              <input
-                type="checkbox" checked={tasks.includes(id)}
-                className="ui-checkbox"
-                onChange={(event) => setTasks(
-                  event.target.checked ? [...tasks, id] : tasks.filter((item) => item !== id)
-                )}
-              />
-              <span className="flex-1">{name}</span><code className="text-[9px] text-faint">{id}</code>
-            </label>
+            <Checkbox
+              key={id}
+              checked={tasks.includes(id)}
+              onChange={(event) => setTasks(
+                event.target.checked ? [...tasks, id] : tasks.filter((item) => item !== id)
+              )}
+              label={name}
+              description={<code>{id}</code>}
+            />
           ))}
         </div>
       </div>

@@ -730,6 +730,57 @@ button {
   box-shadow: var(--floating-shadow);
 }
 
+.ui-confirm-dialog {
+  max-width: 420px;
+}
+
+.ui-confirm-dialog__body {
+  padding: var(--space-5);
+}
+
+.ui-confirm-dialog__body h3 {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ui-confirm-dialog__body p {
+  margin-top: var(--space-2);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.ui-confirm-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+  padding: var(--space-3);
+}
+
+.ui-segmented {
+  display: inline-flex;
+  gap: 1px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+
+.ui-segmented button {
+  height: 30px;
+  border: 0;
+  background: var(--bg-surface);
+  padding: 0 var(--space-3);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.ui-segmented button[aria-pressed='true'] {
+  background: var(--bg-active);
+  color: var(--text-primary);
+}
+
 .command-palette-backdrop {
   align-items: start;
   padding-top: 15vh;

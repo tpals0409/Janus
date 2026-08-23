@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "check:bundle": "pnpm build && node scripts/check-bundle-size.mjs",
     "package:mac": "pnpm build && electron-builder --mac dir --publish never",
     "start": "electron-vite preview",
     "test:main": "node --test src/main/*.test.ts",

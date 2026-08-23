@@ -6,6 +6,7 @@ import type {
   SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from 'react'
+import { useEffect, useId, useRef } from 'react'
 
 export function cx(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(' ')
@@ -60,16 +61,30 @@ export function Tabs<T extends string>({
   onChange: (value: T) => void
   label: string
 }) {
+  const buttons = useRef<Array<HTMLButtonElement | null>>([])
+  const move = (index: number) => {
+    const next = (index + items.length) % items.length
+    onChange(items[next])
+    buttons.current[next]?.focus()
+  }
   return (
     <div className="ui-tabs" role="tablist" aria-label={label}>
-      {items.map((item) => (
+      {items.map((item, index) => (
         <button
           key={item}
           type="button"
           role="tab"
           aria-selected={item === value}
+          tabIndex={item === value ? 0 : -1}
+          ref={(node) => { buttons.current[index] = node }}
           className="ui-tab"
           onClick={() => onChange(item)}
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowRight') { event.preventDefault(); move(index + 1) }
+            if (event.key === 'ArrowLeft') { event.preventDefault(); move(index - 1) }
+            if (event.key === 'Home') { event.preventDefault(); move(0) }
+            if (event.key === 'End') { event.preventDefault(); move(items.length - 1) }
+          }}
         >
           {item}
         </button>
@@ -160,6 +175,130 @@ export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectE
 
 export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return <textarea className={cx('ui-input', 'ui-textarea', className)} {...props} />
+}
+
+export function Checkbox({
+  label,
+  description,
+  className,
+  ...props
+}: InputHTMLAttributes<HTMLInputElement> & { label: ReactNode; description?: ReactNode }) {
+  return (
+    <label className={cx('ui-checkbox-row', className)}>
+      <input type="checkbox" className="ui-checkbox" {...props} />
+      <span><span>{label}</span>{description && <small>{description}</small>}</span>
+    </label>
+  )
+}
+
+export function SegmentedControl<T extends string>({
+  items,
+  value,
+  onChange,
+  label,
+}: {
+  items: readonly { value: T; label: string }[]
+  value: T
+  onChange: (value: T) => void
+  label: string
+}) {
+  return (
+    <div className="ui-segmented" role="group" aria-label={label}>
+      {items.map((item) => (
+        <button
+          key={item.value}
+          type="button"
+          aria-pressed={item.value === value}
+          onClick={() => onChange(item.value)}
+        >{item.label}</button>
+      ))}
+    </div>
+  )
+}
+
+const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+export function Dialog({
+  open,
+  title,
+  onClose,
+  children,
+  className,
+}: {
+  open: boolean
+  title: string
+  onClose: () => void
+  children: ReactNode
+  className?: string
+}) {
+  const titleId = useId()
+  const panel = useRef<HTMLElement>(null)
+  const previousFocus = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    if (!open) return
+    previousFocus.current = document.activeElement as HTMLElement | null
+    requestAnimationFrame(() => panel.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus())
+    const handle = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); onClose(); return }
+      if (event.key !== 'Tab' || !panel.current) return
+      const focusable = Array.from(panel.current.querySelectorAll<HTMLElement>(FOCUSABLE))
+      if (focusable.length === 0) { event.preventDefault(); panel.current.focus(); return }
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+    }
+    document.addEventListener('keydown', handle)
+    return () => {
+      document.removeEventListener('keydown', handle)
+      previousFocus.current?.focus()
+    }
+  }, [open, onClose])
+  if (!open) return null
+  return (
+    <div className="ui-dialog-backdrop" onMouseDown={onClose}>
+      <section
+        ref={panel}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className={cx('ui-dialog', className)}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <h2 id={titleId} className="sr-only">{title}</h2>
+        {children}
+      </section>
+    </div>
+  )
+}
+
+export function ConfirmDialog({
+  open,
+  title,
+  description,
+  confirmLabel = '확인',
+  danger = false,
+  onConfirm,
+  onClose,
+}: {
+  open: boolean
+  title: string
+  description?: string
+  confirmLabel?: string
+  danger?: boolean
+  onConfirm: () => void
+  onClose: () => void
+}) {
+  return (
+    <Dialog open={open} title={title} onClose={onClose} className="ui-confirm-dialog">
+      <div className="ui-confirm-dialog__body"><h3>{title}</h3>{description && <p>{description}</p>}</div>
+      <footer className="ui-confirm-dialog__actions">
+        <Button variant="ghost" onClick={onClose}>취소</Button>
+        <Button variant={danger ? 'danger' : 'primary'} onClick={onConfirm}>{confirmLabel}</Button>
+      </footer>
+    </Dialog>
+  )
 }
 
 export function EmptyState({

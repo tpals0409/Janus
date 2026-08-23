@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { janusAuthToken, websocketUrl } from './api'
 
 export interface DomainEvent {
   topic: string
@@ -9,21 +10,10 @@ export interface DomainEvent {
 
 type Listener = (event: DomainEvent) => void
 
-const BASE = import.meta.env.VITE_JANUS_BASE ?? 'http://127.0.0.1:8765'
 const listeners = new Map<string, Set<Listener>>()
 let socket: WebSocket | null = null
 let reconnectTimer: number | null = null
 let reconnectAttempt = 0
-
-function eventUrl(): string {
-  const url = new URL('/events', BASE)
-  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-  return url.toString()
-}
-
-function authToken(): string {
-  return window.janus?.authToken ?? import.meta.env.VITE_JANUS_TOKEN ?? ''
-}
 
 function dispatch(event: DomainEvent): void {
   for (const listener of listeners.get(event.topic) ?? []) listener(event)
@@ -41,9 +31,9 @@ function scheduleReconnect(): void {
 
 function connect(): void {
   if (socket || listeners.size === 0 || import.meta.env.VITE_VISUAL_FIXTURE === '1') return
-  const token = authToken()
+  const token = janusAuthToken()
   if (!token) return
-  const next = new WebSocket(eventUrl(), ['janus', token])
+  const next = new WebSocket(websocketUrl('/events'), ['janus', token])
   socket = next
   next.onopen = () => { reconnectAttempt = 0 }
   next.onmessage = (message) => {
@@ -90,4 +80,3 @@ export function useDomainEvent(
     return subscribeDomainEvent(topic, (event) => listenerRef.current(event))
   }, [topic, enabled])
 }
-

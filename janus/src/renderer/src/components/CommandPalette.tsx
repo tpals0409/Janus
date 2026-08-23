@@ -17,6 +17,8 @@ export default function CommandPalette({ onNavigate }: { onNavigate: (id: string
   const [query, setQuery] = useState('')
   const [cursor, setCursor] = useState(0)
   const input = useRef<HTMLInputElement>(null)
+  const panel = useRef<HTMLElement>(null)
+  const previousFocus = useRef<HTMLElement | null>(null)
 
   const commands = useMemo<Command[]>(() => [
     { id: 'nav:tasks', label: '작업 열기', detail: '프로젝트와 Task 실행', icon: ListTodo, run: () => onNavigate('tasks') },
@@ -48,17 +50,31 @@ export default function CommandPalette({ onNavigate }: { onNavigate: (id: string
         setOpen((value) => !value)
       } else if (event.key === 'Escape') {
         setOpen(false)
+      } else if (event.key === 'Tab' && open && panel.current) {
+        const focusable = Array.from(panel.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        ))
+        if (focusable.length === 0) return
+        const first = focusable[0]
+        const last = focusable[focusable.length - 1]
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault(); last.focus()
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault(); first.focus()
+        }
       }
     }
     window.addEventListener('keydown', handle)
     return () => window.removeEventListener('keydown', handle)
-  }, [])
+  }, [open])
 
   useEffect(() => {
     if (!open) return
+    previousFocus.current = document.activeElement as HTMLElement | null
     setQuery('')
     setCursor(0)
     requestAnimationFrame(() => input.current?.focus())
+    return () => previousFocus.current?.focus()
   }, [open])
 
   useEffect(() => setCursor((value) => Math.min(value, Math.max(0, filtered.length - 1))), [filtered.length])
@@ -74,6 +90,7 @@ export default function CommandPalette({ onNavigate }: { onNavigate: (id: string
   return (
     <div className="ui-dialog-backdrop command-palette-backdrop" onMouseDown={() => setOpen(false)}>
       <section
+        ref={panel}
         className="command-palette"
         role="dialog"
         aria-modal="true"
