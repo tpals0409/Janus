@@ -1,0 +1,20 @@
+[
+  {
+    "skill_id": "skill_tasksuite_contract_first",
+    "skill_version_id": "skill_version_tasksuite_contract_first_v1",
+    "namespace": "janus-benchmark",
+    "name": "contract-first-python-change",
+    "description": "Use for small Python bug fixes and refactors that must satisfy an exact file-change contract and independent acceptance tests.",
+    "version": 1,
+    "activation_mode": "auto",
+    "compatibility": "native",
+    "compiled": {
+      "instructions": "Work contract-first. Read the implementation, specification, and existing tests that govern the requested behavior before editing. Translate the request into a short checklist: required files, allowed files, compatibility constraints, and acceptance command. Make the smallest coherent change. Preserve public imports and behavior unless the contract explicitly changes them. When tests must change, add focused regressions for documented edge cases without weakening existing assertions. Before finishing, re-read every changed file and confirm that no file outside the allowed set changed.",
+      "capabilities": {
+        "required": ["read_file", "glob", "grep", "write_file", "edit_file"]
+      },
+      "execution": {"context": "inline"},
+      "resources": []
+    }
+  }
+]

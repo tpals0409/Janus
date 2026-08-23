@@ -204,7 +204,9 @@ def run_acceptance(
     return result
 
 
-def build_run_spec(task_id: str, policy: str, profile: dict | None) -> tuple[dict, dict | None]:
+def build_run_spec(
+    task_id: str, policy: str, profile: dict | None, skills: list[dict] | None = None,
+) -> tuple[dict, dict | None]:
     benchmark_prompt = policy_prompt(policy)
     if profile is None:
         return ({
@@ -212,6 +214,7 @@ def build_run_spec(task_id: str, policy: str, profile: dict | None) -> tuple[dic
             "system_prompt": benchmark_prompt,
             "tools": ["read_file", "glob", "grep", "write_file", "edit_file"],
             "worker_policy": policy, "approval": "ask", "max_steps": 10,
+            "skills": list(skills or []),
         }, None)
     return ({
         "name": str(profile["name"]), "model": str(profile["model_key"]),
@@ -222,13 +225,13 @@ def build_run_spec(task_id: str, policy: str, profile: dict | None) -> tuple[dic
         "tools": list(profile["tools"]), "worker_policy": policy,
         "allow_autonomous_workers": policy == "autonomous",
         "approval": str(profile["approval"]),
-        "max_steps": int(profile["max_steps"]),
+        "max_steps": int(profile["max_steps"]), "skills": list(skills or []),
     }, profile["budget"])
 
 
 def run_once(
     task: dict, policy: str, repeat: int, run_dir: Path, timeout: float,
-    profile: dict | None = None,
+    profile: dict | None = None, skills: list[dict] | None = None,
 ) -> dict:
     fixture = PROJECT_DIR / "tasksuite" / "v0" / "fixtures" / task["id"]
     workspace = run_dir / "workspace"
@@ -250,11 +253,15 @@ def run_once(
         })
         return True
 
-    spec, run_budget = build_run_spec(task["id"], policy, profile)
+    spec, run_budget = build_run_spec(task["id"], policy, profile, skills)
     events: list[dict] = []
+    loaded_skills: list[dict] = []
     orch = runtime.Orchestration(
         spec, send=events.append, approver=approve, workspace_context=context,
         budget=run_budget,
+        on_skill_loaded=lambda version, reason, tokens: loaded_skills.append({
+            "skill_version_id": version, "reason": reason, "prompt_tokens": tokens,
+        }),
     )
     started = time.monotonic()
     turn_error = run_turn(orch, task_prompt(task), timeout)
@@ -304,6 +311,13 @@ def run_once(
         "budget": orch.snapshot_budget(),
         "timing_ms": telemetry.get("totals_ms") or {},
         "efficiency": efficiency_summary(telemetry),
+        "skill_usage": {
+            "available": len(skills or []),
+            "loaded": len(loaded_skills),
+            "loaded_versions": [item["skill_version_id"] for item in loaded_skills],
+            "prompt_tokens": sum(item["prompt_tokens"] for item in loaded_skills),
+            "reasons": [item["reason"] for item in loaded_skills],
+        },
         "telemetry": telemetry,
         "spans": compact_spans(orch.snapshot_spans()),
     }
@@ -345,6 +359,15 @@ def summarize(runs: list[dict]) -> list[dict]:
                 run.get("efficiency", {}).get("worker_spawn_suppressions", 0)
                 for run in group
             ),
+            "skills_available": max(
+                int(run.get("skill_usage", {}).get("available", 0)) for run in group
+            ),
+            "skill_load_rate": round(statistics.mean(
+                bool(run.get("skill_usage", {}).get("loaded", 0)) for run in group
+            ), 3),
+            "skill_prompt_tokens_mean": round(statistics.mean(
+                int(run.get("skill_usage", {}).get("prompt_tokens", 0)) for run in group
+            ), 1),
         })
     return rows
 
@@ -364,8 +387,8 @@ def write_summary(output_dir: Path, report: dict) -> None:
     lines = [
         f"# TaskSuite v0 — {report.get('label', 'result')}",
         "",
-        "| Task | Policy | Success | Policy | Wall mean ± σ (s) | Prompt / Completion tok | Queue ms | Saved tok est. | Suppress | Workers |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Task | Policy | Success | Policy | Wall mean ± σ (s) | Prompt / Completion tok | Skills loaded | Skill tok | Queue ms | Saved tok est. | Suppress | Workers |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in rows:
         lines.append(
@@ -374,6 +397,8 @@ def write_summary(output_dir: Path, report: dict) -> None:
             f"{row['policy_conformant_runs']}/{row['runs']} | "
             f"{row['wall_mean_ms'] / 1000:.2f} ± {row['wall_stdev_ms'] / 1000:.2f} | "
             f"{row['prompt_tokens_mean']:.1f} / {row['completion_tokens_mean']:.1f} | "
+            f"{row['skill_load_rate'] * row['runs']:.0f}/{row['runs']} | "
+            f"{row['skill_prompt_tokens_mean']:.1f} | "
             f"{row['queue_ms_mean']:.1f} | {row['saved_token_estimate_mean']:.1f} | "
             f"{row['spawn_suppressions']} | {row['worker_count_mean']:.1f} |"
         )
@@ -416,6 +441,7 @@ def main() -> int:
     parser.add_argument("--model-startup-timeout", type=float, default=240)
     parser.add_argument("--label", default="candidate")
     parser.add_argument("--profile-json", type=Path)
+    parser.add_argument("--skills-json", type=Path)
     parser.add_argument(
         "--output-dir", type=Path,
         default=PROJECT_DIR / "artifacts" / "p0" / "tasksuite" /
@@ -435,6 +461,21 @@ def main() -> int:
         if missing:
             parser.error(f"--profile-json missing fields: {missing}")
         args.policies = [str(profile["worker_policy"])]
+    skills: list[dict] = []
+    if args.skills_json is not None:
+        skills = json.loads(args.skills_json.read_text(encoding="utf-8"))
+        if not isinstance(skills, list):
+            parser.error("--skills-json must contain a JSON array")
+        required_skill_fields = {
+            "skill_id", "skill_version_id", "namespace", "name", "description",
+            "version", "activation_mode", "compiled",
+        }
+        for index, skill in enumerate(skills):
+            if not isinstance(skill, dict):
+                parser.error(f"--skills-json item {index} must be an object")
+            missing = sorted(required_skill_fields - set(skill))
+            if missing:
+                parser.error(f"--skills-json item {index} missing fields: {missing}")
     tasks = [task for task in manifest["tasks"] if task["id"] in args.tasks]
     if len(tasks) != len(set(args.tasks)):
         parser.error("unknown or duplicate task id")
@@ -457,6 +498,11 @@ def main() -> int:
                 profile["model_key"] if profile else "qwen3.8-27b"
             ),
             "agent_profile": profile,
+            "skill_cohort": args.skills_json.stem if args.skills_json else "none",
+            "skill_catalog_size": len(skills),
+            "skill_catalog_sha256": hashlib.sha256(
+                json.dumps(skills, ensure_ascii=False, sort_keys=True).encode("utf-8")
+            ).hexdigest(),
             "prompt_sha256": hashlib.sha256(
                 (
                     profile["system_prompt"] if profile else
@@ -495,7 +541,7 @@ def main() -> int:
                     print(f"[{index}/{total}] {task['id']} {policy} repeat={repeat}", flush=True)
                     try:
                         run = run_once(
-                            task, policy, repeat, run_dir, args.turn_timeout, profile
+                            task, policy, repeat, run_dir, args.turn_timeout, profile, skills
                         )
                     except Exception as exc:
                         run = {

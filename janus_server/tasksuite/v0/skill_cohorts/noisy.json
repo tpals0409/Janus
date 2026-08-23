@@ -1,0 +1,51 @@
+[
+  {
+    "skill_id": "skill_tasksuite_contract_first",
+    "skill_version_id": "skill_version_tasksuite_contract_first_v1",
+    "namespace": "janus-benchmark",
+    "name": "contract-first-python-change",
+    "description": "Use for small Python bug fixes and refactors that must satisfy an exact file-change contract and independent acceptance tests.",
+    "version": 1,
+    "activation_mode": "auto",
+    "compatibility": "native",
+    "compiled": {
+      "instructions": "Work contract-first. Read implementation, specification, and tests before editing. Identify required and allowed files, preserve compatibility, make the smallest coherent change, and verify every changed file against the stated acceptance contract.",
+      "capabilities": {"required": ["read_file", "glob", "grep", "write_file", "edit_file"]},
+      "execution": {"context": "inline"},
+      "resources": []
+    }
+  },
+  {
+    "skill_id": "skill_noise_frontend",
+    "skill_version_id": "skill_version_noise_frontend_v1",
+    "namespace": "janus-benchmark",
+    "name": "frontend-accessibility-audit",
+    "description": "Audit browser UI components for keyboard navigation, focus management, responsive layout, and WCAG semantics.",
+    "version": 1,
+    "activation_mode": "auto",
+    "compatibility": "native",
+    "compiled": {"instructions": "Audit frontend accessibility.", "capabilities": {"required": ["read_file", "grep"]}, "execution": {"context": "inline"}, "resources": []}
+  },
+  {
+    "skill_id": "skill_noise_database",
+    "skill_version_id": "skill_version_noise_database_v1",
+    "namespace": "janus-benchmark",
+    "name": "database-migration-planner",
+    "description": "Plan reversible production database schema migrations with backfill, compatibility, and rollback stages.",
+    "version": 1,
+    "activation_mode": "auto",
+    "compatibility": "native",
+    "compiled": {"instructions": "Plan a database migration.", "capabilities": {"required": ["read_file", "grep"]}, "execution": {"context": "inline"}, "resources": []}
+  },
+  {
+    "skill_id": "skill_noise_deploy",
+    "skill_version_id": "skill_version_noise_deploy_v1",
+    "namespace": "janus-benchmark",
+    "name": "kubernetes-release",
+    "description": "Prepare and operate Kubernetes releases, rollout checks, service manifests, and cluster rollback procedures.",
+    "version": 1,
+    "activation_mode": "auto",
+    "compatibility": "native",
+    "compiled": {"instructions": "Prepare a Kubernetes release.", "capabilities": {"required": ["read_file"]}, "execution": {"context": "inline"}, "resources": []}
+  }
+]

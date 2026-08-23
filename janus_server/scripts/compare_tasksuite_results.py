@@ -43,6 +43,12 @@ def _metrics(runs: list[dict]) -> dict:
             run.get("efficiency", {}).get("worker_spawn_suppressions", 0)
             for run in runs
         ),
+        "skill_load_rate": round(statistics.mean(
+            bool(run.get("skill_usage", {}).get("loaded", 0)) for run in runs
+        ), 3),
+        "skill_prompt_tokens_mean": round(statistics.mean(
+            int(run.get("skill_usage", {}).get("prompt_tokens", 0)) for run in runs
+        ), 1),
     }
 
 
@@ -70,6 +76,9 @@ def compare(baseline: dict, candidate: dict) -> dict:
             "completion_token_delta_pct": _pct(
                 after["completion_tokens_mean"], before["completion_tokens_mean"]
             ),
+            "skill_load_rate_delta": round(
+                after["skill_load_rate"] - before["skill_load_rate"], 3
+            ),
         })
     regressions = [
         f"{row['task_id']}/{row['policy']}"
@@ -91,8 +100,8 @@ def markdown(comparison: dict) -> str:
         "",
         f"Verdict: **{comparison['verdict']}**",
         "",
-        "| Task | Policy | Acceptance B→C | Wall Δ | Prompt tok Δ | Completion tok Δ | Queue ms | Saved tok est. | Suppress |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|",
+        "| Task | Policy | Acceptance B→C | Wall Δ | Prompt tok Δ | Completion tok Δ | Skill load | Skill tok | Queue ms | Saved tok est. | Suppress |",
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in comparison["rows"]:
         before, after = row["baseline"], row["candidate"]
@@ -102,6 +111,8 @@ def markdown(comparison: dict) -> str:
             f"{after['acceptance_successes']}/{after['runs']} | "
             f"{row['wall_delta_pct']:+.2f}% | {row['prompt_token_delta_pct']:+.2f}% | "
             f"{row['completion_token_delta_pct']:+.2f}% | "
+            f"{after['skill_load_rate'] * 100:.0f}% | "
+            f"{after['skill_prompt_tokens_mean']:.1f} | "
             f"{after['queue_ms_mean']:.1f} | {after['saved_token_estimate_mean']:.1f} | "
             f"{after['spawn_suppressions']} |"
         )
