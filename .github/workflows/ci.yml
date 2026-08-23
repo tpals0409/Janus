@@ -38,7 +38,10 @@ jobs:
         run: uv sync --project janus_server --locked
 
       - name: Install desktop runtime tools
-        run: sudo apt-get update && sudo apt-get install --yes ripgrep zsh
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ripgrep zsh
+          touch "$HOME/.zshrc"
 
       - name: Verify product versions
         run: uv run --project janus_server python scripts/check_versions.py
