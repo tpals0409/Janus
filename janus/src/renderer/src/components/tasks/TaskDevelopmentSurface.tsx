@@ -20,7 +20,7 @@ import {
 import type { Task, TaskBrowserInspection, TaskBrowserStatus } from '../../types'
 import { useDomainEvent } from '../../domainEvents'
 import { janusApi as api } from '../../api'
-import { Button, EmptyState } from '../ui'
+import { Button, EmptyState, Tabs } from '../ui'
 
 loader.config({ monaco })
 
@@ -261,14 +261,18 @@ export default function TaskDevelopmentSurface({ task }: { task: Task }) {
     <section className="task-card overflow-hidden p-0">
       <div className="flex h-9 items-center border-b border-border px-2">
         <div className="mr-3 font-mono text-[8px] uppercase tracking-[0.16em] text-muted">작업 개발 화면</div>
-        {([
-          ['terminal', TerminalIcon, '터미널', '⌘J'], ['editor', Code2, '편집기', '⌘P'],
-          ['preview', ExternalLink, '미리보기', '⌘⇧B']
-        ] as const).map(([id, Icon, label, key]) => (
-          <button key={id} onClick={() => chooseTab(id)} className="ui-tab flex h-full items-center gap-1.5 px-2.5 text-[10px]" aria-selected={tab === id}>
-            <Icon size={11} />{label}<kbd className="font-mono text-[7px] text-faint">{key}</kbd>
-          </button>
-        ))}
+        <Tabs
+          items={['terminal', 'editor', 'preview'] as const}
+          value={tab}
+          onChange={chooseTab}
+          label="작업 개발 화면"
+          className="h-full"
+          labels={{
+            terminal: <><TerminalIcon size={11} />터미널<kbd className="font-mono text-[7px] text-faint">⌘J</kbd></>,
+            editor: <><Code2 size={11} />편집기<kbd className="font-mono text-[7px] text-faint">⌘P</kbd></>,
+            preview: <><ExternalLink size={11} />미리보기<kbd className="font-mono text-[7px] text-faint">⌘⇧B</kbd></>,
+          }}
+        />
         <span className="ml-auto max-w-[280px] truncate font-mono text-[8px] text-faint">{task.workspace?.root_path}</span>
       </div>
       {error && <div className="error-strip border-x-0 border-t-0 text-[9px]">{error}</div>}

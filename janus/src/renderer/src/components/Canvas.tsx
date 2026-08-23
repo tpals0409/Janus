@@ -108,7 +108,7 @@ export default function Canvas() {
       <Controls showInteractive={false} />
       <Panel position="top-left" className="graph-overlay m-4">
         <div className="font-mono text-[9px] tracking-wider text-faint">RUNTIME OWNERSHIP</div>
-        <div className="mt-1 text-[10px] text-muted">오케스트레이터 1 · 실행 워커 {workerCount}</div>
+        <div className="mt-1 text-[10px] text-muted">프로필 루트 1 · 실행 워커 {workerCount}</div>
       </Panel>
       <Panel position="top-right" className="graph-overlay m-4 max-w-[270px] text-[10px] leading-relaxed text-faint">
         워커는 영속 설정이 아닙니다. Task 실행 중 오케스트레이터가 생성·종료한 실제 span만 표시합니다.

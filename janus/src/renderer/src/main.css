@@ -781,6 +781,44 @@ button {
   color: var(--text-primary);
 }
 
+.ui-toolbar {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.ui-menu {
+  min-width: 160px;
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  box-shadow: var(--floating-shadow);
+  padding: var(--space-1);
+}
+
+.ui-menu__item {
+  display: flex;
+  width: 100%;
+  min-height: 30px;
+  align-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  padding: 0 var(--space-2);
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: left;
+}
+
+.ui-menu__item:hover,
+.ui-menu__item:focus-visible {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
 .command-palette-backdrop {
   align-items: start;
   padding-top: 15vh;

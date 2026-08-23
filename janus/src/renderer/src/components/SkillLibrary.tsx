@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import type { SkillActivationMode, SkillSummary } from '../types'
 import { useStore } from '../store'
-import { Button, EmptyState, IconButton, Input, Section, Select, Status } from './ui'
+import { Button, Dialog, EmptyState, IconButton, Input, Section, Select, Status } from './ui'
 
 const compatibilityLabel = {
   native: '네이티브',
@@ -132,8 +132,7 @@ export default function SkillLibrary() {
       )}
 
       {importPreview && (
-        <div className="ui-dialog-backdrop">
-          <section className="ui-dialog" role="dialog" aria-modal="true" aria-labelledby="skill-import-title">
+        <Dialog open title="가져올 GitHub 스킬 확인" onClose={dismissPreview}>
             <header className="flex items-start gap-3 border-b border-border px-5 py-4">
               <div className="workspace-toolbar__icon">
                 <Github size={16} strokeWidth={1.5} />
@@ -201,8 +200,7 @@ export default function SkillLibrary() {
                 </Button>
               </div>
             </footer>
-          </section>
-        </div>
+        </Dialog>
       )}
 
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(360px,1fr)_300px]">

@@ -55,11 +55,15 @@ export function Tabs<T extends string>({
   value,
   onChange,
   label,
+  labels,
+  className,
 }: {
   items: readonly T[]
   value: T
   onChange: (value: T) => void
   label: string
+  labels?: Partial<Record<T, ReactNode>>
+  className?: string
 }) {
   const buttons = useRef<Array<HTMLButtonElement | null>>([])
   const move = (index: number) => {
@@ -68,7 +72,7 @@ export function Tabs<T extends string>({
     buttons.current[next]?.focus()
   }
   return (
-    <div className="ui-tabs" role="tablist" aria-label={label}>
+    <div className={cx('ui-tabs', className)} role="tablist" aria-label={label}>
       {items.map((item, index) => (
         <button
           key={item}
@@ -86,7 +90,7 @@ export function Tabs<T extends string>({
             if (event.key === 'End') { event.preventDefault(); move(items.length - 1) }
           }}
         >
-          {item}
+          {labels?.[item] ?? item}
         </button>
       ))}
     </div>
@@ -124,6 +128,18 @@ export function Status({
 
 export function Panel({ className, ...props }: HTMLAttributes<HTMLElement>) {
   return <section className={cx('ui-panel', className)} {...props} />
+}
+
+export function Toolbar({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
+  return <div role="toolbar" className={cx('ui-toolbar', className)} {...props} />
+}
+
+export function Menu({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
+  return <div role="menu" className={cx('ui-menu', className)} {...props} />
+}
+
+export function MenuItem({ className, type = 'button', ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
+  return <button role="menuitem" type={type} className={cx('ui-menu__item', className)} {...props} />
 }
 
 export function Section({
