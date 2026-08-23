@@ -17,6 +17,9 @@ out/
 /janus_server/janus_server/runs/
 # R3 TaskSuite의 실행별 workspace/trace는 로컬 진단용이다. 공개 저장소에는 집계만 둔다.
 /janus_server/artifacts/r3/**/runs/
+# 오케스트레이션 실모델 E2E 원본(체크포인트·모델 응답)은 로컬 진단용이다.
+/janus_server/artifacts/orchestration/runs/
+/janus_server/artifacts/orchestration-airgap.zip
 # P2 회귀 수정 과정의 중단된 실행과 단계별 smoke 원본은 로컬 진단용이다.
 # 재현 가능한 요약은 P2_INTERMEDIATE_ARTIFACTS.md, 최종 근거는 fixed-one-v2에 둔다.
 /janus_server/artifacts/r3/tasksuite/20260822-p2-final/

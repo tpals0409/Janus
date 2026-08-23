@@ -16,6 +16,7 @@ from janus_server.scheduler import (
     ResourceClass,
     ResourceScheduler,
     SchedulerClosed,
+    assess_vram_sizing,
 )
 from janus_server.workspace import WorkspaceContext
 from tests.fakes import FakeClient
@@ -38,6 +39,27 @@ class MutableClock:
 
 
 class SchedulerTests(unittest.TestCase):
+    def test_vram_sizing_starts_only_after_sustained_measured_bottleneck(self):
+        sparse = [
+            {"kind": "lease_acquired", "resource": "model_generation", "queue_wait_ms": 5000}
+            for _ in range(3)
+        ]
+        healthy = [
+            {"kind": "lease_acquired", "resource": "model_generation", "queue_wait_ms": 20}
+            for _ in range(20)
+        ]
+        blocked = [
+            {"kind": "lease_acquired", "resource": "model_generation", "queue_wait_ms": 1500}
+            for _ in range(20)
+        ]
+
+        self.assertEqual("deferred", assess_vram_sizing(sparse)["status"])
+        self.assertEqual("insufficient_samples", assess_vram_sizing(sparse)["reason"])
+        self.assertEqual("deferred", assess_vram_sizing(healthy)["status"])
+        self.assertEqual("model_slot_wait_below_threshold", assess_vram_sizing(healthy)["reason"])
+        self.assertEqual("recommended", assess_vram_sizing(blocked)["status"])
+        self.assertEqual("measured_model_slot_bottleneck", assess_vram_sizing(blocked)["reason"])
+
     def test_runtime_and_verification_exceptions_leave_no_active_lease(self):
         scheduler = ResourceScheduler()
         with tempfile.TemporaryDirectory() as tmp:

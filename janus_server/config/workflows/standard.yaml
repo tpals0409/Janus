@@ -1,0 +1,107 @@
+version: 1
+inputs:
+  request: "Create the requested local change"
+stages:
+  - id: explore
+    role: summarizer
+    needs: []
+    fanout:
+      max: 3
+    write: none
+    context:
+      request: "${inputs.request}"
+    task: "Explore the repository for ${inputs.request} and return only a summary."
+    output:
+      path: outputs/explore.json
+      schema:
+        type: object
+        properties:
+          summary:
+            type: string
+        required: [summary]
+        additionalProperties: false
+    check: null
+    on_fail: human
+  - id: plan
+    role: coder
+    needs: [explore]
+    fanout:
+      max: 1
+    write: none
+    context:
+      research: "${stages.explore.output}"
+    task: "Create a bounded implementation plan from ${stages.explore.output}."
+    output:
+      path: outputs/plan.json
+      schema:
+        type: object
+        properties:
+          tasks:
+            type: array
+        required: [tasks]
+        additionalProperties: false
+    check: null
+    on_fail: human
+  - id: implement
+    role: coder
+    needs: [plan]
+    fanout:
+      max: 1
+    write: worktree
+    context:
+      plan: "${stages.plan.output}"
+    task: "Implement the owned task from ${stages.plan.output}."
+    output:
+      path: outputs/implementation.json
+      schema:
+        type: object
+        properties:
+          status:
+            type: string
+        required: [status]
+        additionalProperties: false
+    check: "test -f outputs/implementation.json"
+    on_fail: human
+  - id: review
+    role: reviewer
+    needs: [implement]
+    fanout:
+      max: 1
+    write: none
+    context:
+      plan: "${stages.plan.output}"
+      implementation: "${stages.implement.output}"
+    task: "Review only the declared plan and implementation diff."
+    output:
+      path: outputs/review.json
+      schema:
+        type: object
+        properties:
+          verdict:
+            type: string
+          findings:
+            type: array
+        required: [verdict, findings]
+        additionalProperties: false
+    check: null
+    on_fail: human
+  - id: verify
+    role: coder
+    needs: [review]
+    fanout:
+      max: 1
+    write: none
+    context:
+      review: "${stages.review.output}"
+    task: "Report the integration verification result after ${stages.review.output}."
+    output:
+      path: outputs/verification.json
+      schema:
+        type: object
+        properties:
+          status:
+            type: string
+        required: [status]
+        additionalProperties: false
+    check: null
+    on_fail: human

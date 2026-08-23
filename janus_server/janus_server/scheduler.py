@@ -11,6 +11,7 @@ import itertools
 import threading
 import time
 import uuid
+import math
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Callable, Mapping
@@ -268,3 +269,40 @@ _DEFAULT_SCHEDULER = ResourceScheduler()
 def default_scheduler() -> ResourceScheduler:
     """Return the one scheduler shared by all Task and legacy runtimes."""
     return _DEFAULT_SCHEDULER
+
+
+def assess_vram_sizing(
+    events: list[dict],
+    *,
+    minimum_samples: int = 10,
+    p95_wait_threshold_ms: float = 1000,
+) -> dict:
+    """Gate expensive VRAM sizing behind sustained measured slot contention."""
+    if minimum_samples < 1:
+        raise ValueError("minimum_samples must be positive")
+    if p95_wait_threshold_ms < 0:
+        raise ValueError("p95_wait_threshold_ms must not be negative")
+    waits = sorted(
+        float(event["queue_wait_ms"])
+        for event in events
+        if event.get("kind") == "lease_acquired"
+        and event.get("resource") == ResourceClass.MODEL_GENERATION.value
+        and isinstance(event.get("queue_wait_ms"), (int, float))
+    )
+    p95 = waits[max(0, math.ceil(len(waits) * 0.95) - 1)] if waits else 0.0
+    enough = len(waits) >= minimum_samples
+    bottleneck = enough and p95 >= p95_wait_threshold_ms
+    return {
+        "status": "recommended" if bottleneck else "deferred",
+        "sample_count": len(waits),
+        "minimum_samples": minimum_samples,
+        "p95_wait_ms": round(p95, 3),
+        "p95_wait_threshold_ms": float(p95_wait_threshold_ms),
+        "reason": (
+            "measured_model_slot_bottleneck"
+            if bottleneck
+            else "insufficient_samples"
+            if not enough
+            else "model_slot_wait_below_threshold"
+        ),
+    }

@@ -5,6 +5,7 @@ from __future__ import annotations
 import subprocess
 import tempfile
 import unittest
+import unicodedata
 from pathlib import Path
 
 from janus_server.workspace_service import (
@@ -150,6 +151,30 @@ class WorkspaceServiceTests(unittest.TestCase):
         with self.assertRaises(UnsafeWorkspace):
             self.service.force_remove(repo_path=self.repo, root_path=self.repo)
         self.assert_main_unchanged()
+
+    def test_registered_worktree_identity_handles_unicode_normalization(self):
+        prepared = self.service.prepare(
+            workspace_id="unicode_workspace",
+            task_id="unicode_task",
+            title="Unicode",
+            repo_path=self.repo,
+            base_ref="main",
+        )
+        root = Path(prepared["root_path"])
+        alternate = Path(unicodedata.normalize("NFC", str(root)))
+
+        recovered = self.service.prepare(
+            workspace_id="unicode_workspace",
+            task_id="unicode_task",
+            title="Unicode",
+            repo_path=self.repo,
+            base_ref="main",
+            existing_root=alternate,
+            existing_branch=prepared["branch_name"],
+        )
+
+        self.assertTrue(recovered["recovered"])
+        self.service.force_remove(repo_path=self.repo, root_path=alternate)
 
     def test_changeset_is_git_derived_across_all_layers(self):
         (self.repo / "stage.txt").write_text("base\n", encoding="utf-8")

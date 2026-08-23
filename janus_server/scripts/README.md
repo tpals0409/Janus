@@ -23,3 +23,18 @@
 `uv run python scripts/robustness_soak.py`는 기본 30분 동안 crash/reopen/backup
 루프를 반복하고 SQLite 무결성과 transient state 누수를 검사한다.
 `../RECOVERY.md`에 백업, 복원, 명시적 초기화 정책이 있다.
+
+## 오케스트레이션 상태머신 27B E2E
+
+`uv run python scripts/verify_workflow_27b.py`는 실제 Qwen3.8-27B로
+Explore fan-out → 구조화 Plan → Plan 소유권 기반 worktree Implement → 워커별 테스트 →
+순차 머지·통합 검증 → 클린 Review를 완주한다. `plan` 실행 경계 직후 크래시 재개,
+모델 폴백, 충돌 fixer, 리뷰 2회 초과 사람 개입, YAML 출력 계약, 토큰 계측과
+loopback 전용 에어갭 감사도 함께 검증한다. 모델 서버 소유권·정리 정책은 P0 smoke와
+동일하며, 실행 원본은 `artifacts/orchestration/runs/`에 로컬로만 남는다.
+
+## 오케스트레이션 에어갭 번들
+
+`uv run python scripts/build_orchestration_airgap_bundle.py artifacts/orchestration-airgap.zip`
+은 엔진, 격리·검증 의존성, 엄격한 YAML 로더, 표준 템플릿, 모델 역할 매핑,
+네트워크 게이트와 SHA-256 manifest를 재현 가능한 ZIP으로 만든다.

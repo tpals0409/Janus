@@ -6,6 +6,7 @@ import re
 import subprocess
 import hashlib
 import json
+import unicodedata
 from datetime import datetime, timezone
 from collections.abc import Callable
 from pathlib import Path
@@ -118,11 +119,18 @@ class WorkspaceService:
         return records
 
     def _registered(self, repo: Path, root: Path) -> dict | None:
-        resolved = str(root.resolve())
-        return next(
-            (item for item in self._worktrees(repo) if item.get("root_path") == resolved),
-            None,
-        )
+        resolved = root.resolve()
+        normalized = unicodedata.normalize("NFC", str(resolved))
+        for item in self._worktrees(repo):
+            candidate = Path(str(item.get("root_path") or "")).resolve()
+            try:
+                if candidate.exists() and resolved.exists() and candidate.samefile(resolved):
+                    return item
+            except OSError:
+                pass
+            if unicodedata.normalize("NFC", str(candidate)) == normalized:
+                return item
+        return None
 
     def _branch_exists(self, repo: Path, branch: str) -> bool:
         return self._git(
