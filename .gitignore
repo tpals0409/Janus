@@ -17,4 +17,18 @@ out/
 /janus_server/janus_server/runs/
 # R3 TaskSuite의 실행별 workspace/trace는 로컬 진단용이다. 공개 저장소에는 집계만 둔다.
 /janus_server/artifacts/r3/**/runs/
+# P2 회귀 수정 과정의 중단된 실행과 단계별 smoke 원본은 로컬 진단용이다.
+# 재현 가능한 요약은 P2_INTERMEDIATE_ARTIFACTS.md, 최종 근거는 fixed-one-v2에 둔다.
+/janus_server/artifacts/r3/tasksuite/20260822-p2-final/
+/janus_server/artifacts/r3/tasksuite/20260822-p2-final-fixed-one/
+/janus_server/artifacts/r3/tasksuite/20260822-p2-final-v2/
+/janus_server/artifacts/r3/tasksuite/20260822-p2-multi-one-step-scout-smoke/
+/janus_server/artifacts/r3/tasksuite/20260822-p2-multi-scout-enforced-smoke/
+/janus_server/artifacts/r3/tasksuite/20260822-p2-multi-scout-handoff-smoke/
+/janus_server/artifacts/r3/tasksuite/20260822-p2-single-slot-scout-repeat/
+/janus_server/artifacts/r3/tasksuite/20260822-p2-single-slot-scout-smoke/
+/janus_server/artifacts/r3/tasksuite/20260822-p2-worker-finish-smoke/
+/janus_server/artifacts/r3/tasksuite/20260822-p2-worker-fix/
+/janus_server/artifacts/r3/tasksuite/20260822-p2-worker-integration-smoke/
+/janus_server/artifacts/r3/tasksuite/20260822-p2-worker-reserve-smoke/
 /.serena/
