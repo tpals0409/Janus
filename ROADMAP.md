@@ -462,10 +462,11 @@ wall time이 63% 증가했다. `fixed_one`은 작은 두 fixture에서 18~23% �
 
 ## 다음 코드 작업
 
-다음 작업은 **R3 TaskSuite에서 발견된 worker 회귀 수정**이다.
+v1.0 체크리스트와 배포는 완료됐다. R3 worker 회귀 수정은
+`completed_partial` 통합, 반복 spawn 억제, Task 적합성 gate로 적용됐고
+fixed-one 최종 15회 재검증까지 끝났다. R4부터 R9까지도 이후 완료됐으므로
+이전 P2를 다음 작업으로 표시하지 않는다.
 
-1. `investigate_code_tests / fixed_one`의 worker token 소진 결과를 partial result로 통합한다.
-2. worker 실패 후 반복 spawn을 억제하되 오케스트레이터가 직접 완료할 수 있는 결과를 준다.
-3. `autonomous`가 작은 병렬 이득 없이 worker를 선택하는 것을 Task 적합성 gate로 제한한다.
-
-acceptance 44/45 이상을 회복한 뒤 R4의 Git ChangeSet 구현으로 넘어간다.
+현재 승인된 추가 코드 범위는 없다. 다음 개발은 **로컬 에이전트 효율**을
+측정 가능한 v1.1 목표와 acceptance로 먼저 정의한 뒤 새 체크리스트로 연다.
+외부 API 모델·구독형 CLI agent·원격 runtime은 별도 제품 판단 전까지 범위 밖으로 둔다.
