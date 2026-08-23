@@ -10,9 +10,10 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "check:bundle": "pnpm build && node scripts/check-bundle-size.mjs",
-    "package:mac": "pnpm build && electron-builder --mac dir --publish never",
+    "package:mac": "pnpm build && electron-builder --config electron-builder.config.cjs --mac dir --publish never",
+    "package:mac:signed": "pnpm build && JANUS_SIGNED_RELEASE=1 electron-builder --config electron-builder.config.cjs --mac dmg zip --publish never",
     "start": "electron-vite preview",
-    "test:main": "node --test src/main/*.test.ts",
+    "test:main": "node --test src/main/*.test.ts scripts/*.test.mjs",
     "test:renderer": "vitest run --config vitest.config.ts",
     "test": "pnpm test:main && pnpm test:renderer"
   },
@@ -42,46 +43,5 @@
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
     "vitest": "^4.1.11"
-  },
-  "build": {
-    "appId": "dev.janus.ade",
-    "productName": "Janus",
-    "asar": true,
-    "directories": {
-      "output": "dist"
-    },
-    "files": [
-      "out/**/*",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "../janus_server",
-        "to": "janus_server",
-        "filter": [
-          "pyproject.toml",
-          "uv.lock",
-          "janus_server/**/*",
-          "!janus_server/runs/**/*",
-          "!janus_server/workspace/**/*",
-          "!**/__pycache__/**"
-        ]
-      },
-      {
-        "from": "../qwen3.8mlx",
-        "to": "qwen3.8mlx",
-        "filter": [
-          "pyproject.toml",
-          "uv.lock"
-        ]
-      }
-    ],
-    "mac": {
-      "category": "public.app-category.developer-tools",
-      "target": [
-        "dir"
-      ],
-      "identity": null
-    }
   }
 }
