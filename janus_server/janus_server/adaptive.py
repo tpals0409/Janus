@@ -15,7 +15,8 @@ from .budget import merge_budget, normalize_budget
 
 
 TASK_CLASSES = {
-    "single_file_bug", "multi_file_refactor", "investigation", "test_heavy", "general",
+    "single_file_bug", "multi_file_refactor", "multi_component_build",
+    "investigation", "test_heavy", "general",
 }
 
 
@@ -68,6 +69,11 @@ def classify_task(task: dict) -> tuple[str, list[str]]:
         "refactor", "migration", "across", "multiple files", "architecture",
         "리팩터", "마이그레이션", "여러 파일", "전반", "아키텍처",
     )
+    multi_component_words = (
+        "full service", "web service", "full-stack", "full stack",
+        "backend", "frontend", "browser ui",
+        "전체 서비스", "웹 서비스", "백엔드", "프론트엔드",
+    )
     test_words = (
         "test", "pytest", "unittest", "vitest", "jest", "cargo test", "검증", "테스트",
     )
@@ -80,6 +86,11 @@ def classify_task(task: dict) -> tuple[str, list[str]]:
     if any(word in text for word in refactor_words):
         signals.append("cross_cutting_language")
         return "multi_file_refactor", signals
+    # A product build commonly mentions its acceptance tests, but that must not
+    # collapse independent backend/UI/data work into the narrower test topology.
+    if sum(word in text for word in multi_component_words) >= 2:
+        signals.append("multi_component_product_language")
+        return "multi_component_build", signals
     if any(word in text for word in test_words):
         signals.append("verification_heavy_language")
         return "test_heavy", signals
@@ -197,19 +208,49 @@ def decide(
             "workers": {"total_limit": 2, "concurrent_limit": min(2, cap)},
         }
         reasons.append("separate_implementation_and_verification")
-    elif task_class == "multi_file_refactor":
+    elif task_class in {"multi_file_refactor", "multi_component_build"}:
         worker_policy = "autonomous"
         roles = ["researcher", "implementer", "verifier"]
         role_sequence = ["researcher", "implementer", "verifier"]
-        allow_autonomous = cap > 1
+        # A one-slot local model still benefits from sequentially owned workers;
+        # model generation concurrency and worker delegation are separate limits.
+        allow_autonomous = task_class == "multi_component_build" or cap > 1
         budget_override = {
             "dispatch": {
                 "token_limit": max(base_budget["dispatch"]["token_limit"], 40_960),
                 "step_limit": max(base_budget["dispatch"]["step_limit"], 36),
             },
-            "workers": {"total_limit": min(4, max(1, cap + 1)), "concurrent_limit": min(2, cap)},
+            "worker": {
+                "token_limit": (
+                    max(base_budget["worker"]["token_limit"], 49_152)
+                    if task_class == "multi_component_build"
+                    else base_budget["worker"]["token_limit"]
+                ),
+                "time_limit_ms": (
+                    max(base_budget["worker"]["time_limit_ms"], 1_200_000)
+                    if task_class == "multi_component_build"
+                    else base_budget["worker"]["time_limit_ms"]
+                ),
+                "step_limit": (
+                    max(base_budget["worker"]["step_limit"], 12)
+                    if task_class == "multi_component_build"
+                    else base_budget["worker"]["step_limit"]
+                ),
+            },
+            "workers": {
+                "total_limit": (
+                    min(4, base_budget["workers"]["total_limit"])
+                    if task_class == "multi_component_build"
+                    else min(4, max(1, cap + 1))
+                ),
+                "concurrent_limit": min(2, cap),
+            },
         }
-        reasons.append("cross_cutting_role_pipeline")
+        reasons.append(
+            "multi_component_role_pipeline"
+            if task_class == "multi_component_build"
+            else "cross_cutting_role_pipeline"
+        )
 
     # Retry strategy is driven by evidence, and always bounded to this next attempt.
     retry_strategy = "fresh_attempt"

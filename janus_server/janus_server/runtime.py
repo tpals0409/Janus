@@ -189,13 +189,17 @@ def resolve_local_model(name: str) -> str:
 def make_client() -> OpenAI:
     # ponytail: local-only. 클라우드 provider가 실제로 필요해지면 spec에 provider 필드 재추가.
     # 모듈 함수로 둔 이유: 테스트가 monkeypatch로 FakeClient를 꽂는다.
-    return OpenAI(base_url=MLX_BASE_URL, api_key="none")
+    return OpenAI(
+        base_url=MLX_BASE_URL, api_key="none",
+        timeout=MODEL_REQUEST_TIMEOUT_SECONDS,
+    )
 
 
 # ─────────────────────────── 클리핑 (구 trace.py에서 구출) ───────────────────────────
 
 MAX_STR = 4000
 MAX_LIST = 50
+MODEL_REQUEST_TIMEOUT_SECONDS = 1_200.0
 
 
 def _clip(v):
@@ -557,7 +561,14 @@ class Orchestration:
             requested_role = str(role).lower().strip()
             if requested_role not in WORKER_ROLES:
                 return {"error": f"알 수 없는 worker role: {requested_role}"}
-            if requested_role not in self.worker_roles:
+            # In autonomous mode the adaptive role sequence is a recommended
+            # topology, not an allow-list. A user can explicitly request a
+            # different valid role (for example an implementer after a
+            # transient connection failure selected a researcher-first retry).
+            if (
+                requested_role not in self.worker_roles
+                and self.worker_policy != "autonomous"
+            ):
                 return {
                     "error": f"adaptive policy가 worker role을 허용하지 않습니다: {requested_role}",
                     "reason": "worker_role_not_allowed",
@@ -573,13 +584,10 @@ class Orchestration:
                 int(self.budget["dispatch"]["step_limit"]),
                 scheduler_state,
             )
-            if self.worker_role_sequence:
-                expected = self.worker_role_sequence[
-                    min(self.worker_seq, len(self.worker_role_sequence) - 1)
-                ]
-                if expected in self.worker_roles and role != expected:
-                    role = expected
-                    role_adaptation = "adaptive_role_sequence"
+            # The role sequence describes useful topology to the orchestrator;
+            # it must not silently replace an explicit, policy-allowed role.
+            # Doing so turned implementation workers into one-step read-only
+            # scouts after the parent had already completed discovery.
             # 부분집합 규칙: 워커 도구 ⊆ 오케스트레이터의 spec.tools.
             # researcher/verifier는 결과를 수정하지 못하도록 읽기 전용 교집합만 받는다.
             requested_tools = list(dict.fromkeys(str(t) for t in (tools or [])))
@@ -895,19 +903,30 @@ class Orchestration:
             "create_worker", handler,
             lambda v: str(v.get("result") or v.get("warning") or v.get("error") or ""),
             T._obj(["name", "system_prompt", "task"],
-                   name={"type": "string", "description": "Short worker name."},
-                   system_prompt={"type": "string",
-                                  "description": "Role and rules for the worker."},
-                   task={"type": "string", "description": "The concrete subtask."},
+                   name={"type": "string", "maxLength": 40,
+                         "description": "Short worker name."},
+                   system_prompt={
+                       "type": "string", "maxLength": 300,
+                       "description": (
+                           "Concise role and rules only. Never restate the Task contract."
+                       ),
+                   },
+                   task={
+                       "type": "string", "maxLength": 500,
+                       "description": (
+                           "Concrete subtask; reference the parent Task for existing details."
+                       ),
+                   },
                    role={"type": "string",
                          "enum": ["implementer", "researcher", "verifier"],
                          "description": "Worker role. Verifier is forced read-only."},
-                   context={"type": "string",
+                   context={"type": "string", "maxLength": 500,
                             "description": "Only the minimal context needed by this subtask."},
                    tools={"type": "array", "items": {"type": "string"},
                           "description": "Tool names for the worker — subset of your own."},
                    max_steps={"type": "number", "description": "Step budget (default 8)."}),
-            "Spawn a worker agent for a separable subtask and get its result.",
+            "Spawn a worker agent for a separable subtask and get its result. Keep the "
+            "entire call concise; do not copy the Task specification into its arguments.",
             "Spawn only for a separable subtask. Pass minimal context and the smallest "
             "tool subset. Use role=verifier for read-only result checks. Duplicate work "
             "and excess model queue pressure are suppressed.",

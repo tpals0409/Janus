@@ -529,6 +529,33 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn("do not search for a shell", worker_system)
         self.assertIn("Do not broaden the original contract", worker_system)
 
+    def test_autonomous_role_sequence_does_not_reject_explicit_valid_role(self):
+        args = json.dumps({
+            "name": "repair", "role": "implementer", "system_prompt": "work",
+            "task": "write the repair", "tools": ["echo"],
+        })
+        fake = FakeClient([
+            {"calls": [("create_worker", args)]},
+            {"text": "implemented"},
+            {"text": "final"},
+        ])
+        spec = {
+            **SPEC,
+            "worker_policy": "autonomous",
+            "worker_roles": ["researcher"],
+            "worker_role_sequence": ["researcher"],
+        }
+        with orch_env(fake, spec), self.connect() as ws:
+            ws.send_json({"type": "message", "text": "create an implementer"})
+            seen = self.drain_turn(ws)
+
+        starts = [
+            message for message in seen
+            if message["type"] == "span_start"
+            and message["span"]["node_id"] != "orchestrator"
+        ]
+        self.assertEqual("implementer", starts[0]["span"]["input"]["role"])
+
     def test_tight_fixed_one_implementer_is_adapted_to_read_only_scout(self):
         args = json.dumps({
             "name": "scout", "role": "implementer", "system_prompt": "work",
@@ -592,6 +619,31 @@ class RuntimeTests(unittest.TestCase):
 
 
 class SessionContextTests(unittest.TestCase):
+    def test_reasoning_only_empty_response_is_retried(self):
+        fake = FakeClient([{}, {"text": "completed after retry"}])
+        events = []
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _ = agent.run(
+                client=fake, model="fake", system_prompt="system", task="do work",
+                tool_names=[],
+                workspace_context=WorkspaceContext(
+                    Path(tmp), "task-empty", "workspace-empty", "dispatch-empty",
+                ),
+                approve=lambda _name, _args: True,
+                emit=lambda kind, **data: events.append({"kind": kind, **data}),
+            )
+
+        self.assertEqual("completed after retry", result)
+        self.assertEqual(1, len([
+            event for event in events if event["kind"] == "empty_response"
+        ]))
+        second_messages = fake.captured[1]["messages"]
+        self.assertIn("Do not write a placeholder", second_messages[-1]["content"])
+        self.assertIn("return an explicit failure", second_messages[-1]["content"])
+        self.assertEqual(
+            agent.DEFAULT_MAX_OUTPUT_TOKENS, fake.captured[0]["max_tokens"]
+        )
+
     def test_compaction_preserves_recent_objective_and_tool_pairs(self):
         session = agent.Session(
             "system", context_max_chars=4_000, context_recent_blocks=4,
@@ -615,6 +667,10 @@ class SessionContextTests(unittest.TestCase):
         stats = session.context_stats
 
         self.assertTrue(stats["compacted"])
+        self.assertEqual([0], [
+            index for index, message in enumerate(compacted)
+            if message["role"] == "system"
+        ])
         self.assertLess(stats["sent_chars"], baseline_chars)
         self.assertGreater(stats["saved_chars"], 0)
         self.assertIn("current objective must survive", [
@@ -628,6 +684,30 @@ class SessionContextTests(unittest.TestCase):
             message["tool_call_id"] in call_ids
             for message in compacted if message["role"] == "tool"
         ))
+
+    def test_compaction_never_removes_the_only_user_query_during_a_tool_loop(self):
+        session = agent.Session(
+            "system", context_max_chars=2_000, context_recent_blocks=3,
+        )
+        session.append("user", content="build the complete service")
+        for index in range(10):
+            call_id = f"call-{index}"
+            session.append("assistant", content="", tool_calls=[{
+                "id": call_id, "type": "function",
+                "function": {"name": "echo", "arguments": "{}"},
+            }])
+            session.append(
+                "tool_result", tool_call_id=call_id, name="echo",
+                value={"text": "result " + "x" * 300},
+            )
+
+        compacted = session.derive_messages()
+
+        self.assertTrue(session.context_stats["compacted"])
+        self.assertIn("build the complete service", [
+            message["content"] for message in compacted
+            if message["role"] == "user"
+        ])
 
     def test_stable_prefix_probe_reports_reuse_without_claiming_cache_hit(self):
         session = agent.Session("stable system")

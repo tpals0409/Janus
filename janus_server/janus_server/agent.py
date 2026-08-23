@@ -24,7 +24,9 @@ from . import scheduler as scheduler_mod
 from .workspace import WorkspaceContext
 
 DEFAULT_MAX_STEPS = 15
+DEFAULT_MAX_OUTPUT_TOKENS = 12_288
 CIRCUIT_BREAK = 3  # 같은 도구가 연속 N회 실패하면 중단
+EMPTY_RESPONSE_RETRIES = 2
 DEFAULT_CONTEXT_MAX_CHARS = 24_000
 DEFAULT_CONTEXT_RECENT_BLOCKS = 8
 MAX_PROJECT_SUMMARY_CHARS = 4_000
@@ -140,22 +142,35 @@ class Session:
             kept = blocks[split:]
             while True:
                 summary = self._project_summary(omitted)
-                summary_message = {
+                summarized_system = {
                     "role": "system",
-                    "content": "Project/session summary (older context):\n" + summary,
+                    "content": (
+                        self.system_prompt
+                        + "\n\nProject/session summary (older context):\n"
+                        + summary
+                    ),
                 }
                 candidate = [
-                    system, summary_message,
+                    summarized_system,
                     *(message for block in kept for message in block),
                 ]
+                # Some OpenAI-compatible local servers require an actual user
+                # message, not only a system summary followed by tool history.
+                # A long tool loop can otherwise compact away the sole request.
+                if not any(message["role"] == "user" for message in candidate):
+                    latest_user = next(
+                        (block[0] for block in reversed(blocks)
+                         if block and block[0]["role"] == "user"),
+                        None,
+                    )
+                    if latest_user is not None:
+                        candidate.insert(1, latest_user)
                 if self._chars(candidate) <= max_chars or len(kept) <= 1:
                     full = candidate
                     break
                 omitted.append(kept.pop(0))
 
-        summary_content = (
-            full[1]["content"] if omitted and len(full) > 1 else ""
-        )
+        summary_content = self._project_summary(omitted) if omitted else ""
         stable_prefix = self.system_prompt + "\n" + summary_content
         prefix_hash = hashlib.sha256(stable_prefix.encode("utf-8")).hexdigest()[:16]
         prefix_reused = self._last_prefix_hash == prefix_hash
@@ -198,6 +213,11 @@ def build_system_prompt(base: str, tool_names: list[str],
         f"{base}\n\n"
         "Work by calling tools. When the task is done, reply with plain text and no "
         "tool call — that is how you finish.\n\n"
+        "Execution priority: follow the user's explicit tool or delegation instruction "
+        "before doing your own preflight work. If the user explicitly asks you to "
+        "create or spawn a worker, your first tool call MUST be create_worker. Do not "
+        "read, search, or inspect files first; put any already supplied context into "
+        "the worker task.\n\n"
         f"Tools:\n{T.guidance_for(tool_names, registry=registry)}\n\n"
         f"Be brief. Do not narrate what you are about to do; just do it.\n\n{language}"
     )
@@ -290,6 +310,7 @@ def run(
 
     schemas = T.schemas_for(tool_names, registry=reg)
     fail_streak: dict[str, int] = {}
+    empty_response_streak = 0
     last_text = ""
     tok_prompt = tok_completion = 0
     scheduler = scheduler or scheduler_mod.default_scheduler()
@@ -335,11 +356,12 @@ def run(
         emit("llm_call", messages=msgs if step == 0 else msgs[-2:],
              total_messages=len(msgs))
         kwargs = {"model": model, "messages": msgs, "stream": True,
+                  "max_tokens": DEFAULT_MAX_OUTPUT_TOKENS,
                   "stream_options": {"include_usage": True},
-                  # mlx_vlm 전용 필드 — 켜면 reasoning_content가 content와 분리돼 나온다.
-                  # ponytail: 모든 step에 thinking이 붙어 생성이 느려진다.
-                  # 답답하면 AgentProfile 설정으로 빼는 게 다음 단계다.
-                  "extra_body": {"enable_thinking": True}}
+                  # Qwen's thinking mode can finish with reasoning_content only,
+                  # losing the structured tool call it planned. Coding agents
+                  # need reliable actions more than hidden chain-of-thought.
+                  "extra_body": {"enable_thinking": False}}
         if schemas:
             kwargs["tools"] = schemas
         generation_id = uuid.uuid4().hex[:16]
@@ -384,9 +406,10 @@ def run(
                 text, calls, usage = _assemble(
                     client.chat.completions.create(**kwargs), emit, effective_cancel
                 )
-            except Exception:
+            except Exception as error:
                 emit("model_generation_end", operation_id=generation_id,
-                     step=step + 1, status="error")
+                     step=step + 1, status="error",
+                     error=f"{type(error).__name__}: {error}")
                 raise
             else:
                 emit("model_generation_end", operation_id=generation_id,
@@ -412,6 +435,38 @@ def run(
             emit("done", reason="cancelled")
             return last_text, session.events
 
+        if not text.strip() and not calls:
+            empty_response_streak += 1
+            emit("empty_response", attempt=empty_response_streak)
+            # A direct-answer node has no action it can recover into. Retrying it
+            # can turn a legitimate blank response into fabricated fallback text
+            # from test doubles or compatibility servers. Tool-capable coding
+            # nodes still receive the guarded recovery nudge below.
+            if not schemas and text:
+                emit("done", reason="empty_response")
+                return last_text, session.events
+            if empty_response_streak > EMPTY_RESPONSE_RETRIES:
+                raise RuntimeError(
+                    "model returned reasoning without assistant content or tool calls "
+                    f"{empty_response_streak} times"
+                )
+            # Qwen-compatible servers can end after private reasoning without
+            # materializing the intended action.  Give the next generation an
+            # actual user query and do not persist an invalid empty assistant.
+            session.append(
+                "user",
+                content=(
+                    "Your previous generation hit the output limit before producing an "
+                    "action. Do not write a placeholder, stub, partial file, or falsely "
+                    "claim completion. Call an available tool only if it can make a complete "
+                    "useful change. If the implementation is too large for one call, split "
+                    "it into cohesive complete modules across subsequent tool calls. If the "
+                    "available tools cannot do that safely, return an explicit failure."
+                ),
+            )
+            continue
+
+        empty_response_streak = 0
         session.append("assistant", content=text, tool_calls=calls or None)
         # 개행뿐인 답은 답이 아니다 — 화면에 빈 말풍선만 남는다.
         if text.strip():

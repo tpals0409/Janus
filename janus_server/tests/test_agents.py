@@ -95,6 +95,13 @@ class SystemPromptLanguageTests(unittest.TestCase):
             rule, agent.build_system_prompt("You are an orchestrator.", ["read_file"])
         )
 
+    def test_explicit_worker_delegation_precedes_preflight_tools(self):
+        prompt = agent.build_system_prompt(
+            "You are an orchestrator.", ["read_file", "create_worker"]
+        )
+        self.assertIn("first tool call MUST be create_worker", prompt)
+        self.assertIn("Do not read, search, or inspect files first", prompt)
+
 
 class ReasoningStreamTests(unittest.TestCase):
     """사고 토큰은 화면에만 흘리고 대화 기록에는 섞이면 안 된다."""

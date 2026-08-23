@@ -18,6 +18,7 @@ import json
 import re
 import shutil
 import subprocess
+import unicodedata
 import urllib.request
 from pathlib import Path
 from typing import Callable
@@ -32,14 +33,29 @@ def _resolve(path: str, context: WorkspaceContext) -> Path:
 
     ValueError는 dispatch()가 {"error": ...}로 바꿔 모델에게 돌려준다.
     """
-    ws = context.root
+    ws = context.root.resolve()
     p = Path(path).expanduser()
     if not p.is_absolute():
         p = ws / p
     rp = p.resolve()
-    if not rp.is_relative_to(ws):
-        raise ValueError(f"워크스페이스({ws}) 밖 경로: {path}")
-    return rp
+    if rp.is_relative_to(ws):
+        return rp
+
+    # macOS can expose the workspace using decomposed Unicode (NFD) while a
+    # model copies the visually identical path back as NFC.  Treat those
+    # spellings as aliases, then resolve the reconstructed path again so the
+    # symlink/``..`` jail check remains authoritative.
+    normalized_ws = Path(unicodedata.normalize("NFC", str(ws)))
+    normalized_rp = Path(unicodedata.normalize("NFC", str(rp)))
+    try:
+        relative = normalized_rp.relative_to(normalized_ws)
+    except ValueError:
+        pass
+    else:
+        candidate = (ws / relative).resolve()
+        if candidate.is_relative_to(ws):
+            return candidate
+    raise ValueError(f"워크스페이스({ws}) 밖 경로: {path}")
 
 
 def _clip(text: str, limit: int = MAX_RENDER_CHARS) -> str:
@@ -54,11 +70,25 @@ def _clip(text: str, limit: int = MAX_RENDER_CHARS) -> str:
 # handler는 예외를 던지지 않고 {"error": ...}를 반환한다. 모델이 스스로 복구하게 둔다.
 
 
-def _read_file(path: str, *, _context: WorkspaceContext):
+def _read_file(
+    path: str, offset: int | str = 0, limit: int | str | None = None, *,
+    _context: WorkspaceContext,
+):
     p = _resolve(path, _context)
     if not p.is_file():
         return {"error": f"파일 없음: {path}"}
-    return {"path": str(p), "content": p.read_text(encoding="utf-8", errors="replace")}
+    try:
+        start = max(0, int(offset))
+        count = 400 if limit is None else max(1, min(2_000, int(limit)))
+    except (TypeError, ValueError):
+        return {"error": "offset/limit은 줄 번호 정수여야 합니다"}
+    lines = p.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
+    selected = lines[start:start + count]
+    return {
+        "path": str(p), "content": "".join(selected), "offset": start,
+        "limit": count, "total_lines": len(lines),
+        "has_more": start + len(selected) < len(lines),
+    }
 
 
 def _glob(pattern: str, *, _context: WorkspaceContext):
@@ -237,9 +267,14 @@ _N = {"type": "number"}
 TOOLS = [
     # ── 읽기 전용 ──
     _t("read_file", _read_file, _r_read,
-       _obj(["path"], path={**_S, "description": "Path to the file."}),
+       _obj(["path"], path={**_S, "description": "Path to the file."},
+            offset={"type": "integer",
+                    "description": "Zero-based starting line. Default 0."},
+            limit={"type": "integer",
+                   "description": "Number of lines, 1-2000. Default 400."}),
        "Read the full contents of a file.",
-       "Read a file before editing it.", requires_workspace=True),
+       "Read a file before editing it. For long files, page with offset and limit.",
+       requires_workspace=True),
     _t("glob", _glob, _r_glob,
        _obj(["pattern"], pattern={**_S, "description": "Glob pattern, e.g. '**/*.py'."}),
        "Find files by glob pattern, relative to the working directory.",

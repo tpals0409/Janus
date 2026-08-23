@@ -32,6 +32,7 @@ class AdaptiveDecisionTests(unittest.TestCase):
             ("Fix a bug in one file", "single_file_bug", "none", []),
             ("Investigate the cache invalidation cause", "investigation", "fixed_one", ["researcher"]),
             ("Refactor architecture across multiple files", "multi_file_refactor", "autonomous", ["researcher", "implementer", "verifier"]),
+            ("Build a full web service with backend and browser UI", "multi_component_build", "autonomous", ["researcher", "implementer", "verifier"]),
             ("Add pytest regression coverage", "test_heavy", "autonomous", ["implementer", "verifier"]),
         )
         for objective, task_class, policy, roles in cases:
@@ -74,6 +75,26 @@ class AdaptiveDecisionTests(unittest.TestCase):
         self.assertEqual(16_384, effective["budget"]["worker"]["token_limit"])
         self.assertEqual(8, effective["budget"]["worker"]["step_limit"])
         self.assertIn("queue:single_generation_slot_sequential_workers", decision["reasons"])
+
+    def test_multi_component_build_keeps_sequential_workers_on_one_model_slot(self):
+        decision = adaptive.decide(
+            task={
+                "title": "Build ForgeBoard local-first web service",
+                "objective": "Build the full service with backend, browser UI, and tests",
+                "acceptance_command": "python benchmark_acceptance.py",
+            },
+            base_profile=profile(), scheduler_snapshot=scheduler(cap=1),
+        )
+
+        effective = decision["effective"]
+        self.assertEqual("multi_component_build", decision["task_class"])
+        self.assertEqual("autonomous", effective["worker_policy"])
+        self.assertTrue(effective["allow_autonomous_workers"])
+        self.assertEqual(4, effective["budget"]["workers"]["total_limit"])
+        self.assertEqual(1, effective["budget"]["workers"]["concurrent_limit"])
+        self.assertEqual(49_152, effective["budget"]["worker"]["token_limit"])
+        self.assertEqual(1_200_000, effective["budget"]["worker"]["time_limit_ms"])
+        self.assertEqual(12, effective["budget"]["worker"]["step_limit"])
 
     def test_requested_worker_count_supports_korean_and_english_order(self):
         self.assertEqual(2, adaptive.requested_worker_count({"title": "워커 2개를 배치해"}))
