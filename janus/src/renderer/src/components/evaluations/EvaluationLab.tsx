@@ -3,6 +3,7 @@ import {
   AlertTriangle, Check, CheckCircle2, Download, FlaskConical, Loader2, Play, Square, Upload
 } from 'lucide-react'
 import { useStore } from '../../store'
+import { useDomainEvent } from '../../domainEvents'
 import type { EvaluationExperiment } from '../../types'
 import { Button, EmptyState, Field, Input, Select, Status } from '../ui'
 
@@ -258,13 +259,8 @@ export default function EvaluationLab() {
     () => experiments.some((item) => item.status === 'queued' || item.status === 'running'),
     [experiments]
   )
-
   useEffect(() => { void load() }, [load])
-  useEffect(() => {
-    if (!active) return
-    const timer = window.setInterval(() => void load(), 1000)
-    return () => window.clearInterval(timer)
-  }, [active, load])
+  useDomainEvent('evaluation', () => void load())
 
   return (
     <main className="workspace-surface min-w-0 flex-1 overflow-y-auto">

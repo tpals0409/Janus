@@ -24,6 +24,7 @@ import {
   X
 } from 'lucide-react'
 import { useStore } from '../../store'
+import { useDomainEvent } from '../../domainEvents'
 import type { ChangeLayer, ChangeSetFile, Project, Task, TaskStatus } from '../../types'
 import ContextInspector from './ContextInspector'
 import { Button, EmptyState, Field, IconButton, Input, Status, Textarea } from '../ui'
@@ -1031,11 +1032,10 @@ function VerificationCard({ task }: { task: Task }) {
     })
   }, [project?.id, project?.updated_at])
 
-  useEffect(() => {
-    if (!runs.some((item) => item.status === 'queued' || item.status === 'running')) return
-    const timer = window.setInterval(() => void load(), 500)
-    return () => window.clearInterval(timer)
-  }, [runs, load])
+  useDomainEvent(
+    'verification',
+    (event) => { if (event.task_id === task.id) void load() }
+  )
 
   const save = async () => {
     await saveCommands(
@@ -1598,11 +1598,10 @@ export default function TaskWorkspace() {
     [projects, projectId]
   )
 
-  useEffect(() => {
-    if (task?.workspace?.state !== 'preparing') return
-    const timer = window.setInterval(refresh, 650)
-    return () => window.clearInterval(timer)
-  }, [task?.workspace?.state, refresh])
+  useDomainEvent(
+    'workspace',
+    (event) => { if (event.task_id === task?.id) void refresh() }
+  )
 
   return (
     <>

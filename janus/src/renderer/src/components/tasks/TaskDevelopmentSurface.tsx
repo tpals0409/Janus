@@ -6,6 +6,7 @@ import {
   MousePointer2, Play, Save, Search, Square, Terminal as TerminalIcon
 } from 'lucide-react'
 import type { Task, TaskBrowserInspection, TaskBrowserStatus } from '../../types'
+import { useDomainEvent } from '../../domainEvents'
 import { Button, EmptyState } from '../ui'
 
 loader.config({ monaco })
@@ -129,11 +130,32 @@ export default function TaskDevelopmentSurface({ task }: { task: Task }) {
   }, [task.id])
 
   useEffect(() => { void loadTerminals() }, [loadTerminals])
-  useEffect(() => {
-    if (tab !== 'terminal' || !terminals.some((item) => item.state === 'running')) return
-    const timer = window.setInterval(() => void loadTerminals(), 250)
-    return () => window.clearInterval(timer)
-  }, [tab, terminals, loadTerminals])
+  useDomainEvent('terminal', (event) => {
+    if (event.task_id !== task.id || typeof event.terminal_id !== 'string') return
+    setTerminals((current) => current.map((terminal) => {
+      if (terminal.id !== event.terminal_id) return terminal
+      if (event.event === 'exit') {
+        return {
+          ...terminal,
+          state: String(event.state) as TerminalRecord['state'],
+          exit_code: typeof event.exit_code === 'number' ? event.exit_code : null
+        }
+      }
+      if (event.event !== 'output' || typeof event.output !== 'string' || typeof event.output_offset !== 'number') {
+        return terminal
+      }
+      const chunkStart = event.output_offset - event.output.length
+      if (chunkStart !== terminal.output_offset) {
+        void loadTerminals()
+        return terminal
+      }
+      return {
+        ...terminal,
+        output: `${terminal.output}${event.output}`.slice(-262_144),
+        output_offset: event.output_offset
+      }
+    }))
+  })
 
   const openTerminal = async (pane: 'primary' | 'secondary') => {
     setError(null)
@@ -151,7 +173,6 @@ export default function TaskDevelopmentSurface({ task }: { task: Task }) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data })
       })
-      window.setTimeout(() => void loadTerminals(), 40)
     } catch (reason) { setError(String(reason)) }
   }
   const stopTerminal = async (terminal: TerminalRecord) => {

@@ -3,6 +3,7 @@ import {
   AlertTriangle, ArrowUpRight, Cpu, Gauge, MemoryStick, RefreshCw
 } from 'lucide-react'
 import { useStore } from '../../store'
+import { useDomainEvent } from '../../domainEvents'
 import type { OperationsLane, OperationsTask } from '../../types'
 import { Button, EmptyState, Status } from '../ui'
 
@@ -123,9 +124,8 @@ export default function OperationsDashboard({ onOpenTask }: { onOpenTask: () => 
 
   useEffect(() => {
     void load()
-    const timer = window.setInterval(() => void load(), 2000)
-    return () => window.clearInterval(timer)
   }, [load])
+  useDomainEvent('operations', () => void load())
 
   const open = async (task: OperationsTask) => {
     if (projectId !== task.project_id) await selectProject(task.project_id)

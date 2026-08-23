@@ -33,6 +33,7 @@ from fastapi.responses import Response
 
 from . import adaptive
 from . import diagnostics
+from . import event_bus as event_bus_mod
 from . import runtime
 from . import scheduler as scheduler_mod
 from . import telemetry as telemetry_mod
@@ -94,6 +95,18 @@ _GITHUB_SERVICE: github_mod.GitHubService | None = None
 _TERMINAL_MANAGER_LOCK = threading.Lock()
 _TERMINAL_MANAGER: terminal_mod.TerminalManager | None = None
 _TERMINAL_MANAGER_PATH: Path | None = None
+_EVENT_BUS = event_bus_mod.EventBus()
+
+
+def _publish_change(topic: str, event: str = "changed", **payload: object) -> None:
+    """Notify renderer subscribers without coupling domain writes to a socket."""
+    _EVENT_BUS.publish(topic, event, **payload)
+    if topic != "operations":
+        operation_payload = {
+            key: value for key, value in payload.items()
+            if key in {"task_id", "workspace_id", "run_id", "experiment_id", "session_id"}
+        }
+        _EVENT_BUS.publish("operations", "changed", source=topic, **operation_payload)
 
 # Electron main이 기동마다 만든 토큰을 서버/렌더러에만 나눠준다.
 # 수동 기동도 무인증으로 열리지 않도록, env가 없으면 서버가 자체적으로
@@ -245,16 +258,24 @@ def get_terminal_manager() -> terminal_mod.TerminalManager:
         if _TERMINAL_MANAGER is None:
             def on_output(terminal_id: str, output: str, offset: int) -> None:
                 try:
-                    get_domain_store().append_task_terminal_output(
+                    item = get_domain_store().append_task_terminal_output(
                         terminal_id, text=output, output_offset=offset
+                    )
+                    _publish_change(
+                        "terminal", "output", terminal_id=terminal_id,
+                        task_id=item["task_id"], output=output, output_offset=offset,
                     )
                 except D.DomainError:
                     pass
 
             def on_exit(terminal_id: str, exit_code: int | None) -> None:
                 try:
-                    get_domain_store().finish_task_terminal(
+                    item = get_domain_store().finish_task_terminal(
                         terminal_id, state="exited", exit_code=exit_code
+                    )
+                    _publish_change(
+                        "terminal", "exit", terminal_id=terminal_id,
+                        task_id=item["task_id"], state="exited", exit_code=exit_code,
                     )
                 except D.DomainError:
                     pass
@@ -326,6 +347,37 @@ async def app_lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Janus", version=__version__, lifespan=app_lifespan)
+
+
+@app.websocket("/events")
+async def stream_domain_events(ws: WebSocket):
+    """Authenticated, app-wide domain change stream for the desktop renderer."""
+    origin = ws.headers.get("origin")
+    protocols = {
+        value.strip()
+        for value in ws.headers.get("sec-websocket-protocol", "").split(",")
+        if value.strip()
+    }
+    if not _origin_allowed(origin) or "janus" not in protocols or not any(
+        _token_valid(value) for value in protocols if value != "janus"
+    ):
+        await ws.close(code=1008)
+        return
+
+    await ws.accept(subprotocol="janus")
+    subscription = _EVENT_BUS.subscribe()
+    try:
+        await ws.send_json({"topic": "system", "event": "ready", "sequence": 0})
+        while True:
+            try:
+                message = await asyncio.wait_for(subscription.queue.get(), timeout=20)
+            except TimeoutError:
+                message = {"topic": "system", "event": "heartbeat"}
+            await ws.send_json(message)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        _EVENT_BUS.unsubscribe(subscription.id)
 
 
 @app.exception_handler(D.NotFound)
@@ -670,6 +722,10 @@ def _run_workspace_preparation(workspace_id: str) -> None:
                 root_path=details.get("root_path"),
                 branch_name=details.get("branch_name"),
             )
+            _publish_change(
+                "workspace", "progress", workspace_id=workspace_id,
+                task_id=task["id"], progress=stage,
+            )
 
         prepared = get_workspace_service().prepare(
             workspace_id=workspace_id,
@@ -690,6 +746,10 @@ def _run_workspace_preparation(workspace_id: str) -> None:
         current_task = store.get_task(task["id"])
         if current_task["status"] == "preparing":
             store.transition_task(task["id"], "todo", expected="preparing")
+        _publish_change(
+            "workspace", "ready", workspace_id=workspace_id,
+            task_id=task["id"], state="ready", progress="ready",
+        )
     except Exception as error:
         message = f"{type(error).__name__}: {error}"
         try:
@@ -701,6 +761,10 @@ def _run_workspace_preparation(workspace_id: str) -> None:
             task = store.get_task(current["task_id"])
             if task["status"] == "preparing":
                 store.transition_task(task["id"], "failed", expected="preparing")
+            _publish_change(
+                "workspace", "failed", workspace_id=workspace_id,
+                task_id=task["id"], state="failed", error=message,
+            )
         except D.DomainError:
             pass
     finally:
@@ -829,6 +893,10 @@ def _run_verification_job(run_id: str) -> None:
     store = get_domain_store()
     try:
         item = store.start_verification_run(run_id)
+        _publish_change(
+            "verification", "running", run_id=run_id, task_id=item["task_id"],
+            status="running",
+        )
         _task, workspace, _changes = _verification_workspace(item["task_id"])
         context = WorkspaceContext(
             root=Path(workspace["root_path"]), task_id=item["task_id"],
@@ -837,7 +905,11 @@ def _run_verification_job(run_id: str) -> None:
         result = verification.run(
             item["command"], context, scheduler=scheduler_mod.default_scheduler()
         )
-        store.finish_verification_run(run_id, result)
+        finished = store.finish_verification_run(run_id, result)
+        _publish_change(
+            "verification", "finished", run_id=run_id,
+            task_id=finished["task_id"], status=finished["status"],
+        )
     except Exception as error:
         try:
             current = store.get_verification_run(run_id)
@@ -846,6 +918,10 @@ def _run_verification_job(run_id: str) -> None:
                     "exit_code": None, "stdout": "", "stderr": "",
                     "duration_ms": 0.0, "error": f"{type(error).__name__}: {error}",
                 })
+                _publish_change(
+                    "verification", "finished", run_id=run_id,
+                    task_id=current["task_id"], status="failed",
+                )
         except D.DomainError:
             pass
     finally:
@@ -1338,6 +1414,9 @@ def _run_evaluation_job(experiment_id: str) -> None:
     output_dir = _evaluation_root() / experiment_id
     try:
         item = store.start_evaluation_experiment(experiment_id)
+        _publish_change(
+            "evaluation", "running", experiment_id=experiment_id, status="running",
+        )
         with _EVALUATION_JOBS_LOCK:
             cancelled_before_start = experiment_id in _EVALUATION_CANCELLED
         if cancelled_before_start:
@@ -1408,6 +1487,14 @@ def _run_evaluation_job(experiment_id: str) -> None:
         except D.DomainError:
             pass
     finally:
+        try:
+            final_status = store.get_evaluation_experiment(experiment_id)["status"]
+        except D.DomainError:
+            final_status = "unknown"
+        _publish_change(
+            "evaluation", "finished", experiment_id=experiment_id,
+            status=final_status,
+        )
         profile_path = _evaluation_root() / f".{experiment_id}-profile.json"
         profile_path.unlink(missing_ok=True)
         with _EVALUATION_JOBS_LOCK:
