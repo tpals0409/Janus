@@ -66,18 +66,21 @@ class TerminalApiTests(unittest.TestCase):
         )
         return task, root
 
-    def wait_for(self, task_id: str, terminal_id: str, text: str) -> dict:
+    def wait_for(
+        self, task_id: str, terminal_id: str, text: str | tuple[str, ...]
+    ) -> dict:
         deadline = time.monotonic() + 4
         item = {}
+        expected = (text,) if isinstance(text, str) else text
         while time.monotonic() < deadline:
             item = self.client.get(
                 f"/tasks/{task_id}/terminals/{terminal_id}?after_offset=0",
                 headers=self.headers,
             ).json()
-            if text in item.get("output", ""):
+            if all(value in item.get("output", "") for value in expected):
                 return item
             time.sleep(0.03)
-        self.fail(f"terminal output missing {text!r}: {item}")
+        self.fail(f"terminal output missing {expected!r}: {item}")
 
     def test_split_terminals_stay_in_worktree_and_restore_buffer(self):
         task, root = self.ready_task("First Task")
@@ -101,7 +104,7 @@ class TerminalApiTests(unittest.TestCase):
             headers=self.headers, json={"data": f"pwd; printf '{marker}\\n'\n"},
         )
         self.assertEqual(200, sent.status_code, sent.text)
-        output = self.wait_for(task["id"], terminal_id, marker)
+        output = self.wait_for(task["id"], terminal_id, (root.name, marker))
         self.assertIn(root.name, output["output"])
         offset = output["output_offset"]
 
