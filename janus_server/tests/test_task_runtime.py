@@ -128,6 +128,69 @@ class TaskRuntimeTests(unittest.TestCase):
             if event["type"] == "turn_end":
                 return seen
 
+    def test_agent_context_policy_controls_snapshot_and_runtime_prompt(self):
+        updated = self.client.put(
+            "/profiles/agents/agent_default", headers=self.headers,
+            json={
+                "system_prompt": "Agent policy marker.",
+                "context_policy": {
+                    "max_chars": 12_000,
+                    "recent_blocks": 3,
+                    "summary_max_chars": 1_000,
+                    "include_task_objective": True,
+                    "include_acceptance": False,
+                    "include_workspace_root": True,
+                },
+            },
+        )
+        self.assertEqual(200, updated.status_code, updated.text)
+        self.assertEqual(12_000, updated.json()["context_policy"]["max_chars"])
+
+        task = self.create_ready_task("Context policy")
+        detail = self.start(task["id"])
+        self.assertEqual(12_000, detail["context"]["policy"]["max_chars"])
+        statuses = {item["id"]: item["status"] for item in detail["context"]["items"]}
+        self.assertEqual("included", statuses["agent_prompt"])
+        self.assertEqual("included", statuses["task_objective"])
+        self.assertEqual("excluded", statuses["acceptance"])
+        self.assertEqual("included", statuses["workspace_root"])
+
+        changed = self.client.put(
+            "/profiles/agents/agent_default", headers=self.headers,
+            json={
+                "system_prompt": "Changed after dispatch.",
+                "context_policy": {
+                    "max_chars": 30_000,
+                    "include_task_objective": False,
+                    "include_acceptance": True,
+                    "include_workspace_root": False,
+                },
+            },
+        )
+        self.assertEqual(200, changed.status_code, changed.text)
+        frozen = self.client.get(
+            f"/sessions/{detail['id']}", headers=self.headers,
+        )
+        self.assertEqual(200, frozen.status_code, frozen.text)
+        self.assertEqual(12_000, frozen.json()["context"]["policy"]["max_chars"])
+
+        fake = FakeClient([{"text": "done"}])
+        with (
+            patch.object(runtime, "resolve_local_model", lambda name: name),
+            patch.object(runtime, "make_client", lambda: fake),
+            self.connect(task["id"], detail["id"]) as ws,
+        ):
+            self.assertEqual("session_ready", ws.receive_json()["type"])
+            ws.send_json({"type": "message", "text": "start"})
+            self.drain_turn(ws)
+
+        system_prompt = fake.captured[0]["messages"][0]["content"]
+        self.assertIn("Agent policy marker.", system_prompt)
+        self.assertNotIn("Changed after dispatch.", system_prompt)
+        self.assertIn("Task objective:\nComplete Context policy", system_prompt)
+        self.assertIn("Workspace root:", system_prompt)
+        self.assertNotIn("Acceptance command:\ntrue", system_prompt)
+
     def test_start_send_reconnect_resume_and_stop_are_persistent(self):
         task = self.create_ready_task("Persistent chat")
         detail = self.start(task["id"])

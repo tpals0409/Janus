@@ -34,6 +34,7 @@ class SpecTests(unittest.TestCase):
 
     def test_dangerous_tools_require_ask(self):
         self.assert_rejected({**BASE, "tools": ["run_bash"]}, "approval: auto 를 쓸 수 없습니다")
+        self.assert_rejected({**BASE, "tools": ["http_get"]}, "approval: auto 를 쓸 수 없습니다")
         S.validate({**BASE, "tools": ["run_bash"], "approval": "ask"})
 
     def test_blank_spec_validates(self):

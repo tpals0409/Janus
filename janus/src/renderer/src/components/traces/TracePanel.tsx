@@ -20,7 +20,7 @@ function perfLine(s: Span): string | null {
   const secs = (s.duration_ms ?? 0) / 1000
   const gen = s.usage.completion_tokens
   const rate = secs > 0 && gen ? ` · ${(gen / secs).toFixed(1)} tok/s` : ''
-  return `${s.usage.prompt_tokens} prompt · ${gen} gen${rate}`
+  return `프롬프트 ${s.usage.prompt_tokens} · 생성 ${gen}${rate}`
 }
 
 function pretty(v: unknown): string {
@@ -77,7 +77,7 @@ function Composer() {
                 : '오케스트레이터에게 메시지… (Enter 전송, Shift+Enter 줄바꿈)'
           }
           disabled={disabled}
-          className="min-h-[38px] flex-1 resize-y rounded-md border border-border-strong bg-raised px-2.5 py-1.5 text-[12px] outline-none focus:border-accent disabled:opacity-50"
+          className="min-h-[38px] flex-1 resize-y rounded-md border border-border-strong bg-raised px-2.5 py-1.5 text-[12px] outline-none focus:border-border-emphasis disabled:opacity-50"
         />
         <button
           onClick={submit}
@@ -115,7 +115,7 @@ function ComparisonColumn({
           className="rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold"
           style={{
             color: label === 'A' ? 'var(--color-accent-fg)' : 'var(--color-warn)',
-            background: label === 'A' ? 'var(--color-accent-soft)' : '#fbbf2418'
+            background: label === 'A' ? 'var(--color-accent-soft)' : 'color-mix(in srgb, var(--warning) 10%, transparent)'
           }}
         >
           {label}
@@ -129,7 +129,7 @@ function ComparisonColumn({
       </div>
 
       <details className="mb-3 rounded-md border border-border bg-panel-2 p-2">
-        <summary className="cursor-pointer text-[10px] tracking-wider text-faint">RUN INPUTS</summary>
+        <summary className="cursor-pointer text-[10px] tracking-wider text-faint">실행 입력</summary>
         <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-[11px] text-muted">
           {pretty(inputs)}
         </pre>
@@ -145,7 +145,7 @@ function ComparisonColumn({
             <div className="mb-2 font-mono text-[10.5px] text-faint">{perfLine(span)}</div>
           )}
           <div className="mb-3 rounded-md border border-border bg-panel-2 p-2">
-            <div className="mb-1 text-[10px] tracking-wider text-faint">OUTPUT</div>
+            <div className="mb-1 text-[10px] tracking-wider text-faint">출력</div>
             <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-fg">
               {pretty(span.output)}
             </pre>
@@ -243,7 +243,7 @@ export default function TracePanel() {
                 <button
                   onClick={() => loadComparison(r.id)}
                   title={comparisonRun?.id === r.id ? '비교 해제' : 'B로 비교'}
-                  className="p-1.5 text-faint hover:text-accent-fg"
+                  className="p-1.5 text-faint hover:text-fg"
                 >
                   <Columns2 size={11} />
                 </button>
@@ -302,16 +302,16 @@ export default function TracePanel() {
             }
           >
             {runState === 'running'
-              ? '● Running'
+              ? '● 실행 중'
               : runState === 'cancelled'
                 ? '● 중단됨'
                 : runState === 'error'
                   ? '● 실패'
                   : runState === 'idle'
                     ? '● 대기 중'
-                    : '● Success'}
+                    : '● 성공'}
           </span>
-          {viewingRunId && <span className="text-[10px] text-accent-fg">과거 대화 보기</span>}
+          {viewingRunId && <span className="text-[10px] text-muted">과거 대화 보기</span>}
           <button
             disabled={turnActive || !firstMessage}
             onClick={rerun}
@@ -350,7 +350,7 @@ export default function TracePanel() {
             <StatusIcon s={s.status} />
             <span className="truncate text-[12px]">{s.label ?? s.node_id}</span>
             {s.usage ? (
-              <span className="shrink-0 font-mono text-[9.5px] text-faint" title="prompt+gen 토큰">
+              <span className="shrink-0 font-mono text-[9.5px] text-faint" title="프롬프트+생성 토큰">
                 {s.usage.prompt_tokens}+{s.usage.completion_tokens}
               </span>
             ) : (s.events?.length || liveEvents[s.node_id]?.length) ? (
@@ -401,7 +401,7 @@ export default function TracePanel() {
                   className="flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px]"
                   style={{ borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
                 >
-                  <X size={10} /> Stop
+                  <X size={10} /> 중단
                 </button>
               )}
               <span className="ml-auto font-mono text-[11px] text-muted">
@@ -415,7 +415,7 @@ export default function TracePanel() {
               <SessionView events={events} live={isLive || (isOrch(span) && turnActive)} />
             ) : (
               <div className="rounded-md border border-border bg-panel-2 p-2">
-                <div className="mb-1 text-[10px] tracking-wider text-faint">RESULT</div>
+                <div className="mb-1 text-[10px] tracking-wider text-faint">결과</div>
                 <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-fg">
                   {pretty(span.output)}
                 </pre>
@@ -442,7 +442,7 @@ export default function TracePanel() {
                 color: io === t ? 'var(--color-accent-fg)' : 'var(--color-muted)'
               }}
             >
-              {t}
+              {t === 'input' ? '입력' : '출력'}
             </button>
           ))}
         </div>

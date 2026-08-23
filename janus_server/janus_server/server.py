@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import hmac
 import json
 import os
@@ -18,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import urllib.error
 import uuid
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime
@@ -39,6 +41,7 @@ from . import domain as D
 from . import evaluation
 from . import github_service as github_mod
 from . import recovery
+from . import skills as skill_mod
 from . import spec as S
 from . import tools as T
 from . import verification
@@ -62,6 +65,9 @@ BACKUPS_DIR = Path(
 ).expanduser()
 DIAGNOSTICS_DIR = Path(
     os.environ.get("JANUS_DIAGNOSTICS_DIR", str(Path.home() / ".janus" / "diagnostics"))
+).expanduser()
+SKILLS_DIR = Path(
+    os.environ.get("JANUS_SKILLS_DIR", str(Path.home() / ".janus" / "skills"))
 ).expanduser()
 _STATE_LOCK = threading.Lock()
 _BACKUP_LOCK = threading.Lock()
@@ -490,6 +496,63 @@ def create_project(body: dict):
 @app.get("/projects/{project_id}")
 def get_project(project_id: str):
     return _project_json(get_domain_store().get_project(project_id))
+
+
+def _project_workspace_context(project_id: str) -> WorkspaceContext:
+    project = get_domain_store().get_project(project_id)
+    try:
+        return WorkspaceContext(
+            root=Path(project["repo_path"]),
+            task_id=f"project_{project_id}",
+            workspace_id=f"project_{project_id}",
+        )
+    except ValueError as error:
+        raise HTTPException(404, str(error)) from error
+
+
+@app.get("/projects/{project_id}/tree")
+def project_tree(project_id: str, path: str = ""):
+    """선택한 프로젝트 디렉토리의 한 계층을 IDE 탐색기용으로 반환한다."""
+    context = _project_workspace_context(project_id)
+    try:
+        root = T._resolve(path or ".", context)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    if not root.is_dir():
+        raise HTTPException(404, f"디렉토리가 아님: {path}")
+    entries = []
+    for item in sorted(root.iterdir(), key=lambda item: (item.is_file(), item.name.lower())):
+        if item.name in _IGNORE or item.name.startswith("."):
+            continue
+        entries.append({
+            "name": item.name,
+            "type": "dir" if item.is_dir() else "file",
+            "size": item.stat().st_size if item.is_file() else None,
+        })
+        if len(entries) >= 500:
+            break
+    return {"path": path, "entries": entries}
+
+
+@app.get("/projects/{project_id}/file")
+def project_file(project_id: str, path: str):
+    context = _project_workspace_context(project_id)
+    try:
+        item = T._resolve(path, context)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    if not item.is_file():
+        raise HTTPException(404, f"파일 없음: {path}")
+    if item.stat().st_size > 1_000_000:
+        return {"path": path, "content": None, "error": "1MB 초과 — 뷰어로 열기엔 너무 큼"}
+    raw = item.read_bytes()
+    if b"\x00" in raw[:8192]:
+        return {"path": path, "content": None, "error": "바이너리 파일"}
+    return {
+        "path": path,
+        "content": raw.decode("utf-8", errors="replace"),
+        "error": None,
+    }
 
 
 @app.post("/projects/{project_id}/agent-profile/promote")
@@ -1552,6 +1615,9 @@ def _agent_profile_json(profile: dict) -> dict:
         **profile,
         "tools": json.loads(profile["tools_json"]),
         "budget": json.loads(profile["budget_json"]),
+        "context_policy": D.normalize_context_policy(json.loads(
+            profile.get("context_policy_json") or "{}"
+        )),
     }
 
 
@@ -1565,6 +1631,9 @@ def _dispatch_json(dispatch: dict) -> dict:
         "budget": json.loads(dispatch["budget_json"]),
         "usage": json.loads(dispatch["usage_json"]),
         "adaptive_decision": json.loads(dispatch.get("adaptive_decision_json") or "{}"),
+        "agent_profile_snapshot": json.loads(
+            dispatch.get("agent_profile_snapshot_json") or "{}"
+        ),
     }
 
 
@@ -1902,6 +1971,236 @@ def search_task_development_files(task_id: str, q: str):
     return {"query": query, "matches": matches, "truncated": len(completed.stdout.splitlines()) > 500}
 
 
+def _skill_json(item: dict) -> dict:
+    value = dict(item)
+    for source, target in (
+        ("original_json", "original"),
+        ("compiled_json", "compiled"),
+        ("report_json", "report"),
+    ):
+        raw = value.pop(source, None)
+        if raw is not None:
+            value[target] = json.loads(raw)
+    return value
+
+
+def _skill_summary(item: dict) -> dict:
+    value = _skill_json(item)
+    value.pop("original", None)
+    compiled = value.get("compiled") or {}
+    if isinstance(compiled, dict):
+        value["compiled"] = {
+            key: compiled.get(key)
+            for key in ("format", "name", "description", "activation", "execution", "capabilities")
+            if key in compiled
+        }
+    return value
+
+
+def _store_skill_artifact(artifact: dict) -> dict:
+    return _skill_json(get_domain_store().import_skill_version(**artifact))
+
+
+def _local_source_kind(path: Path, requested: object) -> str:
+    kind = str(requested or "").strip().lower()
+    if kind in {"codex", "claude", "local", "project"}:
+        return kind
+    lowered = {part.lower() for part in path.parts}
+    if ".claude" in lowered:
+        return "claude"
+    if ".codex" in lowered or ".agents" in lowered:
+        return "codex"
+    return "local"
+
+
+def _local_skill_namespace(root: Path, kind: str, requested: object) -> str:
+    if requested is not None and str(requested).strip():
+        return str(requested).strip()
+    generic = {"skills", ".skills", ".codex", ".claude", ".agents"}
+    label = root.name if root.name.lower() not in generic else root.parent.name
+    slug = re.sub(r"[^a-z0-9._-]+", "-", label.lower()).strip("-._") or "source"
+    digest = hashlib.sha256(str(root).encode("utf-8")).hexdigest()[:8]
+    return f"{kind}-{slug[:70]}-{digest}"
+
+
+@app.get("/skills")
+def list_skills(include_archived: bool = False):
+    return [
+        _skill_summary(item)
+        for item in get_domain_store().list_skills(include_archived=include_archived)
+    ]
+
+
+@app.get("/skills/{skill_id}")
+def get_skill(skill_id: str):
+    return _skill_json(get_domain_store().get_skill(skill_id))
+
+
+@app.post("/skills/import/local")
+def import_local_skills(body: dict):
+    raw_path = str(body.get("path") or "").strip()
+    if not raw_path:
+        raise HTTPException(400, "path가 필요합니다")
+    root = Path(raw_path).expanduser().resolve()
+    try:
+        directories = skill_mod.discover_skill_directories(root)
+        if not directories:
+            raise skill_mod.SkillImportError("선택한 폴더에서 SKILL.md를 찾지 못했습니다")
+        kind = _local_source_kind(root, body.get("source_kind"))
+        namespace = _local_skill_namespace(root, kind, body.get("namespace"))
+        imported = []
+        for directory in directories:
+            relative = directory.relative_to(root).as_posix()
+            artifact = skill_mod.compile_skill_directory(
+                directory,
+                source_kind=kind,
+                source_locator=str(root),
+                source_subpath="" if relative == "." else relative,
+                namespace=namespace,
+            )
+            imported.append(_store_skill_artifact(artifact))
+        return {"source": str(root), "skills": imported}
+    except skill_mod.SkillImportError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+def _github_skill_artifacts(url: str) -> tuple[dict, list[dict]]:
+    with tempfile.TemporaryDirectory(prefix="janus-skill-github-") as temporary:
+        source = skill_mod.download_github_skills(url, temporary)
+        raw_namespace = f"github-{source['owner']}-{source['repository']}".lower()
+        namespace = (
+            raw_namespace if len(raw_namespace) <= 100
+            else f"{raw_namespace[:87]}-{hashlib.sha256(raw_namespace.encode()).hexdigest()[:12]}"
+        )
+        artifacts = []
+        for directory in source["skill_directories"]:
+            relative = directory.relative_to(source["root"]).as_posix()
+            prefix = str(source.get("subpath") or "").strip("/")
+            subpath = "/".join(item for item in (prefix, relative) if item and item != ".")
+            artifact = skill_mod.compile_skill_directory(
+                directory,
+                source_kind="github",
+                source_locator=source["canonical_url"],
+                source_subpath=subpath,
+                source_revision=source["revision"],
+                namespace=namespace,
+            )
+            artifact["original"]["github"] = {
+                "owner": source["owner"],
+                "repository": source["repository"],
+                "revision": source["revision"],
+                "requested_ref": source["requested_ref"],
+                "license": source["license"],
+            }
+            artifacts.append(artifact)
+        return {
+            "source": source["canonical_url"],
+            "revision": source["revision"],
+            "license": source["license"],
+        }, artifacts
+
+
+def _skill_artifact_preview(artifact: dict) -> dict:
+    compiled = artifact["compiled"]
+    return {
+        key: artifact[key]
+        for key in (
+            "namespace", "name", "description", "source_kind", "source_locator",
+            "source_subpath", "source_revision", "content_hash", "compatibility",
+        )
+    } | {
+        "compiled": {
+            key: compiled.get(key)
+            for key in ("format", "activation", "execution", "capabilities")
+        },
+        "report": artifact["report"],
+    }
+
+
+@app.post("/skills/preview/github")
+def preview_github_skills(body: dict):
+    url = str(body.get("url") or "").strip()
+    if not url:
+        raise HTTPException(400, "url이 필요합니다")
+    if len(url) > 2_048:
+        raise HTTPException(400, "GitHub URL이 너무 깁니다")
+    try:
+        metadata, artifacts = _github_skill_artifacts(url)
+        return {**metadata, "url": url, "skills": [
+            _skill_artifact_preview(artifact) for artifact in artifacts
+        ]}
+    except skill_mod.SkillImportError as error:
+        raise HTTPException(400, str(error)) from error
+    except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
+        raise HTTPException(502, f"GitHub 스킬을 가져올 수 없습니다: {error}") from error
+
+
+@app.post("/skills/import/github")
+def import_github_skills(body: dict):
+    url = str(body.get("url") or "").strip()
+    if not url:
+        raise HTTPException(400, "url이 필요합니다")
+    if len(url) > 2_048:
+        raise HTTPException(400, "GitHub URL이 너무 깁니다")
+    selected = body.get("selected_subpaths")
+    if selected is not None and (
+        not isinstance(selected, list)
+        or not selected
+        or len(selected) > skill_mod.MAX_SKILL_FILES
+        or not all(isinstance(item, str) for item in selected)
+        or any(not item or len(item) > 1_024 for item in selected)
+        or len(selected) != len(set(selected))
+    ):
+        raise HTTPException(400, "selected_subpaths는 중복 없는 하나 이상의 문자열 배열이어야 합니다")
+    try:
+        metadata, artifacts = _github_skill_artifacts(url)
+        expected_revision = str(body.get("expected_revision") or "")
+        if expected_revision and expected_revision != metadata["revision"]:
+            raise D.Conflict(
+                f"미리보기 이후 GitHub revision이 변경됐습니다: "
+                f"expected={expected_revision}, actual={metadata['revision']}"
+            )
+        if selected is not None:
+            requested = set(selected)
+            available = {artifact["source_subpath"] for artifact in artifacts}
+            unknown = sorted(requested - available)
+            if unknown:
+                raise D.Conflict(f"미리보기에 없던 스킬 경로입니다: {unknown}")
+            artifacts = [
+                artifact for artifact in artifacts if artifact["source_subpath"] in requested
+            ]
+        return {
+            **metadata,
+            "skills": [_store_skill_artifact(artifact) for artifact in artifacts],
+        }
+    except skill_mod.SkillImportError as error:
+        raise HTTPException(400, str(error)) from error
+    except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
+        raise HTTPException(502, f"GitHub 스킬을 가져올 수 없습니다: {error}") from error
+
+
+@app.get("/profiles/agents/{profile_id}/skills")
+def list_profile_skills(profile_id: str):
+    return [
+        _skill_summary(item)
+        for item in get_domain_store().list_agent_profile_skills(profile_id)
+    ]
+
+
+@app.put("/profiles/agents/{profile_id}/skills/{skill_id}")
+def set_profile_skill(profile_id: str, skill_id: str, body: dict):
+    try:
+        return _skill_summary(get_domain_store().set_agent_profile_skill(
+            agent_profile_id=profile_id,
+            skill_id=skill_id,
+            skill_version_id=(str(body["skill_version_id"]) if body.get("skill_version_id") else None),
+            activation_mode=str(body.get("activation_mode") or "off"),
+            priority=int(body.get("priority") or 0),
+        ))
+    except (TypeError, ValueError) as error:
+        raise HTTPException(400, str(error)) from error
+
+
 @app.get("/profiles/models")
 def list_model_profiles():
     return [_model_profile_json(item) for item in get_domain_store().list_model_profiles()]
@@ -1925,6 +2224,9 @@ def create_agent_profile(body: dict):
             max_steps=int(body.get("max_steps") or 15),
             model_profile_id=str(body.get("model_profile_id") or "model_qwen38_27b_4bit"),
             budget=body.get("budget") if isinstance(body.get("budget"), dict) else None,
+            context_policy=(
+                body.get("context_policy") if isinstance(body.get("context_policy"), dict) else None
+            ),
         )
     except (TypeError, ValueError) as error:
         raise HTTPException(400, str(error)) from error
@@ -1945,9 +2247,11 @@ def update_agent_profile(profile_id: str, body: dict):
 
 def _task_runtime_spec(
     store: D.DomainStore, agent_profile_id: str, *, budget: dict | None = None,
-    adaptive_decision: dict | None = None,
+    adaptive_decision: dict | None = None, profile_snapshot: dict | None = None,
 ) -> dict:
-    profile = _agent_profile_json(store.get_agent_profile(agent_profile_id))
+    profile = profile_snapshot or _agent_profile_json(store.get_agent_profile(agent_profile_id))
+    if not profile:
+        profile = _agent_profile_json(store.get_agent_profile(agent_profile_id))
     model = _model_profile_json(store.get_model_profile(profile["model_profile_id"]))
     decision = adaptive_decision or {}
     effective = decision.get("effective") or {}
@@ -1964,6 +2268,89 @@ def _task_runtime_spec(
         "allow_autonomous_workers": bool(effective.get("allow_autonomous_workers", False)),
         "max_steps": profile["max_steps"],
         "budget": budget or profile["budget"],
+        "context_policy": profile["context_policy"],
+    }
+
+
+def _context_item(
+    item_id: str, label: str, source: str, content: str, *, status: str = "included",
+    detail: dict | None = None,
+) -> dict:
+    return {
+        "id": item_id,
+        "label": label,
+        "source": source,
+        "status": status,
+        "content": content,
+        "chars": len(content),
+        "estimated_tokens": max(1, (len(content) + 3) // 4) if content else 0,
+        "detail": detail or {},
+    }
+
+
+def _task_context_snapshot(
+    spec: dict, dispatch: dict, workspace: dict, skills: list[dict],
+    events: list[dict] | None = None,
+) -> dict:
+    policy = D.normalize_context_policy(spec.get("context_policy"))
+    items = [_context_item(
+        "agent_prompt", "시스템 프롬프트", "AgentProfile",
+        str(spec.get("system_prompt") or "You are an orchestrator."),
+    )]
+    preamble: list[str] = []
+    objective = str(dispatch.get("objective_snapshot") or "")
+    acceptance = str(dispatch.get("acceptance_snapshot") or "")
+    workspace_root = str(workspace.get("root_path") or "")
+    task_parts = (
+        ("task_objective", "작업 목표", "Task", objective, "include_task_objective", "Task objective"),
+        ("acceptance", "수용 검증", "Dispatch", acceptance, "include_acceptance", "Acceptance command"),
+        ("workspace_root", "작업 공간", "Workspace", workspace_root, "include_workspace_root", "Workspace root"),
+    )
+    for item_id, label, source, content, policy_key, prompt_label in task_parts:
+        included = bool(policy[policy_key]) and bool(content)
+        items.append(_context_item(
+            item_id, label, source, content,
+            status="included" if included else "excluded",
+            detail={"policy_key": policy_key},
+        ))
+        if included:
+            preamble.append(f"{prompt_label}:\n{content}")
+
+    for skill in skills:
+        description = str(skill.get("description") or "")
+        qualified = f"{skill.get('namespace')}:{skill.get('name')}"
+        items.append(_context_item(
+            f"skill_catalog:{skill.get('skill_version_id')}",
+            f"스킬 카탈로그 · {qualified}", "SkillVersion", description,
+            detail={
+                "activation_mode": skill.get("activation_mode"),
+                "version": skill.get("version"),
+                "loaded_at": skill.get("loaded_at"),
+            },
+        ))
+        if skill.get("loaded_at"):
+            compiled = skill.get("compiled") or {}
+            instructions = str(compiled.get("instructions") or "")
+            items.append(_context_item(
+                f"skill_body:{skill.get('skill_version_id')}",
+                f"로드된 스킬 · {qualified}", "load_skill", instructions,
+                detail={"loaded_at": skill.get("loaded_at")},
+            ))
+
+    latest_window = None
+    for event in reversed(events or []):
+        payload = event.get("payload") or {}
+        if event.get("kind") == "agent_event" and payload.get("kind") == "context_window":
+            latest_window = payload
+            break
+    return {
+        "policy": policy,
+        "items": items,
+        "estimated_static_tokens": sum(
+            int(item["estimated_tokens"]) for item in items if item["status"] == "included"
+        ),
+        "latest_window": latest_window,
+        "preamble": "\n\n".join(preamble),
     }
 
 
@@ -1971,12 +2358,23 @@ def _task_session_detail(store: D.DomainStore, session_id: str) -> dict:
     session = store.get_session(session_id)
     dispatch = _dispatch_json(store.get_dispatch(session["dispatch_id"]))
     workspace = store.get_workspace(dispatch["workspace_id"])
+    skills = [_skill_json(item) for item in store.snapshot_session_skills(session_id)]
+    events = store.list_session_events(session_id)
+    spec = _task_runtime_spec(
+        store, session["agent_profile_id"], budget=dispatch["budget"],
+        adaptive_decision=dispatch["adaptive_decision"],
+        profile_snapshot=dispatch["agent_profile_snapshot"],
+    )
+    context = _task_context_snapshot(spec, dispatch, workspace, skills, events)
+    context.pop("preamble", None)
     return {
         **session,
         "dispatch": dispatch,
         "workspace_id": workspace["id"],
         "workspace_root": workspace["root_path"],
-        "events": store.list_session_events(session_id),
+        "skills": [_skill_summary(item) for item in skills],
+        "context": context,
+        "events": events,
     }
 
 
@@ -2349,7 +2747,15 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
         spec = _task_runtime_spec(
             store, session["agent_profile_id"], budget=dispatch["budget"],
             adaptive_decision=dispatch["adaptive_decision"],
+            profile_snapshot=dispatch["agent_profile_snapshot"],
         )
+        spec["skills"] = [
+            _skill_json(item) for item in store.snapshot_session_skills(session_id)
+        ]
+        context_snapshot = _task_context_snapshot(
+            spec, dispatch, workspace, spec["skills"], store.list_session_events(session_id),
+        )
+        spec["context_preamble"] = context_snapshot["preamble"]
     except D.DomainError:
         await ws.close(code=1008)
         return
@@ -2467,6 +2873,11 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
             slot = pending.pop(req_id, None)
         return bool(slot and slot[1])
 
+    def skill_loaded(skill_version_id: str, reason: str, prompt_tokens: int) -> None:
+        store.mark_session_skill_loaded(
+            session_id, skill_version_id, reason=reason, prompt_tokens=prompt_tokens,
+        )
+
     def ensure_orchestration() -> runtime.Orchestration:
         nonlocal orch
         if orch is None:
@@ -2479,6 +2890,7 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
                 session_id=session_id,
                 budget=spec["budget"],
                 budget_usage=dispatch["usage"],
+                on_skill_loaded=skill_loaded,
             )
             orch.session.events = [dict(item) for item in transcript_events]
             with _TASK_RUNTIMES_LOCK:

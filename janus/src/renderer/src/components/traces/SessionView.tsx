@@ -70,6 +70,10 @@ function preview(v: unknown, n = 90): string {
   return s.length > n ? s.slice(0, n) + '…' : s
 }
 
+function roleLabel(role: string): string {
+  return ({ system: '시스템', user: '사용자', assistant: '어시스턴트', tool: '도구' } as Record<string, string>)[role] ?? role
+}
+
 /** 툴 호출은 상자가 아니라 접히는 한 줄이다 — 긴 세션이 스캔 가능해지는 이유. */
 function ToolLine({ run }: { run: ToolRun }) {
   const [open, setOpen] = useState(false)
@@ -125,10 +129,10 @@ function PromptLine({ messages, total }: { messages: { role: string; content: st
       >
         <ChevronRight size={11} className="shrink-0 transition-transform"
           style={{ transform: open ? 'rotate(90deg)' : 'none', opacity: open ? 1 : 0.35 }} />
-        <MessageSquareText size={10} className="shrink-0 text-accent-fg" />
-        <span>prompt</span>
+        <MessageSquareText size={10} className="shrink-0 text-muted" />
+        <span>프롬프트</span>
         <span className="truncate">
-          {messages.map((m) => m.role).join('+')} · {chars}자
+          {messages.map((m) => roleLabel(m.role)).join('+')} · {chars}자
           {total > messages.length ? ` (증분, 전체 ${total}개)` : ''}
         </span>
       </button>
@@ -136,7 +140,7 @@ function PromptLine({ messages, total }: { messages: { role: string; content: st
         <div className="ml-4 space-y-1.5 border-l border-border pl-2.5">
           {messages.map((m, i) => (
             <div key={i}>
-              <div className="text-[9.5px] uppercase tracking-wider text-faint">{m.role}</div>
+              <div className="text-[9.5px] tracking-wider text-faint">{roleLabel(m.role)}</div>
               <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[10.5px] text-muted">
                 {m.content}
               </pre>
@@ -176,7 +180,7 @@ export default function SessionView({
   return (
     <div className="space-y-2.5">
       <div className="text-[10px] tracking-wider text-faint">
-        SESSION · step {steps} {live && <span className="text-accent-fg">· 진행 중</span>}
+        세션 · 단계 {steps} {live && <span className="text-accent-fg">· 진행 중</span>}
       </div>
 
       {rows.map((row, i) =>
@@ -191,7 +195,7 @@ export default function SessionView({
         ) : row.kind === 'user' ? (
           <div key={i} className="rounded-md border border-border bg-raised px-2.5 py-1.5">
             <div className="mb-0.5 flex items-center gap-1.5 text-[10px] text-faint">
-              <User size={10} /> TASK
+              <User size={10} /> 작업
             </div>
             <div className="whitespace-pre-wrap break-words text-[11.5px] leading-relaxed text-muted">
               {row.text}

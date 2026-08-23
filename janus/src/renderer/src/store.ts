@@ -1,14 +1,16 @@
 import { create } from 'zustand'
 import type {
-  AgentEvent, AgentProfile, AgentSessionDetail, AgentSummary, ApprovalRequest, ChangeSet,
+  AgentEvent, AgentProfile, AgentProfileSkill, AgentSessionDetail, AgentSummary, ApprovalRequest, ChangeSet,
   BackendStatus, ModelProfile, Project, RunDetail, RunSummary, SessionEvent, Span,
   EvaluationComparison, EvaluationExperiment, OperationsSnapshot, PullRequestSnapshot, ReviewSnapshot, ShipHandoff, Spec,
-  Task, TaskShipment, ToolInfo, TreeEntry,
+  SkillActivationMode, SkillImportPreview, SkillSummary, Task, TaskShipment, ToolInfo, TreeEntry,
   VerificationCommand, VerificationRun,
   WorkspaceInspection
 } from './types'
 
-const BASE = import.meta.env.VITE_JANUS_BASE ?? 'http://localhost:8765'
+// Backend는 loopback IPv4에 bind한다. `localhost`를 쓰면 Chromium이 ::1을
+// 선택한 환경에서 요청이 서버에 도달하지 않고 무한 재시도로 남을 수 있다.
+const BASE = import.meta.env.VITE_JANUS_BASE ?? 'http://127.0.0.1:8765'
 const TOKEN = window.janus?.authToken ?? import.meta.env.VITE_JANUS_TOKEN ?? ''
 
 function websocketUrl(path: string): string {
@@ -78,6 +80,13 @@ interface State {
   task: Task | null
   agentProfiles: AgentProfile[]
   modelProfiles: ModelProfile[]
+  skills: SkillSummary[]
+  agentProfileSkills: AgentProfileSkill[]
+  profileBusy: boolean
+  profileError: string | null
+  skillImportPreview: SkillImportPreview | null
+  skillBusy: boolean
+  skillError: string | null
   workspaceInspection: WorkspaceInspection | null
   changeSet: ChangeSet | null
   verificationRuns: VerificationRun[]
@@ -148,6 +157,7 @@ interface State {
   selectTask(id: string): Promise<void>
   refreshSelectedTask(): Promise<void>
   addProjectFromPicker(): Promise<void>
+  archiveProject(id: string): Promise<void>
   createTask(input: {
     title: string
     objective: string
@@ -200,6 +210,14 @@ interface State {
   clearTaskError(): void
   loadLatestTaskSession(): Promise<void>
   selectAgentProfile(id: string): void
+  updateAgentProfile(id: string, changes: Partial<AgentProfile>): Promise<boolean>
+  loadSkills(): Promise<void>
+  loadAgentProfileSkills(profileId?: string): Promise<void>
+  previewGithubSkills(url: string): Promise<void>
+  confirmGithubSkills(selectedSubpaths: string[]): Promise<void>
+  dismissSkillPreview(): void
+  importLocalSkills(): Promise<void>
+  setAgentProfileSkill(skillId: string, mode: SkillActivationMode): Promise<void>
   startTaskSession(options?: { priority?: number; queue_timeout_ms?: number }): Promise<void>
   resumeTaskSession(): Promise<void>
   connectTaskSession(session: AgentSessionDetail): void
@@ -262,6 +280,13 @@ export const useStore = create<State>((set, get) => ({
   task: null,
   agentProfiles: [],
   modelProfiles: [],
+  skills: [],
+  agentProfileSkills: [],
+  profileBusy: false,
+  profileError: null,
+  skillImportPreview: null,
+  skillBusy: false,
+  skillError: null,
   workspaceInspection: null,
   changeSet: null,
   verificationRuns: [],
@@ -315,7 +340,7 @@ export const useStore = create<State>((set, get) => ({
     const currentAgentId = get().agentId
     const previousWorkspace = get().workspace
     try {
-      const [health, agents, tools, models, ws, backendStatus, projects, agentProfiles, modelProfiles] = await Promise.all([
+      const [health, agents, tools, models, ws, backendStatus, projects, agentProfiles, modelProfiles, skills] = await Promise.all([
         apiJson(`${BASE}/health`),
         apiJson(`${BASE}/agents`),
         apiJson(`${BASE}/tools`),
@@ -324,7 +349,8 @@ export const useStore = create<State>((set, get) => ({
         readBackendStatus(),
         apiJson(`${BASE}/projects`),
         apiJson(`${BASE}/profiles/agents`),
-        apiJson(`${BASE}/profiles/models`)
+        apiJson(`${BASE}/profiles/models`),
+        apiJson(`${BASE}/skills`)
       ])
       const workspaceChanged = previousWorkspace !== null && previousWorkspace !== ws.path
       set({
@@ -338,6 +364,7 @@ export const useStore = create<State>((set, get) => ({
         projects,
         agentProfiles,
         modelProfiles,
+        skills,
         selectedAgentProfileId:
           agentProfiles.some((profile: AgentProfile) => profile.id === get().selectedAgentProfileId)
             ? get().selectedAgentProfileId
@@ -354,6 +381,7 @@ export const useStore = create<State>((set, get) => ({
       const selectedProject =
         projects.find((project: Project) => project.id === get().projectId) ?? projects[0]
       if (selectedProject) await get().selectProject(selectedProject.id)
+      await get().loadAgentProfileSkills(get().selectedAgentProfileId)
       get().loadDir('')
       const currentStillExists = currentAgentId && agents.some((a: AgentSummary) => a.id === currentAgentId)
       if (currentStillExists) {
@@ -412,6 +440,8 @@ export const useStore = create<State>((set, get) => ({
       taskTurnActive: false,
       taskRuntimeError: null,
       taskApprovals: [],
+      tree: {},
+      openedFile: null,
       workspaceInspection: null,
       changeSet: null,
       verificationRuns: [],
@@ -423,6 +453,7 @@ export const useStore = create<State>((set, get) => ({
       ...(projectDefault ? { selectedAgentProfileId: projectDefault } : {})
     })
     if (projectDefault) localStorage.setItem('janus.agentProfile', projectDefault)
+    void get().loadDir('')
     try {
       const tasks = (await apiJson(`${BASE}/projects/${id}/tasks`)) as Task[]
       if (sequence !== openProjectSequence) return
@@ -501,6 +532,38 @@ export const useStore = create<State>((set, get) => ({
       const projects = (await apiJson(`${BASE}/projects`)) as Project[]
       set({ projects })
       await get().selectProject(project.id)
+    } catch (error) {
+      set({ taskActionError: errorMessage(error) })
+    } finally {
+      set({ taskBusy: false })
+    }
+  },
+
+  async archiveProject(id) {
+    set({ taskBusy: true, taskActionError: null })
+    try {
+      await apiJson(`${BASE}/projects/${id}`, { method: 'DELETE' })
+      const projects = (await apiJson(`${BASE}/projects`)) as Project[]
+      if (get().projectId !== id) {
+        set({ projects })
+        return
+      }
+      const next = projects[0]
+      if (next) {
+        set({ projects })
+        await get().selectProject(next.id)
+        return
+      }
+      openProjectSequence++
+      openTaskSequence++
+      get().taskWs?.close()
+      set({
+        projects: [], projectId: null, tasks: [], taskId: null, task: null,
+        taskSession: null, taskSessionEvents: [], taskWs: null, taskConnected: false,
+        taskTurnActive: false, taskRuntimeError: null, taskApprovals: [],
+        workspaceInspection: null, changeSet: null, verificationRuns: [], review: null,
+        shipments: [], shipHandoff: null, taskPullRequest: null
+      })
     } catch (error) {
       set({ taskActionError: errorMessage(error) })
     } finally {
@@ -898,7 +961,7 @@ export const useStore = create<State>((set, get) => ({
   async promoteEvaluation(comparisonId) {
     const projectId = get().projectId
     if (!projectId) {
-      set({ evaluationError: 'Select a Project before promoting a profile.' })
+      set({ evaluationError: '프로필을 승격하기 전에 프로젝트를 선택하세요.' })
       return
     }
     set({ evaluationBusy: true, evaluationError: null })
@@ -1020,7 +1083,137 @@ export const useStore = create<State>((set, get) => ({
 
   selectAgentProfile(id) {
     localStorage.setItem('janus.agentProfile', id)
-    set({ selectedAgentProfileId: id })
+    set({ selectedAgentProfileId: id, agentProfileSkills: [], skillError: null })
+    void get().loadAgentProfileSkills(id)
+  },
+
+  async updateAgentProfile(id, changes) {
+    set({ profileBusy: true, profileError: null })
+    try {
+      const profile = (await apiJson(`${BASE}/profiles/agents/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(changes)
+      })) as AgentProfile
+      set((state) => ({
+        agentProfiles: state.agentProfiles.map((item) => item.id === id ? profile : item),
+        profileError: null
+      }))
+      return true
+    } catch (error) {
+      set({ profileError: errorMessage(error) })
+      return false
+    } finally {
+      set({ profileBusy: false })
+    }
+  },
+
+  async loadSkills() {
+    try {
+      const skills = (await apiJson(`${BASE}/skills`)) as SkillSummary[]
+      set({ skills, skillError: null })
+    } catch (error) {
+      set({ skillError: errorMessage(error) })
+    }
+  },
+
+  async loadAgentProfileSkills(profileId = get().selectedAgentProfileId) {
+    if (!profileId) return
+    try {
+      const assignments = (await apiJson(
+        `${BASE}/profiles/agents/${profileId}/skills`
+      )) as AgentProfileSkill[]
+      if (get().selectedAgentProfileId === profileId) {
+        set({ agentProfileSkills: assignments, skillError: null })
+      }
+    } catch (error) {
+      if (get().selectedAgentProfileId === profileId) {
+        set({ skillError: errorMessage(error) })
+      }
+    }
+  },
+
+  async previewGithubSkills(url) {
+    const trimmed = url.trim()
+    if (!trimmed) return
+    set({ skillBusy: true, skillError: null, skillImportPreview: null })
+    try {
+      const preview = (await apiJson(`${BASE}/skills/preview/github`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: trimmed })
+      })) as SkillImportPreview
+      set({ skillImportPreview: preview })
+    } catch (error) {
+      set({ skillError: errorMessage(error) })
+    } finally {
+      set({ skillBusy: false })
+    }
+  },
+
+  async confirmGithubSkills(selectedSubpaths) {
+    const preview = get().skillImportPreview
+    if (!preview || selectedSubpaths.length === 0) return
+    set({ skillBusy: true, skillError: null })
+    try {
+      await apiJson(`${BASE}/skills/import/github`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: preview.url,
+          expected_revision: preview.revision,
+          selected_subpaths: selectedSubpaths
+        })
+      })
+      set({ skillImportPreview: null })
+      await get().loadSkills()
+      await get().loadAgentProfileSkills()
+    } catch (error) {
+      set({ skillError: errorMessage(error) })
+    } finally {
+      set({ skillBusy: false })
+    }
+  },
+
+  dismissSkillPreview() {
+    set({ skillImportPreview: null })
+  },
+
+  async importLocalSkills() {
+    const picked = await window.janus?.pickFolder()
+    if (!picked) return
+    set({ skillBusy: true, skillError: null })
+    try {
+      await apiJson(`${BASE}/skills/import/local`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: picked })
+      })
+      await get().loadSkills()
+      await get().loadAgentProfileSkills()
+    } catch (error) {
+      set({ skillError: errorMessage(error) })
+    } finally {
+      set({ skillBusy: false })
+    }
+  },
+
+  async setAgentProfileSkill(skillId, mode) {
+    const profileId = get().selectedAgentProfileId
+    if (!profileId) return
+    set({ skillBusy: true, skillError: null })
+    try {
+      await apiJson(`${BASE}/profiles/agents/${profileId}/skills/${skillId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activation_mode: mode })
+      })
+      await get().loadAgentProfileSkills(profileId)
+    } catch (error) {
+      set({ skillError: errorMessage(error) })
+    } finally {
+      set({ skillBusy: false })
+    }
   },
 
   async startTaskSession(options) {
@@ -1094,7 +1287,7 @@ export const useStore = create<State>((set, get) => ({
       set({ taskSessionEvents: [...current, liveEvent] })
 
       if (payload.type === 'run_error') {
-        set({ taskRuntimeError: String(payload.error ?? 'Task runtime failed') })
+        set({ taskRuntimeError: String(payload.error ?? '작업 실행이 실패했습니다') })
       } else if (payload.type === 'approval_request') {
         const request = payload as unknown as ApprovalRequest
         if (!get().taskApprovals.some((item) => item.id === request.id)) {
@@ -1102,7 +1295,7 @@ export const useStore = create<State>((set, get) => ({
         }
       } else if (payload.type === 'stale_dispatch') {
         set({
-          taskRuntimeError: String(payload.error ?? 'This Dispatch is stale'),
+          taskRuntimeError: String(payload.error ?? '이 디스패치는 이미 만료됐습니다'),
           taskTurnActive: false
         })
       } else if (payload.type === 'turn_end') {
@@ -1203,10 +1396,15 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async loadDir(rel) {
+    const projectId = get().projectId
+    if (!projectId) return
     try {
-      const r = await apiFetch(`${BASE}/workspace/tree?path=${encodeURIComponent(rel)}`)
+      const r = await apiFetch(
+        `${BASE}/projects/${projectId}/tree?path=${encodeURIComponent(rel)}`
+      )
       if (!r.ok) return
       const d = await r.json()
+      if (get().projectId !== projectId) return
       set({ tree: { ...get().tree, [rel]: d.entries } })
     } catch {
       /* 트리는 보조 기능 — 실패해도 조용히 */
@@ -1220,9 +1418,14 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async openFile(rel) {
-    const r = await apiFetch(`${BASE}/workspace/file?path=${encodeURIComponent(rel)}`)
+    const projectId = get().projectId
+    if (!projectId) return
+    const r = await apiFetch(
+      `${BASE}/projects/${projectId}/file?path=${encodeURIComponent(rel)}`
+    )
     if (!r.ok) return
     const d = await r.json()
+    if (get().projectId !== projectId) return
     if (d.error) {
       set({ openedFile: { path: rel, content: `(${d.error})` }, view: 'file' })
       return
@@ -1333,7 +1536,7 @@ export const useStore = create<State>((set, get) => ({
       runError: null, cancelled: false, viewingRunId: null,
       turnActive: true, firstMessage: trimmed
     })
-    const sock = new WebSocket(`ws://localhost:8765/run/${agentId}`, ['janus', TOKEN])
+    const sock = new WebSocket(`ws://127.0.0.1:8765/run/${agentId}`, ['janus', TOKEN])
     set({ ws: sock, connected: false })
 
     sock.onopen = () => {

@@ -389,6 +389,62 @@
 - [x] 알려진 P0 보안·데이터 손실·거짓 상태 결함이 없다.
 - [x] 외부 모델 없이 핵심 제품 가치가 완성된다.
 
+---
+
+## v1.1. GitHub Skill Compiler
+
+### 26. 스킬 도메인과 변환
+
+- [x] Skill·SkillVersion·AgentProfileSkill·SessionSkillSnapshot migration
+- [x] Codex·Claude Code `SKILL.md`와 resource 발견
+- [x] 변수·도구·실행 context를 Janus IR로 결정적 변환
+- [x] native·partial·adapter-required·blocked 호환성 보고
+- [x] 원본·변환물·출처·content hash를 불변 version으로 보존
+
+### 27. GitHub 가져오기와 보안
+
+- [x] GitHub repository/tree URL 분석과 commit SHA 고정
+- [x] 설치 전 스킬·라이선스·capability·경고 미리보기
+- [x] 하위 스킬 복수 선택 설치와 preview revision 재검증
+- [x] ZIP path escape·symlink·중복 경로·파일/아카이브 용량 차단
+- [x] 설치 후 기본 비활성과 shell·network 승인 경계
+
+### 28. 로컬 에이전트 적용
+
+- [x] 스킬 보관함과 AgentProfile 선택 UI
+- [x] 호환되는 스킬만 자동·수동 활성화
+- [x] 세션 시작 시 활성 version snapshot
+- [x] 소형 catalog 선주입과 `load_skill`·`read_skill_resource` 지연 로딩
+- [x] 실제 Qwen3.8 27B가 카탈로그에서 `load_skill` tool call을 선택
+- [x] `openai/skills` `cli-creator`를 commit SHA로 고정해 다운로드·라이선스 파일·컴파일 검증
+- [x] Python 157 tests, Electron main 15 tests, TypeScript/build 통과
+- [ ] 실제 GitHub 저장소를 이용한 앱 수동 QA
+
+### 29. AgentProfile 프롬프트와 컨텍스트
+
+- [x] 프롬프트 탭을 AgentProfile system prompt 저장 API와 연결
+- [x] 프로필별 최대 용량·최근 블록·요약 용량 정책
+- [x] Task 목표·수용 검증·workspace 경로 포함 선택
+- [x] Task 시작 시 AgentProfile snapshot으로 기존 실행 불변 보장
+- [x] Task 실행에 컨텍스트 소스·포함 상태·token 추정·최신 window 표시
+- [x] 레거시 에이전트 생성·삭제·YAML 그래프 편집 진입점 제거
+- [x] AgentProfile 루트와 실제 Task worker span으로 읽기 전용 실행 그래프 구성
+- [x] 중복 전역 컨텍스트 메뉴 제거
+- [x] migration·API·runtime snapshot 회귀 테스트
+- [ ] 실제 앱에서 프롬프트 저장·정책 적용·검사기 수동 QA
+
+### 30. 공식 Janus 데스크톱 디자인 시스템
+
+- [x] 제품 도메인과 충돌하던 Tools·Context·Graph·Inspector 정의 교정
+- [x] 공식 SVG 심볼과 Graphite 글로벌 token 적용
+- [x] Button·Tabs·Field·Status·Panel·Dialog 공통 primitive 도입
+- [x] Title bar·icon navigation·resource sidebar·status bar 구조 개편
+- [x] Task·AgentProfile·Evaluation·Monitor 화면을 compact panel UI로 통일
+- [x] `⌘K` command palette와 keyboard focus·reduced motion 적용
+- [x] TSX raw hex 제거와 accent의 runtime signal 한정
+- [x] TypeScript·Electron main test·production build·Python 회귀 테스트
+- [ ] 실제 Electron 앱 전체 화면 수동 QA
+
 ## 지금 시작할 작업
 
 - [x] **P0-1 실행 계측 스키마 설계 및 테스트**

@@ -4,18 +4,25 @@ import {
 } from 'lucide-react'
 import { useStore } from '../../store'
 import type { OperationsLane, OperationsTask } from '../../types'
+import { Button, EmptyState, Status } from '../ui'
 
-const LANES: Array<{ id: OperationsLane; label: string; color: string; note: string }> = [
-  { id: 'queue', label: 'Queue', color: '#7f8798', note: 'Waiting for ownership' },
-  { id: 'working', label: 'Working', color: '#72a7ff', note: 'Agent or tool active' },
-  { id: 'needs_you', label: 'Needs You', color: '#ff9f6e', note: 'Decision or approval' },
-  { id: 'review', label: 'Review', color: '#6dd6a8', note: 'Change ready to inspect' },
-  { id: 'failed', label: 'Failed', color: '#f87171', note: 'Recovery required' }
+const LANES: Array<{ id: OperationsLane; label: string; tone: 'muted' | 'success' | 'warning' | 'danger'; color: string; note: string }> = [
+  { id: 'queue', label: '대기', tone: 'muted', color: 'var(--text-muted)', note: '소유권 대기 중' },
+  { id: 'working', label: '작업 중', tone: 'success', color: 'var(--accent)', note: '에이전트 또는 도구 실행 중' },
+  { id: 'needs_you', label: '확인 필요', tone: 'warning', color: 'var(--warning)', note: '결정 또는 승인 필요' },
+  { id: 'review', label: '검토', tone: 'success', color: 'var(--success)', note: '변경 검토 준비됨' },
+  { id: 'failed', label: '실패', tone: 'danger', color: 'var(--danger)', note: '복구 필요' }
 ]
 
 const TIMELINE_COLOR: Record<string, string> = {
-  generation: '#8b9dff', tool: '#6dd6a8', verification: '#e3bd6a',
-  queue: '#7f8798', worker: '#c495ff'
+  generation: 'var(--info)', tool: 'var(--success)', verification: 'var(--warning)',
+  queue: 'var(--text-muted)', worker: 'var(--text-secondary)'
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  todo: '할 일', preparing: '준비 중', working: '작업 중', needs_you: '확인 필요',
+  review: '검토', failed: '실패', created: '생성됨', running: '실행 중', idle: '대기 중',
+  stopped: '중단됨', completed: '완료', queued: '대기열', error: '오류'
 }
 
 function bytes(value: number) {
@@ -26,8 +33,8 @@ function bytes(value: number) {
 
 function BudgetBars({ task }: { task: OperationsTask }) {
   const values = [
-    ['tok', task.budget_progress.tokens], ['step', task.budget_progress.steps],
-    ['time', task.budget_progress.time], ['wrk', task.budget_progress.workers]
+    ['토큰', task.budget_progress.tokens], ['단계', task.budget_progress.steps],
+    ['시간', task.budget_progress.time], ['워커', task.budget_progress.workers]
   ] as const
   return (
     <div className="grid grid-cols-4 gap-1.5">
@@ -36,12 +43,12 @@ function BudgetBars({ task }: { task: OperationsTask }) {
           <div className="mb-1 flex justify-between font-mono text-[7.5px] uppercase text-faint">
             <span>{label}</span><span>{Math.round(value)}</span>
           </div>
-          <div className="h-1 overflow-hidden rounded-full bg-[#20202a]">
+          <div className="h-1 overflow-hidden bg-active">
             <div
-              className="h-full rounded-full"
+              className="h-full"
               style={{
                 width: `${Math.min(100, value)}%`,
-                background: value >= 90 ? '#f87171' : value >= 70 ? '#e3bd6a' : '#738cff'
+                background: value >= 90 ? 'var(--danger)' : value >= 70 ? 'var(--warning)' : 'var(--border-strong)'
               }}
             />
           </div>
@@ -56,9 +63,9 @@ function Timeline({ task }: { task: OperationsTask }) {
   return (
     <div className="mt-3">
       <div className="mb-1.5 font-mono text-[7.5px] uppercase tracking-[0.12em] text-faint">
-        generation / tool / verification
+        생성 / 도구 / 검증
       </div>
-      <div className="flex h-3 items-center gap-[3px]" aria-label={`${visible.length} recent operations`}>
+      <div className="flex h-3 items-center gap-[3px]" aria-label={`최근 작업 ${visible.length}건`}>
         {visible.length ? visible.map((item, index) => (
           <span
             key={`${item.at}-${index}`}
@@ -70,7 +77,7 @@ function Timeline({ task }: { task: OperationsTask }) {
             }}
           />
         )) : (
-          <span className="font-mono text-[8px] text-faint">No runtime intervals yet</span>
+          <span className="font-mono text-[8px] text-faint">아직 실행 구간이 없습니다</span>
         )}
       </div>
     </div>
@@ -81,23 +88,23 @@ function TaskStrip({ task, onOpen }: { task: OperationsTask; onOpen: () => void 
   return (
     <button
       onClick={onOpen}
-      className="group w-full rounded-md border border-border bg-[#0b0b11] p-3 text-left transition-colors hover:border-[#7180b8] hover:bg-[#101019] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+      className="group w-full border border-border-subtle bg-panel p-3 text-left transition-colors hover:border-border-strong hover:bg-hover focus-visible:border-border-strong focus-visible:outline-none"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="truncate font-mono text-[8px] uppercase tracking-[0.12em] text-faint">
-            {task.project_name} · {task.dispatch ? `attempt ${task.dispatch.attempt}` : 'unassigned'}
+            {task.project_name} · {task.dispatch ? `시도 ${task.dispatch.attempt}` : '미배정'}
           </div>
           <div className="mt-1 line-clamp-2 text-[11.5px] font-semibold leading-[1.35] text-fg">
             {task.title}
           </div>
         </div>
-        <ArrowUpRight size={11} className="mt-0.5 shrink-0 text-faint group-hover:text-accent-fg" />
+        <ArrowUpRight size={11} className="mt-0.5 shrink-0 text-faint group-hover:text-fg" />
       </div>
       <div className="mt-2.5 flex items-center justify-between font-mono text-[8px] uppercase text-faint">
-        <span>{task.session?.status ?? task.status}</span>
+        <span>{STATUS_LABEL[task.session?.status ?? task.status] ?? task.session?.status ?? task.status}</span>
         <span className={task.budget_progress.peak >= 90 ? 'text-danger' : ''}>
-          peak {Math.round(task.budget_progress.peak)}%
+          최대 {Math.round(task.budget_progress.peak)}%
         </span>
       </div>
       <div className="mt-2"><BudgetBars task={task} /></div>
@@ -128,29 +135,29 @@ export default function OperationsDashboard({ onOpenTask }: { onOpenTask: () => 
 
   const model = snapshot?.scheduler.resources.model_generation
   return (
-    <main className="min-w-0 flex-1 overflow-y-auto bg-[#08080d]">
+    <main className="workspace-surface min-w-0 flex-1 overflow-y-auto">
       <section className="border-b border-border bg-panel px-5 py-4">
         <div className="flex items-start justify-between gap-6">
           <div>
-            <div className="font-mono text-[9px] uppercase tracking-[0.2em] text-[#9dacff]">
-              Local agent control room
+            <div className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted">
+              로컬 에이전트 제어실
             </div>
-            <h1 className="task-title mt-1 text-[23px] font-semibold">Attention before throughput.</h1>
+            <h1 className="task-title mt-1 text-[20px] font-semibold">처리량보다 먼저 확인할 일.</h1>
             <p className="mt-1 max-w-[680px] text-[10.5px] text-faint">
-              One board for every Task that is waiting, running, asking, ready, or recovering.
+              대기·실행·확인·검토·복구 중인 모든 작업을 한 보드에서 보여줍니다.
             </p>
           </div>
-          <button onClick={() => void load()} className="task-quiet-action"><RefreshCw size={11} /> Refresh</button>
+          <Button onClick={() => void load()} variant="secondary" compact><RefreshCw size={11} /> 새로고침</Button>
         </div>
 
         {snapshot && (
           <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-4 border-t border-border pt-3">
             <div>
               <div className="mb-1.5 flex justify-between font-mono text-[8px] uppercase text-faint">
-                <span>Attention rail · {snapshot.summary.total} tasks</span>
-                <span>{snapshot.summary.attention} need action</span>
+                <span>확인 현황 · 작업 {snapshot.summary.total}개</span>
+                <span>조치 필요 {snapshot.summary.attention}개</span>
               </div>
-              <div className="flex h-2 gap-[2px] overflow-hidden rounded-full bg-[#15151d]">
+              <div className="flex h-1.5 gap-[2px] overflow-hidden bg-active">
                 {snapshot.tasks.map((task) => {
                   const lane = LANES.find((item) => item.id === task.lane)!
                   return <span key={task.id} title={`${task.title} · ${lane.label}`} className="min-w-[4px] flex-1" style={{ background: lane.color }} />
@@ -158,26 +165,26 @@ export default function OperationsDashboard({ onOpenTask }: { onOpenTask: () => 
               </div>
             </div>
             <div className="flex items-center gap-2 border-l border-border pl-4 text-[9.5px] text-muted">
-              <Cpu size={12} className="text-[#9dacff]" /> model {model?.active ?? 0}/{model?.cap ?? 1} · q {model?.queued ?? 0}
+              <Cpu size={12} /> 모델 {model?.active ?? 0}/{model?.cap ?? 1} · 대기 {model?.queued ?? 0}
             </div>
             <div className="flex items-center gap-2 border-l border-border pl-4 text-[9.5px] text-muted">
-              <MemoryStick size={12} className="text-[#c495ff]" /> peak {bytes(snapshot.memory.janus_process_peak_rss_bytes)}
+              <MemoryStick size={12} /> 최대 {bytes(snapshot.memory.janus_process_peak_rss_bytes)}
             </div>
             <div className="flex items-center gap-2 border-l border-border pl-4 text-[9.5px] text-muted">
-              <Gauge size={12} className="text-[#6dd6a8]" /> {snapshot.scheduler.active_leases} leases
+              <Gauge size={12} /> 리스 {snapshot.scheduler.active_leases}개
             </div>
           </div>
         )}
       </section>
 
       {error && (
-        <div className="m-5 flex items-center gap-2 rounded-md border border-[#f8717140] bg-[#f8717112] p-3 text-[11px] text-danger">
+        <div className="error-strip m-5">
           <AlertTriangle size={13} /> {error}
         </div>
       )}
 
       {!snapshot ? (
-        <div className="grid h-[420px] place-items-center font-mono text-[10px] text-faint">Loading operations…</div>
+        <div className="grid h-[420px] place-items-center font-mono text-[10px] text-faint">운영 현황 로딩 중…</div>
       ) : (
         <section className="grid min-w-[1180px] grid-cols-5 gap-3 p-4">
           {LANES.map((lane) => {
@@ -186,9 +193,7 @@ export default function OperationsDashboard({ onOpenTask }: { onOpenTask: () => 
               <div key={lane.id} className="min-w-0">
                 <div className="mb-2 flex items-end justify-between border-b pb-2" style={{ borderColor: `${lane.color}55` }}>
                   <div>
-                    <div className="flex items-center gap-2 text-[11px] font-semibold" style={{ color: lane.color }}>
-                      <span className="h-1.5 w-1.5 rounded-full" style={{ background: lane.color }} />{lane.label}
-                    </div>
+                    <Status tone={lane.tone}>{lane.label}</Status>
                     <div className="mt-0.5 text-[8.5px] text-faint">{lane.note}</div>
                   </div>
                   <span className="font-mono text-[18px] font-semibold" style={{ color: lane.color }}>{tasks.length}</span>
@@ -196,7 +201,7 @@ export default function OperationsDashboard({ onOpenTask }: { onOpenTask: () => 
                 <div className="space-y-2">
                   {tasks.map((task) => <TaskStrip key={task.id} task={task} onOpen={() => void open(task)} />)}
                   {tasks.length === 0 && (
-                    <div className="rounded-md border border-dashed border-border px-3 py-8 text-center font-mono text-[8.5px] text-faint">Clear</div>
+                    <EmptyState title="없음" />
                   )}
                 </div>
               </div>

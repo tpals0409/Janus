@@ -122,6 +122,14 @@ export function seedTaskRuntimeVisualFixture(): void {
       worker: { token_limit: 8192, time_limit_ms: 300000, step_limit: 8 },
       workers: { total_limit: 4, concurrent_limit: 2 },
       queue: { timeout_ms: 300000, priority: 0 }
+    },
+    context_policy: {
+      max_chars: 24000,
+      recent_blocks: 8,
+      summary_max_chars: 4000,
+      include_task_objective: true,
+      include_acceptance: true,
+      include_workspace_root: true
     }
   }
   useStore.setState({

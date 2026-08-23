@@ -20,41 +20,46 @@ import {
   Square,
   Wifi,
   WifiOff,
+  Trash2,
   X
 } from 'lucide-react'
 import { useStore } from '../../store'
 import type { ChangeLayer, ChangeSetFile, Project, Task, TaskStatus } from '../../types'
+import ContextInspector from './ContextInspector'
+import { Button, EmptyState, Field, IconButton, Input, Status, Textarea } from '../ui'
 
 const TaskDevelopmentSurface = lazy(() => import('./TaskDevelopmentSurface'))
 
 const STATUS: Record<TaskStatus, { label: string; color: string; short: string }> = {
-  todo: { label: 'Todo', color: 'var(--color-muted)', short: 'TO' },
-  preparing: { label: 'Preparing', color: 'var(--color-warn)', short: 'PR' },
-  working: { label: 'Working', color: 'var(--color-accent-fg)', short: 'WK' },
-  needs_you: { label: 'Needs You', color: '#ff9f6e', short: 'NY' },
-  review: { label: 'Review', color: 'var(--color-ok)', short: 'RV' },
-  failed: { label: 'Failed', color: 'var(--color-danger)', short: 'FL' }
+  todo: { label: '할 일', color: 'var(--color-muted)', short: '할' },
+  preparing: { label: '준비 중', color: 'var(--color-warn)', short: '준' },
+  working: { label: '작업 중', color: 'var(--color-accent-fg)', short: '작' },
+  needs_you: { label: '확인 필요', color: 'var(--color-warn)', short: '확' },
+  review: { label: '검토', color: 'var(--color-ok)', short: '검' },
+  failed: { label: '실패', color: 'var(--color-danger)', short: '실' }
 }
 
 const RUNWAY: TaskStatus[] = ['todo', 'preparing', 'working', 'needs_you', 'review']
+const STATE_LABEL: Record<string, string> = {
+  created: '생성됨', idle: '대기 중', running: '실행 중', stopped: '중단됨',
+  completed: '완료', queued: '대기열', passed: '통과', failed: '실패', error: '오류',
+  preparing: '준비 중', ready: '준비됨', archived: '보관됨', merged: '병합됨',
+  pending: '대기 중', success: '성공', neutral: '중립', skipped: '건너뜀', unknown: '알 수 없음',
+  validating: '검증 중', recovered: '복구됨', allocating: '할당 중', creating: '생성 중',
+  interrupted: '중단됨', force_removed: '강제 제거됨'
+}
+const stateLabel = (value: string) => STATE_LABEL[value.toLowerCase()] ?? value
 
 function StatusBadge({ status }: { status: TaskStatus }) {
   const meta = STATUS[status]
-  return (
-    <span
-      className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10.5px] font-semibold"
-      style={{ color: meta.color, borderColor: `color-mix(in srgb, ${meta.color} 45%, transparent)` }}
-    >
-      <span className="h-1.5 w-1.5 rounded-full" style={{ background: meta.color }} />
-      {meta.label}
-    </span>
-  )
+  const tone = status === 'failed' ? 'danger' : status === 'preparing' || status === 'needs_you' ? 'warning' : status === 'todo' ? 'muted' : 'success'
+  return <Status tone={tone}>{meta.label}</Status>
 }
 
 function TaskRunway({ status }: { status: TaskStatus }) {
   const active = status === 'failed' ? -1 : RUNWAY.indexOf(status)
   return (
-    <div className="task-runway" aria-label={`Task status: ${STATUS[status].label}`}>
+    <div className="task-runway" aria-label={`작업 상태: ${STATUS[status].label}`}>
       {RUNWAY.map((step, index) => {
         const reached = active >= index
         const current = status === step
@@ -75,7 +80,7 @@ function TaskRunway({ status }: { status: TaskStatus }) {
       })}
       {status === 'failed' && (
         <div className="ml-auto flex items-center gap-2 text-[11px] text-danger">
-          <AlertTriangle size={13} /> Failed
+          <AlertTriangle size={13} /> 실패
         </div>
       )}
     </div>
@@ -87,49 +92,59 @@ function ProjectPicker() {
   const projectId = useStore((state) => state.projectId)
   const selectProject = useStore((state) => state.selectProject)
   const addProject = useStore((state) => state.addProjectFromPicker)
+  const archiveProject = useStore((state) => state.archiveProject)
   const busy = useStore((state) => state.taskBusy)
 
   return (
-    <div className="border-b border-border p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-[10px] font-semibold tracking-[0.14em] text-faint">PROJECTS</span>
-        <button
+    <div className="border-b border-border py-2">
+      <div className="mb-1 flex h-7 items-center justify-between px-4">
+        <span className="resource-sidebar__label">프로젝트</span>
+        <IconButton
           onClick={addProject}
           disabled={busy}
-          title="Add a local Git repository"
-          className="rounded p-1 text-faint hover:bg-raised hover:text-fg disabled:opacity-40"
+          label="로컬 Git 저장소 추가"
+          className="h-7 w-7"
         >
-          <Plus size={13} />
-        </button>
+          <Plus size={14} strokeWidth={1.5} />
+        </IconButton>
       </div>
-      <div className="space-y-1">
+      <div>
         {projects.map((project) => (
-          <button
+          <div
             key={project.id}
-            onClick={() => selectProject(project.id)}
-            className="w-full rounded-md border px-2.5 py-2 text-left transition-colors"
-            style={{
-              borderColor: project.id === projectId ? 'var(--color-accent)' : 'transparent',
-              background: project.id === projectId ? 'var(--color-accent-soft)' : 'transparent'
-            }}
+            className="group resource-row relative"
+            aria-selected={project.id === projectId}
           >
-            <div className="flex items-center gap-2">
-              <FolderGit2 size={13} className="shrink-0 text-accent-fg" />
-              <span className="truncate text-[12px] font-semibold">{project.name}</span>
-            </div>
-            <div className="mt-1 truncate pl-[21px] font-mono text-[9.5px] text-faint">
-              {project.repo_path}
-            </div>
-          </button>
+            <button
+              onClick={() => selectProject(project.id)}
+              className="w-full pr-7 text-left"
+            >
+              <div className="flex items-center gap-2">
+                <FolderGit2 size={13} strokeWidth={1.5} className="shrink-0 text-muted" />
+                <span className="truncate text-[12px] font-medium">{project.name}</span>
+              </div>
+              <div className="mt-1 truncate pl-[21px] font-mono text-[9.5px] text-faint">
+                {project.repo_path}
+              </div>
+            </button>
+            <button
+              onClick={() => {
+                if (window.confirm(`“${project.name}” 프로젝트를 목록에서 제거할까요?\n작업 기록과 Git 브랜치는 보존됩니다.`)) {
+                  void archiveProject(project.id)
+                }
+              }}
+              disabled={busy}
+              title="프로젝트 목록에서 제거"
+              className="absolute right-2 top-2 p-1 text-faint opacity-50 hover:text-danger hover:opacity-100 focus:opacity-100 disabled:opacity-30"
+            >
+              <Trash2 size={12} />
+            </button>
+          </div>
         ))}
         {projects.length === 0 && (
-          <button
-            onClick={addProject}
-            className="w-full rounded-md border border-dashed border-border-strong px-3 py-4 text-center text-[11px] text-muted hover:border-accent hover:text-fg"
-          >
-            <FolderGit2 size={16} className="mx-auto mb-1.5" />
-            Add local repository
-          </button>
+          <Button onClick={addProject} variant="ghost" className="resource-sidebar__action">
+            <FolderGit2 size={14} strokeWidth={1.5} /> 로컬 저장소 추가
+          </Button>
         )}
       </div>
     </div>
@@ -143,30 +158,28 @@ function TaskSidebar({ onNewTask }: { onNewTask: () => void }) {
   const selectTask = useStore((state) => state.selectTask)
 
   return (
-    <aside className="flex w-[272px] shrink-0 flex-col border-r border-border bg-panel">
+    <aside className="resource-sidebar">
       <ProjectPicker />
-      <div className="flex min-h-0 flex-1 flex-col p-3">
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-[10px] font-semibold tracking-[0.14em] text-faint">TASKS</span>
+      <div className="flex min-h-0 flex-1 flex-col py-2">
+        <div className="mb-1 flex h-7 items-center justify-between px-4">
+          <span className="resource-sidebar__label">작업</span>
           <span className="font-mono text-[10px] text-faint">{tasks.length}</span>
         </div>
-        <button
+        <Button
           onClick={onNewTask}
           disabled={!projectId}
-          className="mb-3 flex w-full items-center justify-center gap-1.5 rounded-md border border-border-strong bg-raised py-1.5 text-[11.5px] text-muted hover:border-accent hover:text-fg disabled:opacity-35"
+          compact
+          className="resource-sidebar__action mb-2"
         >
-          <Plus size={13} /> New task
-        </button>
+          <Plus size={13} strokeWidth={1.5} /> 새 작업
+        </Button>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {tasks.map((task) => (
             <button
               key={task.id}
               onClick={() => selectTask(task.id)}
-              className="mb-1.5 w-full rounded-md border px-2.5 py-2.5 text-left"
-              style={{
-                borderColor: task.id === taskId ? 'var(--color-accent)' : 'transparent',
-                background: task.id === taskId ? 'var(--color-accent-soft)' : 'transparent'
-              }}
+              className="resource-row"
+              aria-selected={task.id === taskId}
             >
               <div className="flex items-start gap-2">
                 <span
@@ -184,9 +197,9 @@ function TaskSidebar({ onNewTask }: { onNewTask: () => void }) {
             </button>
           ))}
           {projectId && tasks.length === 0 && (
-            <div className="rounded-md border border-dashed border-border-strong px-3 py-5 text-center text-[11px] leading-relaxed text-faint">
-              No tasks yet.
-              <br />Define the work contract first.
+            <div className="px-4 py-5 text-center text-[11px] leading-relaxed text-faint">
+              아직 작업이 없습니다.
+              <br />먼저 작업 계약을 정의하세요.
             </div>
           )}
         </div>
@@ -216,75 +229,66 @@ function NewTaskDialog({ project, onClose }: { project: Project; onClose: () => 
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-[#050509bf] p-6">
+    <div className="ui-dialog-backdrop">
       <form
         onSubmit={submit}
-        className="w-full max-w-[620px] rounded-lg border border-border-strong bg-panel shadow-2xl"
+        className="ui-dialog w-full max-w-[620px]"
       >
         <div className="flex items-start justify-between border-b border-border px-5 py-4">
           <div>
-            <div className="text-[10px] font-semibold tracking-[0.16em] text-accent-fg">
-              NEW TASK · {project.name.toUpperCase()}
+            <div className="text-[10px] font-semibold tracking-[0.16em] text-muted">
+              새 작업 · {project.name.toUpperCase()}
             </div>
-            <h2 className="task-title mt-1 text-[22px] font-semibold">Define the work contract</h2>
+            <h2 className="task-title mt-1 text-[16px] font-semibold">작업 계약 정의</h2>
           </div>
-          <button type="button" onClick={onClose} className="rounded p-1 text-faint hover:text-fg">
+          <IconButton type="button" onClick={onClose} label="닫기">
             <X size={16} />
-          </button>
+          </IconButton>
         </div>
         <div className="space-y-4 p-5">
-          <label className="block">
-            <span className="task-label">Title</span>
-            <input
+          <Field label="제목">
+            <Input
               autoFocus
               value={title}
               onChange={(event) => setTitle(event.target.value)}
-              placeholder="Make session recovery deterministic"
-              className="task-input"
+              placeholder="세션 복구를 결정적으로 만들기"
             />
-          </label>
-          <label className="block">
-            <span className="task-label">Objective</span>
-            <textarea
+          </Field>
+          <Field label="목표">
+            <Textarea
               value={objective}
               onChange={(event) => setObjective(event.target.value)}
-              placeholder="Describe the outcome the local agent must leave behind."
+              placeholder="로컬 에이전트가 남겨야 할 결과를 설명하세요."
               rows={4}
-              className="task-input resize-none"
             />
-          </label>
+          </Field>
           <div className="grid grid-cols-[1fr_160px] gap-3">
-            <label className="block">
-              <span className="task-label">Acceptance command</span>
-              <input
+            <Field label="수용 검증 명령">
+              <Input
                 value={acceptance}
                 onChange={(event) => setAcceptance(event.target.value)}
                 placeholder="python -m pytest -q"
-                className="task-input font-mono text-[11px]"
+                className="font-mono"
               />
-            </label>
-            <label className="block">
-              <span className="task-label">Base ref</span>
-              <input
+            </Field>
+            <Field label="기준 리프">
+              <Input
                 value={baseRef}
                 onChange={(event) => setBaseRef(event.target.value)}
-                className="task-input font-mono text-[11px]"
+                className="font-mono"
               />
-            </label>
+            </Field>
           </div>
         </div>
         <div className="flex items-center justify-between border-t border-border px-5 py-3">
-          <span className="text-[10.5px] text-faint">Workspace is prepared after Task creation.</span>
+          <span className="text-[10.5px] text-faint">작업을 생성한 뒤 작업 공간을 준비합니다.</span>
           <div className="flex gap-2">
-            <button type="button" onClick={onClose} className="rounded-md px-3 py-1.5 text-[11.5px] text-muted">
-              Cancel
-            </button>
-            <button
+            <Button type="button" onClick={onClose} variant="ghost">취소</Button>
+            <Button
               disabled={busy || !title.trim() || !objective.trim() || !acceptance.trim()}
-              className="rounded-md bg-accent px-3.5 py-1.5 text-[11.5px] font-semibold text-white disabled:opacity-40"
             >
-              {busy ? 'Creating…' : 'Create task'}
-            </button>
+              {busy ? '생성 중…' : '작업 생성'}
+            </Button>
           </div>
         </div>
       </form>
@@ -317,14 +321,14 @@ function WorkspaceCard({ task }: { task: Task }) {
       <section className="task-card">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="task-label">Workspace</div>
-            <h3 className="mt-1 text-[14px] font-semibold">No worktree yet</h3>
+            <div className="task-label">작업 공간</div>
+            <h3 className="mt-1 text-[14px] font-semibold">아직 워크트리가 없습니다</h3>
             <p className="mt-1 max-w-[560px] text-[11px] leading-relaxed text-faint">
-              Validate the repository and base ref, then create a Task-owned branch and worktree.
+              저장소와 기준 리프를 검증한 뒤 작업 소유 브랜치와 워크트리를 만듭니다.
             </p>
           </div>
           <button onClick={prepare} disabled={busy} className="task-primary-action">
-            <FolderGit2 size={13} /> Prepare workspace
+            <FolderGit2 size={13} /> 작업 공간 준비
           </button>
         </div>
       </section>
@@ -344,47 +348,47 @@ function WorkspaceCard({ task }: { task: Task }) {
     <section className="task-card">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="task-label">Workspace</div>
+          <div className="task-label">작업 공간</div>
           <div className="mt-1 flex items-center gap-2">
             {workspace.state === 'preparing' ? (
               <Loader2 size={14} className="animate-spin" style={{ color: stateColor }} />
             ) : (
               <CircleDot size={14} style={{ color: stateColor }} />
             )}
-            <h3 className="text-[14px] font-semibold capitalize">{workspace.state}</h3>
-            <span className="font-mono text-[10px] text-faint">{workspace.progress}</span>
+            <h3 className="text-[14px] font-semibold">{stateLabel(workspace.state)}</h3>
+            <span className="font-mono text-[10px] text-faint">{stateLabel(workspace.progress)}</span>
           </div>
         </div>
         {workspace.state === 'failed' && (
           <button onClick={retry} disabled={busy} className="task-primary-action">
-            <RotateCcw size={13} /> Retry preparation
+            <RotateCcw size={13} /> 준비 재시도
           </button>
         )}
         {workspace.state === 'ready' && (
           <button onClick={inspect} disabled={busy} className="task-quiet-action">
-            <RefreshCw size={12} /> Check changes
+            <RefreshCw size={12} /> 변경 확인
           </button>
         )}
       </div>
 
       {workspace.error && (
-        <div className="mt-3 rounded-md border border-[#f8717140] bg-[#f8717112] px-3 py-2 font-mono text-[10px] leading-relaxed text-danger">
+        <div className="error-strip mt-3 font-mono text-[10px] leading-relaxed">
           {workspace.error}
         </div>
       )}
 
       {workspace.state === 'failed' && (
-        <div className="mt-3 rounded-md border border-border bg-raised p-3">
+        <div className="mt-3 border border-border bg-surface p-3">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="task-label">Repair base ref</div>
+              <div className="task-label">기준 리프 복구</div>
               <p className="mt-1 text-[10.5px] text-faint">
-                Update the Task contract before retrying if the recorded ref does not exist.
+                기록된 리프가 없다면 재시도 전에 작업 계약을 수정하세요.
               </p>
             </div>
             {!editingBase && (
               <button onClick={() => setEditingBase(true)} className="task-quiet-action">
-                Edit ref
+                리프 편집
               </button>
             )}
           </div>
@@ -403,7 +407,7 @@ function WorkspaceCard({ task }: { task: Task }) {
                 disabled={busy || !baseRef.trim()}
                 className="task-primary-action"
               >
-                Save ref
+                리프 저장
               </button>
             </div>
           )}
@@ -411,35 +415,29 @@ function WorkspaceCard({ task }: { task: Task }) {
       )}
 
       <dl className="mt-4 grid grid-cols-[100px_1fr] gap-x-4 gap-y-2 border-t border-border pt-3 text-[10.5px]">
-        <dt className="text-faint">Branch</dt>
+        <dt className="text-faint">브랜치</dt>
         <dd className="flex min-w-0 items-center gap-1.5 font-mono text-muted">
           <GitBranch size={11} className="shrink-0" />
-          <span className="truncate">{workspace.branch_name ?? 'allocating…'}</span>
+          <span className="truncate">{workspace.branch_name ?? '할당 중…'}</span>
         </dd>
-        <dt className="text-faint">Root</dt>
-        <dd className="truncate font-mono text-muted">{workspace.root_path ?? 'allocating…'}</dd>
+        <dt className="text-faint">루트</dt>
+        <dd className="truncate font-mono text-muted">{workspace.root_path ?? '할당 중…'}</dd>
       </dl>
 
       {workspace.state === 'ready' && gitStatus && (
-        <div
-          className="mt-3 flex items-center gap-2 rounded-md border px-3 py-2 text-[10.5px]"
-          style={{
-            borderColor: gitStatus.dirty ? '#fbbf2440' : '#34d39935',
-            background: gitStatus.dirty ? '#fbbf240d' : '#34d3990b'
-          }}
-        >
+        <div className="mt-3 flex items-center gap-2 border border-border bg-panel px-3 py-2 text-[10.5px]">
           {gitStatus.dirty ? <AlertTriangle size={13} className="text-warn" /> : <ShieldCheck size={13} className="text-ok" />}
           <span className={gitStatus.dirty ? 'text-warn' : 'text-ok'}>
             {gitStatus.dirty
-              ? `${gitStatus.tracked_changes.length} tracked · ${gitStatus.untracked.length} untracked · ${gitStatus.unmerged.length} unmerged`
-              : 'Clean · safe to archive'}
+              ? `추적 ${gitStatus.tracked_changes.length}건 · 미추적 ${gitStatus.untracked.length}건 · 미병합 ${gitStatus.unmerged.length}건`
+              : '깨끗함 · 안전하게 보관 가능'}
           </span>
         </div>
       )}
 
       <div className="mt-4 flex items-center justify-between border-t border-border pt-3">
         <span className="text-[10px] text-faint">
-          Safe archive removes the worktree and preserves its branch.
+          안전 보관은 워크트리를 제거하고 브랜치는 보존합니다.
         </span>
         <div className="flex gap-2">
           {workspace.state === 'ready' && (
@@ -449,31 +447,31 @@ function WorkspaceCard({ task }: { task: Task }) {
                 disabled={busy}
                 className="task-quiet-action"
               >
-                <Archive size={12} /> Safe archive
+                <Archive size={12} /> 안전 보관
               </button>
               <button onClick={() => setDanger('force')} className="task-danger-link">
-                Force remove…
+                강제 제거…
               </button>
             </>
           )}
           {workspace.state === 'archived' && workspace.branch_name && (
             <button onClick={() => setDanger('branch')} className="task-danger-link">
-              Delete branch…
+              브랜치 삭제…
             </button>
           )}
         </div>
       </div>
 
       {danger && (
-        <div className="mt-3 flex items-center justify-between gap-4 rounded-md border border-[#f8717140] bg-[#f871710d] px-3 py-2">
+        <div className="mt-3 flex items-center justify-between gap-4 border border-danger bg-panel px-3 py-2">
           <div className="text-[10.5px] leading-relaxed text-danger">
             {danger === 'force'
-              ? 'Discard worktree changes now. The branch is preserved.'
-              : `Permanently delete ${workspace.branch_name}.`}
+              ? '워크트리 변경을 즉시 폐기합니다. 브랜치는 보존됩니다.'
+              : `${workspace.branch_name} 브랜치를 영구 삭제합니다.`}
           </div>
           <div className="flex shrink-0 gap-2">
             <button onClick={() => setDanger(null)} className="rounded px-2 py-1 text-[10.5px] text-muted">
-              Cancel
+              취소
             </button>
             <button
               onClick={() => {
@@ -481,9 +479,9 @@ function WorkspaceCard({ task }: { task: Task }) {
                 else deleteBranch()
                 setDanger(null)
               }}
-              className="rounded bg-[#f8717126] px-2 py-1 text-[10.5px] font-semibold text-danger"
+              className="ui-button ui-button--danger ui-button--compact"
             >
-              Confirm
+              확인
             </button>
           </div>
         </div>
@@ -510,6 +508,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
   const stopSession = useStore((state) => state.stopTaskSession)
   const respondApproval = useStore((state) => state.respondTaskApproval)
   const [message, setMessage] = useState('')
+  const [runtimeView, setRuntimeView] = useState<'conversation' | 'context'>('conversation')
   const ready = task.workspace?.state === 'ready'
   const resumable = session?.status === 'created' || session?.status === 'idle'
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId)
@@ -571,26 +570,26 @@ function TaskRuntimeCard({ task }: { task: Task }) {
     <section className="task-card task-runtime-card">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="task-label">Agent session</div>
+          <div className="task-label">에이전트 세션</div>
           <div className="mt-1 flex items-center gap-2">
-            <MessageSquare size={14} className="text-accent-fg" />
+            <MessageSquare size={14} className="text-muted" />
             <h3 className="text-[14px] font-semibold">
-              {session ? `Attempt ${session.dispatch.attempt}` : 'No runtime attempt'}
+              {session ? `시도 ${session.dispatch.attempt}` : '실행 시도 없음'}
             </h3>
             {session && (
               <span className="rounded-full border border-border-strong px-2 py-0.5 font-mono text-[9px] uppercase text-muted">
-                {session.status}
+                {stateLabel(session.status)}
               </span>
             )}
             <span className={`flex items-center gap-1 text-[9.5px] ${connected ? 'text-ok' : 'text-faint'}`}>
               {connected ? <Wifi size={10} /> : <WifiOff size={10} />}
-              {connected ? 'connected' : 'offline'}
+              {connected ? '연결됨' : '오프라인'}
             </span>
           </div>
         </div>
         <div className="flex items-end gap-2">
           <label>
-            <span className="task-label">Agent profile</span>
+            <span className="task-label">에이전트 프로필</span>
             <select
               value={selectedProfileId}
               onChange={(event) => selectProfile(event.target.value)}
@@ -603,7 +602,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
             </select>
           </label>
           <label>
-            <span className="task-label">Priority</span>
+            <span className="task-label">우선순위</span>
             <input
               type="number"
               value={priority}
@@ -613,7 +612,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
             />
           </label>
           <label>
-            <span className="task-label">Queue sec</span>
+            <span className="task-label">대기열 초</span>
             <input
               type="number"
               min={1}
@@ -625,62 +624,74 @@ function TaskRuntimeCard({ task }: { task: Task }) {
           </label>
           <button
             onClick={() => {
-              if (session && resumable && !window.confirm('Start a new attempt and stop the resumable one?')) return
+              if (session && resumable && !window.confirm('재개 가능한 세션을 중단하고 새 시도를 시작할까요?')) return
               void startSession({ priority, queue_timeout_ms: queueTimeout * 1000 })
             }}
             disabled={!ready || busy || active}
             className="task-primary-action"
-            title={ready ? 'Create a new persisted Dispatch attempt' : 'Prepare the workspace first'}
+            title={ready ? '영속화되는 새 디스패치 시도 생성' : '먼저 작업 공간을 준비하세요'}
           >
-            <Play size={12} /> {session ? 'New attempt' : 'Start'}
+            <Play size={12} /> {session ? '새 시도' : '시작'}
           </button>
         </div>
       </div>
 
       {session && (
-        <div className="mt-3 grid grid-cols-3 gap-2 border-t border-border pt-3 font-mono text-[9px] text-faint">
-          <span className="truncate" title={session.id}>SESSION · {session.id}</span>
-          <span className="truncate" title={session.dispatch_id}>DISPATCH · {session.dispatch_id}</span>
-          <span className="truncate" title={session.agent_profile_id}>PROFILE · {session.agent_profile_id}</span>
+        <div className="mt-3 border-t border-border pt-3 font-mono text-[9px] text-faint">
+          <div className="grid grid-cols-3 gap-2">
+            <span className="truncate" title={session.id}>세션 · {session.id}</span>
+            <span className="truncate" title={session.dispatch_id}>디스패치 · {session.dispatch_id}</span>
+            <span className="truncate" title={session.agent_profile_id}>프로필 · {session.agent_profile_id}</span>
+          </div>
+          {(session.skills?.length ?? 0) > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-border pt-2">
+              <span className="mr-1 text-faint">고정된 스킬</span>
+              {session.skills?.map((skill) => (
+                <span key={skill.skill_version_id} className="rounded border border-border-strong bg-raised px-1.5 py-0.5 text-muted">
+                  {skill.namespace}:{skill.name} · v{skill.version} · {skill.activation_mode === 'auto' ? '자동' : '수동'}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
       {budget && (
-        <div className="mt-3 grid grid-cols-4 gap-2 rounded-md border border-border bg-[#08080d] px-3 py-2 font-mono text-[9px] text-faint">
-          <span>TOKENS · {usage ? usage.prompt_tokens + usage.completion_tokens : 0}/{budget.dispatch.token_limit}</span>
-          <span>STEPS · {usage?.steps ?? 0}/{budget.dispatch.step_limit}</span>
-          <span>TIME · {Math.round((usage?.active_time_ms ?? 0) / 1000)}s/{Math.round(budget.dispatch.time_limit_ms / 1000)}s</span>
-          <span>WORKERS · {usage?.workers_started ?? 0}/{budget.workers.total_limit}</span>
+        <div className="mt-3 grid grid-cols-4 gap-2 border border-border bg-base px-3 py-2 font-mono text-[9px] text-faint">
+          <span>토큰 · {usage ? usage.prompt_tokens + usage.completion_tokens : 0}/{budget.dispatch.token_limit}</span>
+          <span>단계 · {usage?.steps ?? 0}/{budget.dispatch.step_limit}</span>
+          <span>시간 · {Math.round((usage?.active_time_ms ?? 0) / 1000)}초/{Math.round(budget.dispatch.time_limit_ms / 1000)}초</span>
+          <span>워커 · {usage?.workers_started ?? 0}/{budget.workers.total_limit}</span>
           {session?.dispatch.budget_exhausted_reason && (
             <strong className="col-span-4 text-danger">
-              EXHAUSTED · {session.dispatch.budget_exhausted_reason}
+              예산 소진 · {session.dispatch.budget_exhausted_reason}
             </strong>
           )}
         </div>
       )}
 
       {adaptive?.effective && (
-        <div className="mt-3 rounded-md border border-[#8b5cf640] bg-[#8b5cf60a] px-3 py-2.5">
+        <div className="mt-3 border border-border bg-panel px-3 py-2.5">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[9px] uppercase tracking-[0.08em]">
-            <span className="text-[#b9a7ff]">Adaptive · {adaptive.task_class?.replaceAll('_', ' ')}</span>
-            <span className="text-muted">policy {adaptive.effective.worker_policy}</span>
+            <span className="text-secondary">적응형 · {adaptive.task_class?.replaceAll('_', ' ')}</span>
+            <span className="text-muted">정책 {adaptive.effective.worker_policy}</span>
             <span className="text-muted">
-              roles {adaptive.effective.worker_roles.length
+              역할 {adaptive.effective.worker_roles.length
                 ? adaptive.effective.worker_roles.join(' → ')
-                : 'parent only'}
+                : '상위 에이전트만'}
             </span>
             <span className="text-muted">
-              slots {adaptive.scheduler?.model_generation.active ?? 0}/
-              {adaptive.scheduler?.model_generation.cap ?? 1} · queue {adaptive.scheduler?.model_generation.queued ?? 0}
+              슬롯 {adaptive.scheduler?.model_generation.active ?? 0}/
+              {adaptive.scheduler?.model_generation.cap ?? 1} · 대기 {adaptive.scheduler?.model_generation.queued ?? 0}
             </span>
           </div>
           {adaptive.retry?.failure_type && (
-            <div className="mt-2 flex items-center justify-between gap-3 border-t border-[#8b5cf626] pt-2 text-[10px]">
+            <div className="mt-2 flex items-center justify-between gap-3 border-t border-border-subtle pt-2 text-[10px]">
               <span className="text-warn">
-                RETRY · {adaptive.retry.failure_type.replaceAll('_', ' ')} → {adaptive.retry.strategy.replaceAll('_', ' ')}
+                재시도 · {adaptive.retry.failure_type.replaceAll('_', ' ')} → {adaptive.retry.strategy.replaceAll('_', ' ')}
               </span>
               <span className="font-mono text-[9px] text-faint">
-                {adaptive.retry.allowed ? 'bounded retry' : 'manual only'}
+                {adaptive.retry.allowed ? '제한된 재시도' : '수동 전용'}
               </span>
             </div>
           )}
@@ -688,62 +699,76 @@ function TaskRuntimeCard({ task }: { task: Task }) {
       )}
 
       {runtimeError && (
-        <div className="mt-3 rounded-md border border-[#f8717140] bg-[#f8717112] px-3 py-2 text-[10.5px] text-danger">
+        <div className="error-strip mt-3">
           {runtimeError}
         </div>
       )}
 
       {queueWait && (
-        <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-[#fbbf2440] bg-[#fbbf240d] px-3 py-2 text-[10.5px] text-warn">
+        <div className="mt-3 flex items-center justify-between gap-3 border border-warning bg-panel px-3 py-2 text-[10.5px] text-warn">
           <span>
-            Waiting for <strong>{String(queueWait.resource).replaceAll('_', ' ')}</strong>
+            <strong>{String(queueWait.resource).replaceAll('_', ' ')}</strong> 대기 중
             {' · '}{queueWait.reason === 'capacity_exhausted'
-              ? 'local capacity is in use'
-              : 'higher-priority work is ahead'}
+              ? '로컬 용량 사용 중'
+              : '우선순위가 높은 작업이 앞에 있음'}
           </span>
           <span className="shrink-0 font-mono text-[9.5px]">
-            queue {String(queueWait.position)} · active {String(queueWait.active)}/{String(queueWait.cap)}
+            대기 {String(queueWait.position)} · 실행 {String(queueWait.active)}/{String(queueWait.cap)}
           </span>
         </div>
       )}
 
-      <div className="task-session-console mt-4">
+      <div className="ui-tabs mt-4 h-8 border-y border-border bg-base px-2">
+        <button onClick={() => setRuntimeView('conversation')} className="ui-tab text-[10px]" aria-selected={runtimeView === 'conversation'}>
+          대화와 활동
+        </button>
+        <button onClick={() => setRuntimeView('context')} disabled={!session} className="ui-tab text-[10px] disabled:opacity-30" aria-selected={runtimeView === 'context'}>
+          컨텍스트 검사기
+        </button>
+        {session?.context && <span className="ml-auto font-mono text-[8.5px] text-faint">고정 ~{session.context.estimated_static_tokens.toLocaleString()} TOKENS</span>}
+      </div>
+
+      {runtimeView === 'context' && session ? <ContextInspector session={session} events={events} /> : <div className="task-session-console">
         <div className="task-transcript">
           {transcript.length === 0 ? (
             <div className="grid h-full place-items-center px-6 text-center text-[10.5px] leading-relaxed text-faint">
               {session
-                ? 'Connect this persisted session, then send the next instruction.'
-                : 'Choose a profile and start an attempt. Runtime logs remain after restart.'}
+                ? '영속화된 세션에 연결한 뒤 다음 지시를 보내세요.'
+                : '프로필을 선택하고 시도를 시작하세요. 실행 로그는 재시작 후에도 남습니다.'}
             </div>
           ) : transcript.map((item) => (
             <div key={item.key} className="task-message" data-role={item.role}>
-              <span>{item.role === 'user' ? 'YOU' : 'JANUS'}</span>
+              <span>{item.role === 'user' ? '나' : 'JANUS'}</span>
               <p>{item.content}</p>
             </div>
           ))}
         </div>
         <div className="task-activity">
-          <div className="task-label mb-2">Live activity</div>
+          <div className="task-label mb-2">실시간 활동</div>
           {activity.length === 0 ? (
-            <div className="text-[9.5px] text-faint">No events</div>
+            <div className="text-[9.5px] text-faint">이벤트 없음</div>
           ) : activity.map((event) => (
             <div key={`${event.seq}-${event.kind}`} className="task-activity-row">
               <span>{event.seq}</span>
-              <strong>{event.kind}</strong>
-              <em>{String(event.payload.kind ?? event.payload.type ?? '')}</em>
+              <strong>{event.kind === 'skill_loaded' ? '스킬 로딩' : event.kind}</strong>
+              <em>
+                {event.kind === 'skill_loaded'
+                  ? `${String(event.payload.namespace ?? '')}:${String(event.payload.name ?? '')} · ${Number(event.payload.prompt_tokens ?? 0)}토큰 · ${String(event.payload.reason ?? '')}`
+                  : String(event.payload.kind ?? event.payload.type ?? '')}
+              </em>
             </div>
           ))}
         </div>
-      </div>
+      </div>}
 
       {approvals.map((approval) => (
-        <div key={approval.id} className="mt-3 flex items-center justify-between gap-4 rounded-md border border-[#fbbf2440] bg-[#fbbf240d] px-3 py-2">
+        <div key={approval.id} className="mt-3 flex items-center justify-between gap-4 border border-warning bg-panel px-3 py-2">
           <div className="min-w-0 text-[10.5px] text-warn">
-            Approve <code className="font-mono">{approval.tool}</code> in this Task workspace?
+            이 작업 공간에서 <code className="font-mono">{approval.tool}</code> 도구를 승인할까요?
           </div>
           <div className="flex shrink-0 gap-2">
-            <button onClick={() => respondApproval(approval.id, false)} className="task-quiet-action">Deny</button>
-            <button onClick={() => respondApproval(approval.id, true)} className="task-primary-action">Approve</button>
+            <button onClick={() => respondApproval(approval.id, false)} className="task-quiet-action">거부</button>
+            <button onClick={() => respondApproval(approval.id, true)} className="task-primary-action">승인</button>
           </div>
         </div>
       ))}
@@ -751,28 +776,28 @@ function TaskRuntimeCard({ task }: { task: Task }) {
       <form onSubmit={submit} className="mt-3 flex gap-2 border-t border-border pt-3">
         {!connected && resumable && (
           <button type="button" onClick={() => void resumeSession()} disabled={busy} className="task-quiet-action">
-            <Play size={11} /> Resume
+            <Play size={11} /> 재개
           </button>
         )}
         <input
           value={message}
           onChange={(event) => setMessage(event.target.value)}
           disabled={!connected || active || !resumable}
-          placeholder={connected ? 'Send the next Task instruction…' : 'Resume the session to continue'}
+          placeholder={connected ? '다음 작업 지시 보내기…' : '계속하려면 세션을 재개하세요'}
           className="task-input mt-0 min-w-0 flex-1"
         />
         {active ? (
-          <button type="button" onClick={cancelTurn} className="task-danger-link border border-[#f8717140]">
-            <Square size={11} /> Cancel turn
+          <button type="button" onClick={cancelTurn} className="task-danger-link border border-danger">
+            <Square size={11} /> 턴 취소
           </button>
         ) : (
           <button disabled={!connected || !message.trim() || !resumable} className="task-primary-action">
-            <Send size={11} /> Send
+            <Send size={11} /> 보내기
           </button>
         )}
         {session && ['created', 'running', 'idle'].includes(session.status) && (
           <button type="button" onClick={() => void stopSession()} className="task-quiet-action">
-            Stop session
+            세션 중단
           </button>
         )}
       </form>
@@ -781,6 +806,9 @@ function TaskRuntimeCard({ task }: { task: Task }) {
 }
 
 const CHANGE_LAYERS: ChangeLayer[] = ['committed', 'staged', 'unstaged', 'untracked']
+const CHANGE_LAYER_LABEL: Record<ChangeLayer, string> = {
+  committed: '커밋됨', staged: '스테이징됨', unstaged: '스테이징 안 됨', untracked: '미추적'
+}
 
 function diffLines(diff: string | null) {
   let oldLine = 0
@@ -837,19 +865,19 @@ function ChangeSetCard() {
     <section className="task-card">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="task-label">Git ChangeSet</div>
+          <div className="task-label">Git 변경 목록</div>
           <div className="mt-1 font-mono text-[10px] text-faint">
-            {changeSet.base_ref}…{changeSet.head_commit.slice(0, 8)} · derived from Git
+            {changeSet.base_ref}…{changeSet.head_commit.slice(0, 8)} · Git에서 파생됨
           </div>
         </div>
         <button onClick={() => void refresh()} className="task-quiet-action">
-          <RefreshCw size={12} /> Refresh diff
+          <RefreshCw size={12} /> diff 새로고침
         </button>
       </div>
       {changeSet.unmerged.length > 0 && (
-        <div className="mt-3 rounded-md border border-[#f8717140] bg-[#f8717112] px-3 py-2 text-[10.5px] text-danger">
+        <div className="error-strip mt-3">
           <AlertTriangle size={12} className="mr-1.5 inline" />
-          {changeSet.unmerged.length} unmerged change(s) block review and shipping.
+          미병합 변경 {changeSet.unmerged.length}건으로 검토와 배포가 차단됩니다.
         </div>
       )}
       <div className="mt-4 flex gap-1 border-b border-border">
@@ -863,7 +891,7 @@ function ChangeSetCard() {
               color: item === layer ? 'var(--color-fg)' : 'var(--color-faint)'
             }}
           >
-            {item} <span className="ml-1 font-mono">{changeSet.counts[item]}</span>
+            {CHANGE_LAYER_LABEL[item]} <span className="ml-1 font-mono">{changeSet.counts[item]}</span>
           </button>
         ))}
       </div>
@@ -876,32 +904,32 @@ function ChangeSetCard() {
               className="mb-1 flex w-full items-start gap-2 rounded px-2 py-1.5 text-left hover:bg-panel"
               style={{ background: selected?.path === file.path ? 'var(--color-accent-soft)' : undefined }}
             >
-              <span className="w-7 shrink-0 font-mono text-[9.5px] text-accent-fg">{file.status}</span>
+              <span className="w-7 shrink-0 font-mono text-[9.5px] text-secondary">{file.status}</span>
               <span className="min-w-0 truncate font-mono text-[9.5px] text-muted" title={file.path}>
                 {file.old_path ? `${file.old_path} → ${file.path}` : file.path}
               </span>
             </button>
           ))}
-          {files.length === 0 && <div className="p-3 text-[10.5px] text-faint">No {layer} changes.</div>}
+          {files.length === 0 && <div className="p-3 text-[10.5px] text-faint">{CHANGE_LAYER_LABEL[layer]} 변경이 없습니다.</div>}
         </div>
-        <div className="min-w-0 overflow-auto bg-[#08080d] p-3">
+        <div className="min-w-0 overflow-auto bg-base p-3">
           {selected ? (
             selected.binary ? (
-              <div className="text-[11px] text-faint">Binary file · {selected.diff_bytes} bytes</div>
+              <div className="text-[11px] text-faint">바이너리 파일 · {selected.diff_bytes}바이트</div>
             ) : (
               <>
                 {selected.large && (
-                  <div className="mb-2 text-[10px] text-warn">Large diff · preview truncated</div>
+                  <div className="mb-2 text-[10px] text-warn">큰 diff · 미리보기 잘림</div>
                 )}
                 {hunks.length > 0 && (
-                  <div className="sticky top-0 z-10 mb-2 flex gap-1 bg-[#08080d] pb-2">
+                  <div className="sticky top-0 z-10 mb-2 flex gap-1 bg-base pb-2">
                     {hunks.map((item, index) => (
                       <button
                         key={item.index}
                         onClick={() => document.getElementById(`diff-${layer}-${item.index}`)?.scrollIntoView({ block: 'nearest' })}
                         className="rounded border border-border px-1.5 py-0.5 font-mono text-[8.5px] text-faint hover:text-fg"
                       >
-                        Hunk {index + 1}
+                        변경 구간 {index + 1}
                       </button>
                     ))}
                   </div>
@@ -914,7 +942,7 @@ function ChangeSetCard() {
                       onClick={() => {
                         if (item.oldLine || item.newLine) setCommentLine(item)
                       }}
-                      className="block w-full whitespace-pre text-left hover:bg-[#ffffff0a]"
+                      className="block w-full whitespace-pre text-left hover:bg-hover"
                       style={{
                         color: item.text.startsWith('+') ? 'var(--color-ok)'
                           : item.text.startsWith('-') ? 'var(--color-danger)' : undefined
@@ -927,11 +955,11 @@ function ChangeSetCard() {
                   ))}
                 </div>
                 {commentLine && (
-                  <div className="sticky bottom-0 mt-3 flex gap-2 border border-accent/40 bg-panel p-2">
+                  <div className="sticky bottom-0 mt-3 flex gap-2 border border-border-strong bg-panel p-2">
                     <input
                       autoFocus value={commentBody}
                       onChange={(event) => setCommentBody(event.target.value)}
-                      placeholder={`Comment on line ${commentLine.newLine ?? commentLine.oldLine}`}
+                      placeholder={`${commentLine.newLine ?? commentLine.oldLine}번 줄에 의견 추가`}
                       className="task-input mt-0 min-w-0 flex-1"
                     />
                     <button
@@ -947,9 +975,9 @@ function ChangeSetCard() {
                       }}
                       className="task-primary-action"
                     >
-                      <MessageSquare size={11} /> Add
+                      <MessageSquare size={11} /> 추가
                     </button>
-                    <button onClick={() => setCommentLine(null)} className="task-quiet-action">Cancel</button>
+                    <button onClick={() => setCommentLine(null)} className="task-quiet-action">취소</button>
                   </div>
                 )}
                 {comments.length > 0 && (
@@ -964,7 +992,7 @@ function ChangeSetCard() {
                           onClick={() => void resolveComment(comment.id, !comment.resolved_at)}
                           className="task-quiet-action"
                         >
-                          {comment.resolved_at ? 'Reopen' : 'Resolve'}
+                          {comment.resolved_at ? '다시 열기' : '해결'}
                         </button>
                       </div>
                     ))}
@@ -973,7 +1001,7 @@ function ChangeSetCard() {
               </>
             )
           ) : (
-            <div className="text-[10.5px] text-faint">Select a changed file.</div>
+            <div className="text-[10.5px] text-faint">변경된 파일을 선택하세요.</div>
           )}
         </div>
       </div>
@@ -1021,34 +1049,34 @@ function VerificationCard({ task }: { task: Task }) {
     <section className="task-card">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="task-label">Independent verification</div>
-          <h3 className="mt-1 text-[14px] font-semibold">Janus Runner</h3>
+          <div className="task-label">독립 검증</div>
+          <h3 className="mt-1 text-[14px] font-semibold">Janus 실행기</h3>
           <p className="mt-1 text-[10.5px] text-faint">
-            Agent claims are labels only. Janus status comes from the observed exit code.
+            에이전트의 주장은 표시일 뿐입니다. Janus 상태는 관측한 종료 코드로 판정합니다.
           </p>
         </div>
         <button onClick={() => void runAll()} disabled={busy} className="task-primary-action">
           {busy ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
-          Run all
+          모두 실행
         </button>
       </div>
       <div className="mt-4 grid grid-cols-3 gap-2">
         {(['test', 'lint', 'typecheck'] as const).map((kind) => (
           <label key={kind}>
-            <span className="task-label capitalize">{kind}</span>
+            <span className="task-label">{{ test: '테스트', lint: '린트', typecheck: '타입 검사' }[kind]}</span>
             <input
               value={commands[kind]}
               onChange={(event) => setCommands({ ...commands, [kind]: event.target.value })}
-              placeholder={`${kind} command`}
+              placeholder={`${{ test: '테스트', lint: '린트', typecheck: '타입 검사' }[kind]} 명령`}
               className="task-input mt-1 font-mono text-[9.5px]"
             />
           </label>
         ))}
       </div>
       <div className="mt-2 flex items-center justify-between">
-        <code className="truncate text-[9.5px] text-faint">acceptance · {task.acceptance_command}</code>
+        <code className="truncate text-[9.5px] text-faint">수용 검증 · {task.acceptance_command}</code>
         <button onClick={() => void save()} disabled={busy} className="task-quiet-action">
-          <Check size={11} /> Save project commands
+          <Check size={11} /> 프로젝트 명령 저장
         </button>
       </div>
       <div className="mt-4 space-y-2 border-t border-border pt-3">
@@ -1061,24 +1089,24 @@ function VerificationCard({ task }: { task: Task }) {
             <div key={run.id} className="rounded-md border border-border bg-raised/40 px-3 py-2">
               <div className="flex items-center gap-2 text-[10.5px]">
                 {running && <Loader2 size={11} className="animate-spin" style={{ color }} />}
-                <span className="font-semibold uppercase" style={{ color }}>{run.status}</span>
-                <span className="rounded bg-panel px-1.5 py-0.5 font-mono text-[9px] text-muted">{run.kind}</span>
+                <span className="font-semibold" style={{ color }}>{stateLabel(run.status)}</span>
+                <span className="rounded bg-panel px-1.5 py-0.5 font-mono text-[9px] text-muted">{({ test: '테스트', lint: '린트', typecheck: '타입 검사', acceptance: '수용 검증' } as Record<string, string>)[run.kind] ?? run.kind}</span>
                 <span className="min-w-0 flex-1 truncate font-mono text-[9.5px] text-faint">{run.command}</span>
                 <span className="font-mono text-[9px] text-faint">
-                  {run.duration_ms == null ? '—' : `${Math.round(run.duration_ms)}ms`} · exit {run.exit_code ?? '—'}
+                  {run.duration_ms == null ? '—' : `${Math.round(run.duration_ms)}ms`} · 종료 {run.exit_code ?? '—'}
                 </span>
                 {!running && (
                   <button onClick={() => void rerun(run.id)} disabled={busy} className="task-quiet-action">
-                    <RotateCcw size={10} /> Rerun
+                    <RotateCcw size={10} /> 재실행
                   </button>
                 )}
               </div>
               <div className="mt-1 flex gap-4 text-[9.5px] text-faint">
-                <span>Agent claim: {run.agent_claim ?? 'not recorded'}</span>
-                <span>Janus result: <b style={{ color }}>{run.status}</b></span>
+                <span>에이전트 주장: {run.agent_claim ?? '기록 없음'}</span>
+                <span>Janus 결과: <b style={{ color }}>{stateLabel(run.status)}</b></span>
               </div>
               {(run.stdout || run.stderr || run.error) && (
-                <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap rounded bg-[#08080d] p-2 font-mono text-[9px] leading-4 text-muted">
+                <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap bg-base p-2 font-mono text-[9px] leading-4 text-muted">
                   {[run.stdout, run.stderr, run.error].filter(Boolean).join('\n')}
                 </pre>
               )}
@@ -1086,7 +1114,7 @@ function VerificationCard({ task }: { task: Task }) {
           )
         })}
         {latest.length === 0 && (
-          <div className="py-3 text-center text-[10.5px] text-faint">No independent verification runs yet.</div>
+          <div className="py-3 text-center text-[10.5px] text-faint">아직 독립 검증 실행이 없습니다.</div>
         )}
       </div>
     </section>
@@ -1102,23 +1130,23 @@ function ReviewDecisionCard({ task }: { task: Task }) {
   const unmerged = review?.unmerged.length ?? 0
 
   return (
-    <section className="task-card border-accent/30">
+    <section className="task-card">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="task-label">Review decision</div>
+          <div className="task-label">검토 결정</div>
           <h3 className="mt-1 text-[14px] font-semibold">
-            {unresolved.length} unresolved · {unmerged} unmerged
+            미해결 {unresolved.length}건 · 미병합 {unmerged}건
           </h3>
           <p className="mt-1 text-[10.5px] text-faint">
-            Accept is gated by the current revision's independent verification.
+            수용은 현재 리비전의 독립 검증을 통과해야 합니다.
           </p>
         </div>
-        <span className="font-mono text-[9px] text-faint">{review?.revision.slice(0, 10) ?? 'loading'}</span>
+        <span className="font-mono text-[9px] text-faint">{review?.revision.slice(0, 10) ?? '로딩 중'}</span>
       </div>
       <textarea
         value={message}
         onChange={(event) => setMessage(event.target.value)}
-        placeholder="Batch revision instructions"
+        placeholder="일괄 수정 지시"
         rows={2}
         className="task-input mt-3 resize-none"
       />
@@ -1128,18 +1156,18 @@ function ReviewDecisionCard({ task }: { task: Task }) {
           disabled={busy || unresolved.length > 0 || unmerged > 0}
           className="task-primary-action"
         >
-          <Check size={11} /> Accept
+          <Check size={11} /> 수용
         </button>
         <button
           onClick={() => void decide({ decision: 'request_changes', message })}
           disabled={busy || unresolved.length === 0 || unmerged > 0}
           className="task-quiet-action"
         >
-          <MessageSquare size={11} /> Request changes ({unresolved.length})
+          <MessageSquare size={11} /> 변경 요청 ({unresolved.length})
         </button>
         <button
           onClick={() => {
-            const confirmation = window.prompt(`Type the Task ID to discard all uncommitted changes:\n${task.id}`)
+            const confirmation = window.prompt(`커밋하지 않은 모든 변경을 폐기하려면 작업 ID를 입력하세요:\n${task.id}`)
             if (confirmation !== task.id || !task.workspace) return
             void decide({
               decision: 'discard', message,
@@ -1148,14 +1176,14 @@ function ReviewDecisionCard({ task }: { task: Task }) {
           }}
           disabled={busy || unmerged > 0}
           className="task-danger-link ml-auto"
-          title={unmerged ? 'Resolve unmerged changes manually first' : 'Discard uncommitted changes'}
+          title={unmerged ? '먼저 미병합 변경을 수동으로 해결하세요' : '커밋하지 않은 변경 폐기'}
         >
-          <X size={11} /> Discard changes…
+          <X size={11} /> 변경 폐기…
         </button>
       </div>
       {review?.decisions.length ? (
         <div className="mt-3 border-t border-border pt-2 text-[9.5px] text-faint">
-          Latest: {review.decisions[review.decisions.length - 1].decision.replace('_', ' ')}
+          최신: {{ accept: '수용', request_changes: '변경 요청', discard: '폐기' }[review.decisions[review.decisions.length - 1].decision] ?? review.decisions[review.decisions.length - 1].decision}
         </div>
       ) : null}
     </section>
@@ -1205,8 +1233,8 @@ function TaskShippingCard() {
     )
   )
   const releaseStages = [
-    ['Commit', Boolean(commit)], ['Push', Boolean(pushed)], ['PR', Boolean(pullRequest?.number)],
-    ['Checks', checksPassed], ['Merged', pullRequest?.state === 'merged']
+    ['커밋', Boolean(commit)], ['푸시', Boolean(pushed)], ['PR', Boolean(pullRequest?.number)],
+    ['검사', checksPassed], ['병합', pullRequest?.state === 'merged']
   ] as const
 
   useEffect(() => {
@@ -1215,8 +1243,8 @@ function TaskShippingCard() {
 
   return (
     <section className="task-card">
-      <div className="task-label">Ship Task branch</div>
-      <div className="mt-2 grid grid-cols-5 gap-1.5" aria-label="Release progress">
+      <div className="task-label">작업 브랜치 출하</div>
+      <div className="mt-2 grid grid-cols-5 gap-1.5" aria-label="배포 진행률">
         {releaseStages.map(([label, reached], index) => (
           <div key={label} className="relative">
             <div className="mb-1 flex items-center gap-1.5 font-mono text-[8px] uppercase tracking-[0.1em] text-faint">
@@ -1226,7 +1254,7 @@ function TaskShippingCard() {
               }}>{reached ? '✓' : index + 1}</span>
               {label}
             </div>
-            <div className="h-[2px] rounded-full" style={{ background: reached ? 'var(--color-ok)' : '#23232d' }} />
+            <div className="h-px" style={{ background: reached ? 'var(--color-ok)' : 'var(--border-default)' }} />
           </div>
         ))}
       </div>
@@ -1234,7 +1262,7 @@ function TaskShippingCard() {
         <input
           value={message}
           onChange={(event) => setMessage(event.target.value)}
-          placeholder="Commit message"
+          placeholder="커밋 메시지"
           className="task-input mt-0 min-w-0 flex-1"
         />
         <button
@@ -1242,46 +1270,46 @@ function TaskShippingCard() {
           disabled={busy || !accepted || !message.trim()}
           className="task-primary-action"
         >
-          <GitBranch size={11} /> Commit in Janus
+          <GitBranch size={11} /> Janus에서 커밋
         </button>
         <button
           onClick={() => void pushTask('origin')}
           disabled={busy || !commit || Boolean(pushed)}
           className="task-quiet-action"
         >
-          <Send size={11} /> {pushed ? 'Pushed' : 'Push branch'}
+          <Send size={11} /> {pushed ? '푸시됨' : '브랜치 푸시'}
         </button>
       </div>
       <p className="mt-2 text-[9.5px] text-faint">
-        Janus commits only inside the Task worktree. It never checks out or edits the main checkout.
+        Janus는 작업 워크트리 안에서만 커밋하며 main 체크아웃을 전환하거나 수정하지 않습니다.
       </p>
       {failedCommit && !commit && (
-        <div className="mt-2 rounded-md border border-[#f8717140] bg-[#f8717110] px-2.5 py-2 text-[9.5px] text-danger">
-          Commit failed · {failedCommit.error}. Workspace changes remain untouched; fix Git identity or disk access, then retry.
+        <div className="error-strip mt-2 text-[9.5px]">
+          커밋 실패 · {failedCommit.error}. 작업 공간의 변경은 그대로입니다. Git 신원 또는 디스크 접근 문제를 해결한 뒤 재시도하세요.
         </div>
       )}
       {failedPush && !pushed && (
-        <div className="mt-2 rounded-md border border-[#f8717140] bg-[#f8717110] px-2.5 py-2 text-[9.5px] text-danger">
-          Push failed · {failedPush.error}. The commit and Task branch are still intact; retry after fixing remote access.
+        <div className="error-strip mt-2 text-[9.5px]">
+          푸시 실패 · {failedPush.error}. 커밋과 작업 브랜치는 유지됩니다. 원격 접근 문제를 해결한 뒤 재시도하세요.
         </div>
       )}
       {commit && (
         <div className="mt-3 rounded-md border border-border bg-raised/40 p-2.5">
           <div className="flex items-center gap-2 text-[10px]">
-            <span className="text-ok">Committed</span>
+            <span className="text-ok">커밋됨</span>
             <code className="text-muted">{commit.commit_sha.slice(0, 12)}</code>
             <code className="min-w-0 flex-1 truncate text-faint">{commit.branch_name}</code>
           </div>
           {handoff && (
             <div className="mt-2 flex items-center gap-2">
-              <code className="min-w-0 flex-1 truncate rounded bg-[#08080d] px-2 py-1.5 text-[9px] text-faint">
+              <code className="min-w-0 flex-1 truncate bg-base px-2 py-1.5 text-[9px] text-faint">
                 {handoff.local_apply_command}
               </code>
               <button
                 onClick={() => void navigator.clipboard.writeText(handoff.local_apply_command)}
                 className="task-quiet-action"
               >
-                Copy cherry-pick
+                cherry-pick 복사
               </button>
             </div>
           )}
@@ -1292,26 +1320,26 @@ function TaskShippingCard() {
         <div className="mt-3 border-t border-border pt-3">
           {!showCreatePr ? (
             <button onClick={() => setShowCreatePr(true)} className="task-primary-action">
-              <GitPullRequest size={11} /> Create GitHub PR
+              <GitPullRequest size={11} /> GitHub PR 생성
             </button>
           ) : (
-            <div className="rounded-md border border-[#738cff45] bg-[#738cff0a] p-3">
-              <div className="mb-2 font-mono text-[9px] uppercase tracking-[0.14em] text-[#9dacff]">
-                Publish review boundary
+            <div className="border border-border-strong bg-panel p-3">
+              <div className="mb-2 font-mono text-[9px] uppercase tracking-[0.14em] text-secondary">
+                검토 경계 게시
               </div>
               <div className="grid grid-cols-[1fr_110px] gap-2">
-                <input value={prTitle} onChange={(event) => setPrTitle(event.target.value)} className="task-input mt-0" placeholder="PR title" />
-                <input value={prBase} onChange={(event) => setPrBase(event.target.value)} className="task-input mt-0 font-mono" placeholder="base" />
+                <input value={prTitle} onChange={(event) => setPrTitle(event.target.value)} className="task-input mt-0" placeholder="PR 제목" />
+                <input value={prBase} onChange={(event) => setPrBase(event.target.value)} className="task-input mt-0 font-mono" placeholder="기준 브랜치" />
               </div>
-              <textarea value={prBody} onChange={(event) => setPrBody(event.target.value)} rows={3} className="task-input mt-2 resize-none" placeholder="What changed and how it was verified" />
+              <textarea value={prBody} onChange={(event) => setPrBody(event.target.value)} rows={3} className="task-input mt-2 resize-none" placeholder="변경 내용과 검증 방법" />
               <div className="mt-2 flex justify-end gap-2">
-                <button onClick={() => setShowCreatePr(false)} className="task-quiet-action">Cancel</button>
+                <button onClick={() => setShowCreatePr(false)} className="task-quiet-action">취소</button>
                 <button
                   onClick={() => void createPullRequest({ title: prTitle.trim(), body: prBody, base: prBase.trim(), draft: false })}
                   disabled={busy || !prTitle.trim() || !prBase.trim()}
                   className="task-primary-action"
                 >
-                  <GitPullRequest size={11} /> Create PR
+                  <GitPullRequest size={11} /> PR 생성
                 </button>
               </div>
             </div>
@@ -1320,42 +1348,42 @@ function TaskShippingCard() {
       )}
 
       {pullRequest && (
-        <div className="mt-3 overflow-hidden rounded-md border border-border bg-[#09090f]">
+        <div className="mt-3 overflow-hidden border border-border bg-panel">
           <div className="flex items-start justify-between gap-3 border-b border-border px-3 py-2.5">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <GitPullRequest size={12} className="text-[#9dacff]" />
+                <GitPullRequest size={12} className="text-secondary" />
                 <span className="font-mono text-[9px] text-faint">PR #{pullRequest.number ?? '—'}</span>
                 <span className="rounded-full border px-1.5 py-0.5 font-mono text-[8px] uppercase" style={{
                   color: pullRequest.state === 'merged' ? 'var(--color-ok)' : pullRequest.state === 'error' ? 'var(--color-danger)' : 'var(--color-accent-fg)',
-                  borderColor: pullRequest.state === 'merged' ? '#6dd6a855' : pullRequest.state === 'error' ? '#f8717155' : '#738cff55'
-                }}>{pullRequest.state}</span>
+                  borderColor: pullRequest.state === 'merged' ? 'var(--success)' : pullRequest.state === 'error' ? 'var(--danger)' : 'var(--border-strong)'
+                }}>{stateLabel(pullRequest.state)}</span>
               </div>
               <div className="mt-1 truncate text-[11px] font-medium">{pullRequest.title}</div>
               <div className="mt-1 font-mono text-[8px] text-faint">
-                {pullRequest.head_branch} → {pullRequest.base_branch} · {pullRequest.merge_state ?? 'remote pending'} · {pullRequest.review_decision ?? 'no review decision'}
+                {pullRequest.head_branch} → {pullRequest.base_branch} · {pullRequest.merge_state ? stateLabel(pullRequest.merge_state) : '원격 대기 중'} · {pullRequest.review_decision ?? '검토 결정 없음'}
               </div>
             </div>
             <div className="flex shrink-0 gap-1">
               <button onClick={() => void refreshPullRequest()} disabled={busy || !pullRequest.number} className="task-quiet-action">
-                <RefreshCw size={10} /> Refresh
+                <RefreshCw size={10} /> 새로고침
               </button>
               {pullRequest.url && (
                 <button onClick={() => window.open(pullRequest.url!, '_blank', 'noopener,noreferrer')} className="task-quiet-action">
-                  <ExternalLink size={10} /> Open
+                  <ExternalLink size={10} /> 열기
                 </button>
               )}
             </div>
           </div>
 
           {pullRequest.error && (
-            <div className="border-b border-[#f8717130] bg-[#f871710c] px-3 py-2 text-[9.5px] text-danger">
-              Sync failed · {pullRequest.error}. Stored PR and CI data remain available.
+            <div className="border-b border-danger bg-panel px-3 py-2 text-[9.5px] text-danger">
+              동기화 실패 · {pullRequest.error}. 저장된 PR과 CI 데이터는 유지됩니다.
             </div>
           )}
           <div className="grid grid-cols-2 gap-px bg-border">
-            <div className="bg-[#09090f] p-3">
-              <div className="task-label">CI checks · {pullRequest.checks.length}</div>
+            <div className="bg-panel p-3">
+              <div className="task-label">CI 검사 · {pullRequest.checks.length}</div>
               <div className="mt-2 space-y-1.5">
                 {pullRequest.checks.map((check) => {
                   const passed = ['SUCCESS', 'NEUTRAL', 'SKIPPED', 'PASS'].includes(String(check.state ?? check.bucket).toUpperCase())
@@ -1363,36 +1391,36 @@ function TaskShippingCard() {
                     <div key={`${check.workflow}-${check.name}`} className="flex items-center justify-between gap-2 text-[9.5px]">
                       <span className="truncate text-muted">{check.workflow ? `${check.workflow} / ` : ''}{check.name}</span>
                       <span className={passed ? 'text-ok' : String(check.bucket).toLowerCase() === 'pending' ? 'text-warn' : 'text-danger'}>
-                        {check.state ?? check.bucket ?? 'unknown'}
+                        {stateLabel(String(check.state ?? check.bucket ?? 'unknown'))}
                       </span>
                     </div>
                   )
                 })}
-                {pullRequest.checks.length === 0 && <div className="text-[9px] text-faint">No checks reported.</div>}
+                {pullRequest.checks.length === 0 && <div className="text-[9px] text-faint">보고된 검사가 없습니다.</div>}
               </div>
             </div>
-            <div className="bg-[#09090f] p-3">
-              <div className="task-label">Failed logs · {pullRequest.failed_logs.length}</div>
+            <div className="bg-panel p-3">
+              <div className="task-label">실패 로그 · {pullRequest.failed_logs.length}</div>
               <div className="mt-2 space-y-1.5">
                 {pullRequest.failed_logs.map((failure) => (
-                  <details key={failure.run_id} className="rounded border border-[#f8717130] bg-[#f8717108] px-2 py-1.5">
+                  <details key={failure.run_id} className="border border-danger bg-base px-2 py-1.5">
                     <summary className="cursor-pointer truncate text-[9px] text-danger">{failure.name} · {failure.conclusion}</summary>
-                    <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[8px] leading-relaxed text-muted">{failure.log || 'No failed log output.'}</pre>
-                    {failure.truncated && <div className="mt-1 text-[8px] text-warn">Log truncated at the persisted safety limit.</div>}
+                    <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[8px] leading-relaxed text-muted">{failure.log || '실패 로그 출력이 없습니다.'}</pre>
+                    {failure.truncated && <div className="mt-1 text-[8px] text-warn">영속화 안전 한도에서 로그가 잘렸습니다.</div>}
                   </details>
                 ))}
-                {pullRequest.failed_logs.length === 0 && <div className="text-[9px] text-faint">No failed workflow logs.</div>}
+                {pullRequest.failed_logs.length === 0 && <div className="text-[9px] text-faint">실패한 워크플로 로그가 없습니다.</div>}
               </div>
             </div>
           </div>
           {pullRequestSnapshot?.archive_reason && (
             <div className="flex items-center justify-between gap-3 border-t border-border px-3 py-2.5 text-[9.5px]">
               <span className={pullRequestSnapshot.archive_recommended ? 'text-ok' : 'text-faint'}>
-                {pullRequestSnapshot.archive_reason}. Local branch is preserved.
+                {pullRequestSnapshot.archive_reason}. 로컬 브랜치는 보존됩니다.
               </span>
               {pullRequestSnapshot.archive_recommended && (
                 <button onClick={() => void archiveWorkspace(false)} disabled={busy} className="task-quiet-action">
-                  <Archive size={10} /> Archive workspace
+                  <Archive size={10} /> 작업 공간 보관
                 </button>
               )}
             </div>
@@ -1411,47 +1439,48 @@ function TaskDetail({ task }: { task: Task }) {
   const canArchiveTask = !task.workspace || task.workspace.state === 'archived'
 
   return (
-    <main className="min-w-0 flex-1 overflow-y-auto bg-bg">
-      <div className="mx-auto max-w-[1080px] px-8 py-7">
-        <div className="mb-6 flex items-start justify-between gap-6">
+    <main className="workspace-surface min-w-0 flex-1 overflow-y-auto">
+      <div className="mx-auto max-w-[1120px] px-5 py-5">
+        <div className="mb-4 flex items-start justify-between gap-6">
           <div className="min-w-0">
             <div className="mb-2 flex items-center gap-2">
               <StatusBadge status={task.status} />
               <span className="font-mono text-[9.5px] text-faint">{task.id}</span>
             </div>
-            <h1 className="task-title text-[30px] font-semibold leading-tight tracking-[-0.025em]">
+            <h1 className="task-title text-[20px] font-semibold leading-tight tracking-[-0.01em]">
               {task.title}
             </h1>
           </div>
-          <button
+          <Button
             onClick={() => {
-              if (window.confirm(`Archive Task “${task.title}”?`)) archiveTask()
+              if (window.confirm(`“${task.title}” 작업을 보관할까요?`)) archiveTask()
             }}
             disabled={busy || !canArchiveTask}
-            title={canArchiveTask ? 'Archive Task' : 'Archive its workspace first'}
-            className="task-quiet-action disabled:opacity-30"
+            title={canArchiveTask ? '작업 보관' : '먼저 작업 공간을 보관하세요'}
+            variant="ghost"
+            compact
           >
-            <Archive size={12} /> Archive task
-          </button>
+            <Archive size={12} /> 작업 보관
+          </Button>
         </div>
 
         <TaskRunway status={task.status} />
 
-        <div className="mt-6 grid grid-cols-[minmax(0,1fr)_280px] gap-5">
-          <div className="space-y-5">
+        <div className="mt-4 grid grid-cols-[minmax(0,1fr)_300px] gap-0 border-x border-b border-border-subtle">
+          <div className="space-y-4 p-4">
             <section className="task-card">
-              <div className="task-label">Objective</div>
+              <div className="task-label">목표</div>
               <p className="mt-2 whitespace-pre-wrap text-[13px] leading-6 text-fg">{task.objective}</p>
-              <div className="mt-5 grid grid-cols-[1fr_150px] gap-4 border-t border-border pt-4">
+              <div className="mt-4 grid grid-cols-[1fr_150px] gap-4 border-t border-border-subtle pt-4">
                 <div>
-                  <div className="task-label">Acceptance</div>
-                  <code className="mt-1.5 block rounded-md border border-border bg-[#08080d] px-3 py-2 font-mono text-[10.5px] text-accent-fg">
+                  <div className="task-label">수용 검증</div>
+                  <code className="mt-1.5 block border border-border bg-base px-3 py-2 font-mono text-[10.5px] text-secondary">
                     {task.acceptance_command}
                   </code>
                 </div>
                 <div>
-                  <div className="task-label">Base ref</div>
-                  <div className="mt-1.5 flex items-center gap-1.5 rounded-md border border-border px-3 py-2 font-mono text-[10.5px] text-muted">
+                  <div className="task-label">기준 리프</div>
+                  <div className="mt-1.5 flex items-center gap-1.5 border border-border px-3 py-2 font-mono text-[10.5px] text-muted">
                     <GitBranch size={11} /> {task.base_ref}
                   </div>
                 </div>
@@ -1464,69 +1493,69 @@ function TaskDetail({ task }: { task: Task }) {
             {task.workspace?.state === 'ready' && <TaskShippingCard />}
           </div>
 
-          <aside className="space-y-4">
-            <section className="task-card border-accent/30">
-              <div className="task-label">Next action</div>
+          <aside className="task-inspector space-y-0">
+            <section className="task-card">
+              <div className="task-label">다음 행동</div>
               <h3 className="mt-2 text-[14px] font-semibold">
                 {!task.workspace
-                  ? 'Prepare the workspace'
+                  ? '작업 공간 준비'
                   : task.workspace.state === 'preparing'
-                    ? 'Creating the worktree'
+                    ? '워크트리 생성 중'
                     : task.workspace.state === 'failed'
-                      ? 'Repair preparation'
+                      ? '준비 복구'
                       : task.workspace.state === 'ready'
                         ? !session
-                          ? 'Start an agent session'
+                          ? '에이전트 세션 시작'
                           : connected
-                            ? 'Send the next instruction'
+                            ? '다음 지시 보내기'
                             : session.status === 'idle' || session.status === 'created'
-                              ? 'Resume the session'
-                              : 'Start a new attempt'
-                        : 'Workspace archived'}
+                              ? '세션 재개'
+                              : '새 시도 시작'
+                        : '작업 공간 보관됨'}
               </h3>
               <p className="mt-2 text-[11px] leading-relaxed text-faint">
                 {!task.workspace
-                  ? 'Janus validates the Git repo and base ref before creating an isolated branch.'
+                  ? 'Janus는 격리된 브랜치를 생성하기 전에 Git 저장소와 기준 리프를 검증합니다.'
                   : task.workspace.state === 'preparing'
-                    ? `Background stage: ${task.workspace.progress}`
+                    ? `백그라운드 단계: ${stateLabel(task.workspace.progress)}`
                     : task.workspace.state === 'failed'
-                      ? 'Fix the repository or base ref, then retry without losing recorded ownership.'
+                      ? '저장소 또는 기준 리프를 수정한 뒤 기록된 소유권을 잃지 않고 재시도하세요.'
                       : task.workspace.state === 'ready'
                         ? !session
-                          ? 'Choose an AgentProfile. Janus will persist the Dispatch, transcript, and runtime log.'
-                          : `Attempt ${session.dispatch.attempt} · ${session.status} · ${session.agent_profile_id}`
-                        : 'The branch remains available until you explicitly delete it.'}
+                          ? '에이전트 프로필을 선택하세요. Janus가 디스패치, 대화 기록, 실행 로그를 영속화합니다.'
+                          : `시도 ${session.dispatch.attempt} · ${stateLabel(session.status)} · ${session.agent_profile_id}`
+                        : '명시적으로 삭제할 때까지 브랜치는 유지됩니다.'}
               </p>
               <div className="mt-4 flex items-center gap-1.5 text-[10px] text-faint">
-                <ChevronRight size={11} /> Latest Dispatch owns all runtime events
+                <ChevronRight size={11} /> 최신 디스패치가 모든 실행 이벤트를 소유합니다
               </div>
             </section>
             <section className="task-card">
-              <div className="task-label">Ownership</div>
+              <div className="task-label">소유권</div>
               <dl className="mt-3 space-y-2 text-[10.5px]">
                 <div className="flex justify-between gap-3">
-                  <dt className="text-faint">Task</dt>
+                  <dt className="text-faint">작업</dt>
                   <dd className="truncate font-mono text-muted">{task.id}</dd>
                 </div>
                 <div className="flex justify-between gap-3">
-                  <dt className="text-faint">Workspace</dt>
-                  <dd className="truncate font-mono text-muted">{task.workspace?.id ?? 'not-created'}</dd>
+                  <dt className="text-faint">작업 공간</dt>
+                  <dd className="truncate font-mono text-muted">{task.workspace?.id ?? '미생성'}</dd>
                 </div>
                 <div className="flex justify-between gap-3">
-                  <dt className="text-faint">Attempts</dt>
+                  <dt className="text-faint">시도</dt>
                   <dd className="font-mono text-muted">{task.dispatches?.length ?? 0}</dd>
                 </div>
                 <div className="flex justify-between gap-3">
-                  <dt className="text-faint">Session</dt>
-                  <dd className="truncate font-mono text-muted">{session?.id ?? 'not-started'}</dd>
+                  <dt className="text-faint">세션</dt>
+                  <dd className="truncate font-mono text-muted">{session?.id ?? '미시작'}</dd>
                 </div>
               </dl>
             </section>
           </aside>
-          <div className="col-span-2 space-y-4">
+          <div className="col-span-2 space-y-4 border-t border-border-subtle p-4">
             <TaskRuntimeCard task={task} />
             {task.workspace?.state === 'ready' && (
-              <Suspense fallback={<section className="task-card text-[9px] text-faint">Loading Task development surface…</section>}>
+              <Suspense fallback={<section className="task-card text-[9px] text-faint">작업 개발 화면 로딩 중…</section>}>
                 <TaskDevelopmentSurface task={task} />
               </Suspense>
             )}
@@ -1540,23 +1569,18 @@ function TaskDetail({ task }: { task: Task }) {
 function EmptyTaskState({ hasProject, onNewTask }: { hasProject: boolean; onNewTask: () => void }) {
   const addProject = useStore((state) => state.addProjectFromPicker)
   return (
-    <div className="grid min-w-0 flex-1 place-items-center bg-bg px-8 text-center">
-      <div className="max-w-[420px]">
-        <div className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-lg border border-border-strong bg-panel text-accent-fg">
-          <FolderGit2 size={22} />
-        </div>
-        <h2 className="task-title text-[22px] font-semibold">
-          {hasProject ? 'Turn an objective into a Task' : 'Add a local Git repository'}
-        </h2>
-        <p className="mt-2 text-[11.5px] leading-relaxed text-faint">
-          {hasProject
-            ? 'Define the outcome, acceptance command, and base ref before any agent starts work.'
-            : 'Janus creates Task-owned branches and worktrees without modifying the main checkout.'}
-        </p>
-        <button onClick={hasProject ? onNewTask : addProject} className="task-primary-action mx-auto mt-5">
-          <Plus size={13} /> {hasProject ? 'New task' : 'Add repository'}
-        </button>
-      </div>
+    <div className="workspace-surface grid min-w-0 flex-1 place-items-center px-8 text-center">
+      <EmptyState
+        title={hasProject ? '목표를 작업으로 만들기' : '로컬 Git 저장소 추가'}
+        description={hasProject
+          ? '에이전트가 작업을 시작하기 전에 결과, 수용 검증 명령, 기준 리프를 정의하세요.'
+          : 'Janus는 main 체크아웃을 수정하지 않고 작업 소유 브랜치와 워크트리를 만듭니다.'}
+        action={(
+          <Button onClick={hasProject ? onNewTask : addProject}>
+          <Plus size={13} /> {hasProject ? '새 작업' : '저장소 추가'}
+          </Button>
+        )}
+      />
     </div>
   )
 }
@@ -1590,7 +1614,7 @@ export default function TaskWorkspace() {
           <EmptyTaskState hasProject={Boolean(project)} onNewTask={() => setCreating(true)} />
         )}
         {error && (
-          <div className="absolute bottom-4 left-1/2 z-30 flex max-w-[680px] -translate-x-1/2 items-start gap-3 rounded-md border border-[#f8717150] bg-[#241318] px-3 py-2.5 shadow-xl">
+          <div className="toast-error">
             <AlertTriangle size={14} className="mt-0.5 shrink-0 text-danger" />
             <span className="text-[10.5px] leading-relaxed text-danger">{error}</span>
             <button onClick={clearError} className="ml-2 text-danger/70 hover:text-danger">

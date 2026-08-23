@@ -7,31 +7,16 @@ export default function TraceNodeCard({
   data,
   selected
 }: {
-  data: { span: Span | null; title: string; isOrchestrator: boolean; pending?: boolean }
+  data: { span: Span | null; title: string; isOrchestrator: boolean; pending?: boolean; pendingLabel?: string }
   selected?: boolean
 }) {
   const s = data.span
-  const color = data.isOrchestrator ? 'var(--color-node-agent)' : 'var(--color-node-llm)'
+  const color = data.isOrchestrator ? 'var(--text-primary)' : 'var(--text-secondary)'
   const Icon = data.isOrchestrator ? Network : Bot
   const running = s?.status === 'running'
 
   return (
-    <div
-      className="min-w-[170px] rounded-lg border bg-panel-2 px-3 py-2.5 transition-shadow"
-      style={{
-        borderColor: selected
-          ? 'var(--color-accent)'
-          : s?.status === 'error'
-            ? 'var(--color-danger)'
-            : 'var(--color-border-strong)',
-        boxShadow: selected
-          ? '0 0 0 3px var(--color-accent-soft)'
-          : running
-            ? `0 0 0 3px ${color}33`
-            : '0 1px 2px #0006',
-        background: 'var(--color-panel-2)'
-      }}
-    >
+    <div className="runtime-node" data-running={running} data-error={s?.status === 'error'} data-selected={selected}>
       {!data.isOrchestrator && <Handle type="target" position={Position.Left} />}
 
       <div className="flex items-center gap-2">
@@ -54,10 +39,10 @@ export default function TraceNodeCard({
       </div>
 
       <div className="mt-1 space-y-0.5 text-[11px] text-muted">
-        {data.pending && <div>메시지를 보내면 시작합니다</div>}
+        {data.pending && <div>{data.pendingLabel ?? '메시지를 보내면 시작합니다'}</div>}
         {s?.usage && (
           <div className="truncate font-mono text-[10px]">
-            {s.usage.prompt_tokens}+{s.usage.completion_tokens} tok
+            {s.usage.prompt_tokens}+{s.usage.completion_tokens} 토큰
           </div>
         )}
         {s?.duration_ms != null && <div className="font-mono text-[10px]">{(s.duration_ms / 1000).toFixed(1)}s</div>}

@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react'
-import { ChevronRight, FileText, Folder, FolderOpen, RefreshCw } from 'lucide-react'
+import { ChevronRight, FileCode2, FileText, Folder, FolderGit2, FolderOpen, RefreshCw } from 'lucide-react'
 import { useStore } from '../store'
 
-function basename(p: string | null): string {
-  if (!p) return '—'
-  return p.split('/').filter(Boolean).pop() ?? p
+function basename(path: string): string {
+  return path.split('/').filter(Boolean).pop() ?? path
+}
+
+function isCodeFile(name: string): boolean {
+  return /\.(?:c|cc|cpp|cs|css|go|h|hpp|html|java|js|jsx|json|kt|lua|md|php|py|rb|rs|sh|sql|swift|toml|ts|tsx|vue|xml|ya?ml)$/i.test(name)
 }
 
 /** 디렉토리 내용 목록 — 필요하면 로드하고, 항목을 그린다. 접기/펼치기는 DirRow 몫. */
@@ -42,7 +45,11 @@ function Dir({ rel, depth }: { rel: string; depth: number }) {
               background: openedFile?.path === child ? 'var(--color-accent-soft)' : undefined
             }}
           >
-            <FileText size={12} className="shrink-0 text-faint" />
+            {isCodeFile(e.name) ? (
+              <FileCode2 size={12} className="shrink-0 text-muted" />
+            ) : (
+              <FileText size={12} className="shrink-0 text-faint" />
+            )}
             <span className="truncate text-[12px] text-muted">{e.name}</span>
           </button>
         )
@@ -66,9 +73,9 @@ function DirRow({ rel, name, depth }: { rel: string; name: string; depth: number
           style={{ transform: open ? 'rotate(90deg)' : 'none' }}
         />
         {open ? (
-          <FolderOpen size={12} className="shrink-0 text-accent-fg" />
+          <FolderOpen size={12} className="shrink-0 text-muted" />
         ) : (
-          <Folder size={12} className="shrink-0 text-accent-fg" />
+          <Folder size={12} className="shrink-0 text-muted" />
         )}
         <span className="truncate text-[12px]">{name}</span>
       </button>
@@ -78,25 +85,39 @@ function DirRow({ rel, name, depth }: { rel: string; name: string; depth: number
 }
 
 export default function FileTree() {
-  const workspace = useStore((s) => s.workspace)
-  const pickWorkspace = useStore((s) => s.pickWorkspace)
+  const projects = useStore((s) => s.projects)
+  const projectId = useStore((s) => s.projectId)
   const refreshTree = useStore((s) => s.refreshTree)
+  const project = projects.find((item) => item.id === projectId)
+
+  if (!project) {
+    return (
+      <div className="grid h-full place-items-center px-6 text-center">
+        <div>
+          <FolderGit2 size={22} className="mx-auto mb-2 text-faint" />
+          <p className="text-[12px] text-muted">선택된 프로젝트가 없습니다</p>
+          <p className="mt-1 text-[10.5px] leading-relaxed text-faint">
+            작업 탭에서 프로젝트를 선택하면<br />이곳에 파일이 표시됩니다.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-1.5 border-b border-border px-3 py-2">
-        <button
-          onClick={pickWorkspace}
-          title={workspace ?? ''}
-          className="flex min-w-0 items-center gap-1.5 text-[12px] font-medium hover:text-accent-fg"
-        >
-          <FolderOpen size={13} className="shrink-0 text-accent-fg" />
-          <span className="truncate">{basename(workspace)}</span>
-        </button>
+      <div className="flex items-start gap-2 border-b border-border px-3 py-2.5" title={project.repo_path}>
+        <FolderGit2 size={14} className="mt-0.5 shrink-0 text-muted" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[11.5px] font-semibold">{project.name}</div>
+          <div className="truncate font-mono text-[9.5px] text-faint">
+            {basename(project.repo_path)} · 프로젝트 루트
+          </div>
+        </div>
         <button
           onClick={refreshTree}
           title="새로고침"
-          className="ml-auto rounded p-1 text-faint hover:text-fg"
+          className="rounded p-1 text-faint hover:bg-raised hover:text-fg"
         >
           <RefreshCw size={11} />
         </button>

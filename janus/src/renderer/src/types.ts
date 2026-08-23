@@ -150,7 +150,36 @@ export interface AgentSessionDetail {
   dispatch: Dispatch
   workspace_id: string
   workspace_root: string
+  skills?: AgentProfileSkill[]
+  context?: ContextSnapshot
   events: SessionEvent[]
+}
+
+export interface ContextPolicy {
+  max_chars: number
+  recent_blocks: number
+  summary_max_chars: number
+  include_task_objective: boolean
+  include_acceptance: boolean
+  include_workspace_root: boolean
+}
+
+export interface ContextItem {
+  id: string
+  label: string
+  source: string
+  status: 'included' | 'excluded'
+  content: string
+  chars: number
+  estimated_tokens: number
+  detail: Record<string, unknown>
+}
+
+export interface ContextSnapshot {
+  policy: ContextPolicy
+  items: ContextItem[]
+  estimated_static_tokens: number
+  latest_window: Record<string, unknown> | null
 }
 
 export interface AgentProfile {
@@ -164,6 +193,7 @@ export interface AgentProfile {
   max_steps: number
   model_profile_id: string
   budget: ExecutionBudget
+  context_policy: ContextPolicy
 }
 
 export interface ModelProfile {
@@ -173,6 +203,89 @@ export interface ModelProfile {
   model_key: string
   quantization: string
   config: Record<string, unknown>
+}
+
+export type SkillActivationMode = 'off' | 'auto' | 'manual'
+export type SkillCompatibility = 'native' | 'partial' | 'adapter_required' | 'blocked'
+
+export interface SkillSummary {
+  id: string
+  latest_version_id: string
+  namespace: string
+  name: string
+  description: string
+  source_kind: 'janus' | 'codex' | 'claude' | 'github' | 'local' | 'project'
+  source_locator: string
+  source_subpath: string
+  trust_state: 'untrusted' | 'trusted' | 'blocked'
+  version: number
+  content_hash: string
+  source_revision: string | null
+  compatibility: SkillCompatibility
+  compiled: {
+    format?: string
+    name?: string
+    description?: string
+    activation?: { model_invocable?: boolean; user_invocable?: boolean; paths?: string[] }
+    execution?: { context?: 'inline' | 'worker'; agent?: string | null }
+    capabilities?: {
+      required?: string[]
+      approval_required?: string[]
+      unmapped?: string[]
+    }
+  }
+  report: {
+    compatibility?: SkillCompatibility
+    warnings?: string[]
+    blocked_features?: string[]
+    file_count?: number
+    total_bytes?: number
+    estimated_prompt_tokens?: number
+    license?: string | null
+    license_file?: string | null
+  }
+}
+
+export interface AgentProfileSkill {
+  agent_profile_id: string
+  skill_id: string
+  skill_version_id: string
+  activation_mode: SkillActivationMode
+  priority: number
+  namespace: string
+  name: string
+  description: string
+  source_kind: SkillSummary['source_kind']
+  source_locator: string
+  source_subpath: string
+  trust_state: SkillSummary['trust_state']
+  version: number
+  content_hash: string
+  compatibility: SkillCompatibility
+  compiled: SkillSummary['compiled']
+  report: SkillSummary['report']
+}
+
+export interface SkillImportCandidate {
+  namespace: string
+  name: string
+  description: string
+  source_kind: 'github'
+  source_locator: string
+  source_subpath: string
+  source_revision: string
+  content_hash: string
+  compatibility: SkillCompatibility
+  compiled: SkillSummary['compiled']
+  report: SkillSummary['report']
+}
+
+export interface SkillImportPreview {
+  source: string
+  url: string
+  revision: string
+  license: string | null
+  skills: SkillImportCandidate[]
 }
 
 export interface WorkspaceInspection extends TaskWorkspace {

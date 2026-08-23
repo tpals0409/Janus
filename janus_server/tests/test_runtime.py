@@ -71,6 +71,106 @@ class RuntimeTests(unittest.TestCase):
             if m["type"] == "turn_end":
                 return seen
 
+    def test_skills_are_catalogued_then_loaded_lazily_with_capability_gate(self):
+        fake = FakeClient([])
+        loaded: list[tuple[str, str, int]] = []
+        events: list[dict] = []
+        skill = {
+            "skill_id": "skill_review", "skill_version_id": "skill_version_review",
+            "namespace": "claude", "name": "review", "description": "Review changes",
+            "version": 1, "activation_mode": "auto", "compatibility": "native",
+            "compiled": {
+                "instructions": "Review {{input}} in {{workspace_root}}.",
+                "capabilities": {"required": ["echo"]},
+                "execution": {"context": "inline"},
+                "resources": [{"path": "checklist.md", "binary": False, "content": "Check tests."}],
+            },
+        }
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch.object(runtime, "resolve_local_model", lambda name: name),
+            patch.object(runtime, "make_client", lambda: fake),
+        ):
+            orch = runtime.Orchestration(
+                {**SPEC, "skills": [skill]}, send=events.append, approver=None,
+                workspace_context=WorkspaceContext(
+                    root=Path(tmp), task_id="task_skill", workspace_id="workspace_skill",
+                ),
+                session_id="session_skill",
+                on_skill_loaded=lambda version, reason, tokens: loaded.append((version, reason, tokens)),
+            )
+
+            self.assertIn("claude:review [auto]: Review changes", orch.session.system_prompt)
+            self.assertNotIn("Review {{input}}", orch.session.system_prompt)
+            resource = next(tool for tool in orch.skill_tools if tool["name"] == "read_skill_resource")
+            self.assertIn("error", resource["handler"](name="review", path="checklist.md"))
+            orch.current_user_text = "review this patch"
+            loader = next(tool for tool in orch.skill_tools if tool["name"] == "load_skill")
+            result = loader["handler"](name="review", reason="code changed")
+            self.assertIn("review this patch", result["instructions"])
+            self.assertIn(str(Path(tmp)), result["instructions"])
+            self.assertEqual("Check tests.", resource["handler"](
+                name="review", path="checklist.md",
+            )["content"])
+            self.assertEqual("skill_version_review", loaded[0][0])
+            self.assertEqual("skill_loaded", events[0]["type"])
+            self.assertTrue(loader["handler"](name="review")["already_loaded"])
+
+    def test_manual_skill_requires_explicit_user_name_and_missing_capability_is_rejected(self):
+        fake = FakeClient([])
+        base = {
+            "skill_id": "skill_deploy", "skill_version_id": "skill_version_deploy",
+            "namespace": "claude", "name": "deploy", "description": "Deploy app",
+            "version": 1, "activation_mode": "manual", "compatibility": "native",
+            "compiled": {"instructions": "Deploy.", "capabilities": {"required": ["run_bash"]}},
+        }
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch.object(runtime, "resolve_local_model", lambda name: name),
+            patch.object(runtime, "make_client", lambda: fake),
+        ):
+            orch = runtime.Orchestration(
+                {**SPEC, "skills": [base]}, send=lambda _event: None, approver=None,
+                workspace_context=WorkspaceContext(
+                    root=Path(tmp), task_id="task_manual", workspace_id="workspace_manual",
+                ),
+            )
+            loader = next(tool for tool in orch.skill_tools if tool["name"] == "load_skill")
+            orch.current_user_text = "ship this"
+            self.assertIn("수동 스킬", loader["handler"](name="deploy")["error"])
+            orch.current_user_text = "redeployment plan"
+            self.assertIn("수동 스킬", loader["handler"](name="deploy")["error"])
+            orch.current_user_text = "use /deploy"
+            self.assertIn("필요한 capability", loader["handler"](name="deploy")["error"])
+
+    def test_loaded_session_skill_is_not_injected_twice_after_resume(self):
+        fake = FakeClient([])
+        skill = {
+            "skill_id": "skill_review", "skill_version_id": "skill_version_review",
+            "namespace": "claude", "name": "review", "description": "Review changes",
+            "version": 1, "activation_mode": "auto", "compatibility": "native",
+            "loaded_at": "2026-08-23T00:00:00Z",
+            "compiled": {
+                "instructions": "Long review instructions.",
+                "capabilities": {"required": []}, "resources": [],
+            },
+        }
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch.object(runtime, "resolve_local_model", lambda name: name),
+            patch.object(runtime, "make_client", lambda: fake),
+        ):
+            orch = runtime.Orchestration(
+                {**SPEC, "skills": [skill]}, send=lambda _event: None, approver=None,
+                workspace_context=WorkspaceContext(
+                    root=Path(tmp), task_id="task_resume", workspace_id="workspace_resume",
+                ),
+            )
+            loader = next(tool for tool in orch.skill_tools if tool["name"] == "load_skill")
+            result = loader["handler"](name="review")
+            self.assertTrue(result["already_loaded"])
+            self.assertNotIn("Long review instructions", result["instructions"])
+
     @staticmethod
     def saved_run(runs: Path) -> dict:
         files = list((runs / "orch").glob("*.json"))

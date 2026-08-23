@@ -17,7 +17,7 @@ export default function YamlView() {
   return (
     <div className="relative h-full">
       <div className="absolute right-4 top-2 z-10 rounded bg-raised px-2 py-0.5 text-[10px] text-faint">
-        읽기 전용 · 편집은 Graph에서
+        읽기 전용 · 편집은 그래프에서
       </div>
       <Editor
         height="100%"

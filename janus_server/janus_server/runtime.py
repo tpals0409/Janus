@@ -202,7 +202,8 @@ class Orchestration:
                  priority: int | None = None,
                  queue_timeout: float | None = None,
                  budget: dict | None = None,
-                 budget_usage: dict | None = None):
+                 budget_usage: dict | None = None,
+                 on_skill_loaded: Callable[[str, str, int], None] | None = None):
         self.spec = spec
         self.send = send
         self.client = make_client()
@@ -256,6 +257,14 @@ class Orchestration:
         self.last_text = ""
         self.cancelled_turn = False
         self.turn_failed = False  # 턴이 예외로 죽음 — 저장본이 success로 거짓말하지 않게
+        self.current_user_text = ""
+        self.skill_snapshots = list(spec.get("skills") or [])
+        self.loaded_skill_versions: set[str] = {
+            str(item["skill_version_id"])
+            for item in self.skill_snapshots
+            if item.get("loaded_at")
+        }
+        self.on_skill_loaded = on_skill_loaded
 
         # 승인 매핑: auto → 전부 허용, ask → 브리지, 브리지 없음 → 거부.
         # 위험 도구의 실제 게이트는 tools.dispatch다 — 여기는 정책 선택일 뿐.
@@ -273,14 +282,174 @@ class Orchestration:
         registry = dict(T.REGISTRY)
         if self.worker_enabled:
             registry[self.create_worker["name"]] = self.create_worker
-        runtime_tools = self.tools + (["create_worker"] if self.worker_enabled else [])
+        self.skill_tools = self._make_skill_tools()
+        registry.update({tool["name"]: tool for tool in self.skill_tools})
+        runtime_tools = (
+            self.tools
+            + (["create_worker"] if self.worker_enabled else [])
+            + [tool["name"] for tool in self.skill_tools]
+        )
+        base_prompt = spec.get("system_prompt") or "You are an orchestrator."
+        context_preamble = str(spec.get("context_preamble") or "").strip()
+        if context_preamble:
+            base_prompt = f"{base_prompt}\n\n{context_preamble}"
+        catalog = self._skill_catalog_prompt()
+        if catalog:
+            base_prompt = f"{base_prompt}\n\n{catalog}"
+        context_policy = spec.get("context_policy") or {}
         self.session = agent_mod.Session(
             agent_mod.build_system_prompt(
-                spec.get("system_prompt") or "You are an orchestrator.",
+                base_prompt,
                 runtime_tools, registry=registry),
-            registry=registry)
+            registry=registry,
+            context_max_chars=int(context_policy.get("max_chars", 24_000)),
+            context_recent_blocks=int(context_policy.get("recent_blocks", 8)),
+            summary_max_chars=int(context_policy.get("summary_max_chars", 4_000)),
+        )
 
     # ── 스팬/이벤트 ──
+
+    def _skill_catalog_prompt(self) -> str:
+        if not self.skill_snapshots:
+            return ""
+        lines = [
+            "Janus skills are available on demand. Load an auto skill only when its description "
+            "matches the current task. Load a manual skill only when the user explicitly names it.",
+        ]
+        for item in self.skill_snapshots:
+            qualified = f"{item['namespace']}:{item['name']}"
+            lines.append(
+                f"- {qualified} [{item['activation_mode']}]: {item.get('description') or 'No description'}"
+            )
+        return "\n".join(lines)
+
+    def _find_skill(self, requested: str) -> tuple[dict | None, str | None]:
+        needle = requested.strip().lower()
+        qualified = [
+            item for item in self.skill_snapshots
+            if f"{item['namespace']}:{item['name']}".lower() == needle
+        ]
+        if qualified:
+            return qualified[0], None
+        named = [item for item in self.skill_snapshots if str(item["name"]).lower() == needle]
+        if len(named) == 1:
+            return named[0], None
+        if len(named) > 1:
+            options = [f"{item['namespace']}:{item['name']}" for item in named]
+            return None, f"동명 스킬입니다. namespace를 포함하세요: {options}"
+        return None, f"활성화되지 않은 스킬입니다: {requested}"
+
+    def _make_skill_tools(self) -> list[dict]:
+        if not self.skill_snapshots:
+            return []
+
+        def load_skill(name: str, reason: str = "", **_) -> dict:
+            item, error = self._find_skill(name)
+            if item is None:
+                return {"error": error}
+            if item["activation_mode"] == "manual":
+                names = {
+                    str(item["name"]).lower(),
+                    f"{item['namespace']}:{item['name']}".lower(),
+                    f"/{item['name']}".lower(),
+                }
+                user_text = self.current_user_text.lower()
+                explicitly_named = any(
+                    re.search(
+                        rf"(?<![a-z0-9_.-]){re.escape(candidate)}(?![a-z0-9_.-])",
+                        user_text,
+                    )
+                    for candidate in names
+                )
+                if not explicitly_named:
+                    return {"error": "수동 스킬은 사용자가 이름을 명시한 턴에서만 불러올 수 있습니다"}
+            version_id = str(item["skill_version_id"])
+            if version_id in self.loaded_skill_versions:
+                return {
+                    "name": item["name"], "already_loaded": True,
+                    "instructions": "이 스킬은 현재 세션에 이미 로딩되었습니다.",
+                    "resources": [],
+                }
+            compiled = item.get("compiled") or {}
+            required = set((compiled.get("capabilities") or {}).get("required") or [])
+            available = set(self.tools)
+            if self.worker_enabled:
+                available.add("create_worker")
+            missing = sorted(required - available)
+            if missing:
+                return {"error": f"스킬에 필요한 capability가 AgentProfile에 없습니다: {missing}"}
+            instructions = str(compiled.get("instructions") or "")
+            instructions = instructions.replace("{{input}}", self.current_user_text)
+            instructions = instructions.replace("{{workspace_root}}", str(self.workspace_context.root))
+            instructions = instructions.replace("{{session_id}}", str(self.telemetry.session_id or ""))
+            prompt_tokens = max(1, len(instructions) // 4)
+            if self.on_skill_loaded is not None:
+                try:
+                    self.on_skill_loaded(version_id, reason[:1000], prompt_tokens)
+                except Exception as callback_error:
+                    return {"error": f"스킬 로딩 상태를 저장하지 못했습니다: {callback_error}"}
+            self.loaded_skill_versions.add(version_id)
+            self.send({
+                "type": "skill_loaded", "skill_id": item["skill_id"],
+                "skill_version_id": version_id, "name": item["name"],
+                "namespace": item["namespace"], "reason": reason[:1000],
+                "prompt_tokens": prompt_tokens,
+            })
+            resources = [
+                resource["path"] for resource in compiled.get("resources") or []
+                if not resource.get("binary")
+            ]
+            return {
+                "name": item["name"], "namespace": item["namespace"],
+                "version": item["version"], "instructions": instructions,
+                "execution": compiled.get("execution") or {}, "resources": resources,
+            }
+
+        def read_skill_resource(name: str, path: str, **_) -> dict:
+            item, error = self._find_skill(name)
+            if item is None:
+                return {"error": error}
+            if str(item["skill_version_id"]) not in self.loaded_skill_versions:
+                return {"error": "load_skill로 스킬을 먼저 불러오세요"}
+            resources = (item.get("compiled") or {}).get("resources") or []
+            matches = [resource for resource in resources if resource.get("path") == path]
+            if not matches:
+                return {"error": f"스킬 리소스가 없습니다: {path}"}
+            resource = matches[0]
+            if resource.get("binary") or resource.get("content") is None:
+                return {"error": f"바이너리 스킬 리소스는 읽을 수 없습니다: {path}"}
+            return {"name": item["name"], "path": path, "content": resource["content"]}
+
+        return [
+            T._t(
+                "load_skill", load_skill,
+                lambda value: (
+                    f"# Skill {value['namespace']}:{value['name']} v{value['version']}\n"
+                    f"{value['instructions']}\n\n"
+                    f"Resources: {value['resources']}"
+                ),
+                T._obj(
+                    ["name"],
+                    name={"type": "string", "description": "Skill name or namespace:name."},
+                    reason={"type": "string", "description": "Why this skill matches the task."},
+                ),
+                "Load one enabled Janus skill only when it matches the current task.",
+                "Load the smallest relevant skill. Manual skills require an explicit user request.",
+                resource_class="cpu_tool", render_chars=16_000,
+            ),
+            T._t(
+                "read_skill_resource", read_skill_resource,
+                lambda value: value["content"],
+                T._obj(
+                    ["name", "path"],
+                    name={"type": "string", "description": "Loaded skill name."},
+                    path={"type": "string", "description": "Exact resource path listed by load_skill."},
+                ),
+                "Read a text resource from an already loaded Janus skill.",
+                "Read only resources needed for the current step.",
+                resource_class="io_tool", render_chars=16_000,
+            ),
+        ]
 
     def _sink(self, node_id: str, kind: str, data: dict) -> None:
         clipped = {k: _clip(v) for k, v in data.items()}
@@ -702,6 +871,7 @@ class Orchestration:
         dispatch_id = self.telemetry.begin_turn(dispatch_id)
         self.current_dispatch_id = dispatch_id
         self.last_dispatch_id = dispatch_id
+        self.current_user_text = text
         context = self.workspace_context.for_dispatch(dispatch_id)
         self.active_workspace_context = context
         self.dispatch_budget.begin_active()
@@ -714,13 +884,17 @@ class Orchestration:
                 client=self.client, model=self.model,
                 system_prompt=self.spec.get("system_prompt") or "",  # session이 이미 보유
                 task=text,
-                tool_names=self.tools + (["create_worker"] if self.worker_enabled else []),
+                tool_names=(
+                    self.tools
+                    + (["create_worker"] if self.worker_enabled else [])
+                    + [tool["name"] for tool in self.skill_tools]
+                ),
                 workspace_context=context,
                 approve=self._approve_for(ORCH_ID, context),
                 emit=lambda kind, **d: self._sink(ORCH_ID, kind, d),
                 max_steps=self.max_steps,
                 cancel=self.cancel,
-                extra_tools=[self.create_worker] if self.worker_enabled else [],
+                extra_tools=([self.create_worker] if self.worker_enabled else []) + self.skill_tools,
                 session=self.session,
                 scheduler=self.scheduler,
                 priority=self.priority,

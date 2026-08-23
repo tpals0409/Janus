@@ -2,6 +2,8 @@
 
 > Local Agent Development Environment for turning limited local compute into verified software work.
 
+UI의 공식 시각·컴포넌트 규칙은 [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md)를 따른다.
+
 Janus는 개발자가 로컬 하드웨어의 모델 에이전트에게 여러 소프트웨어 작업을 위임하고,
 한정된 GPU·통합 메모리·CPU를 효율적으로 배분하며, 격리된 변경을 검토한 뒤 안전하게
 출하하는 데스크톱 ADE다. 외부 모델과 외부 코딩 에이전트 지원은 현재 제품 목표가 아니다.
@@ -292,6 +294,27 @@ queue priority, cancellation을 적용한다. 다른 로컬 backend는 실제 �
 
 ## 9. 안전 모델
 
+### 스킬 공급망
+
+Janus는 GitHub의 Codex·Claude Code `SKILL.md`를 로컬 에이전트에 바로 실행하는
+플러그인으로 취급하지 않는다. `preview -> compile -> install -> activate -> load`의
+다섯 단계를 거친다.
+
+- GitHub ref를 정확한 commit SHA로 고정하고 라이선스·요구 capability·변환 경고를 먼저 보여준다.
+- 외부 스킬을 Janus IR로 결정적으로 컴파일하며, shell·network·MCP는 묵시적으로 실행하지 않는다.
+- 설치와 AgentProfile 활성화를 분리하고, 호환되지 않는 capability는 활성화를 거부한다.
+- 세션 시작 시 스킬 버전을 snapshot하고 목록만 prompt에 넣은 뒤, 필요할 때 `load_skill`로 본문을 지연 로드한다.
+- 설치된 원본은 불변 version으로 남겨 재현성과 감사 가능성을 보장한다.
+
+### 에이전트 작성과 컨텍스트
+
+- `프롬프트`는 선택한 AgentProfile의 실제 system prompt를 편집하며 새 Task 시도부터 적용한다.
+- `컨텍스트 정책`은 목표·수용 검증·workspace 경로의 포함 여부와 대화 압축 한도를 프로필별로 관리한다.
+- Task를 시작할 때 AgentProfile과 활성 SkillVersion을 Dispatch/Session에 snapshot하여 이후 프로필 수정이 기존 실행을 바꾸지 않게 한다.
+- 실행 화면의 `컨텍스트 검사기`는 주입된 소스, 포함·제외 이유, 정적 token 추정치와 최신 context-window 사용량을 보여준다.
+- `그래프`는 작성 도구가 아니라 실행 뷰어다. AgentProfile을 고정 루트로 두고 오케스트레이터가 Task 실행 중 생성·종료한 worker span만 표시한다.
+- 별도의 전역 컨텍스트 편집기는 두지 않는다. 정책은 AgentProfile에, 실제 조립 결과는 Task 실행에 귀속한다.
+
 ### 경계
 
 - Worktree: Task 간 Git 변경 충돌 방지
@@ -346,14 +369,7 @@ acceptance 기준에서 처리량과 품질이 함께 올라야 개선이다.
 
 ## 12. 현재 구현의 위치
 
-현재 구현은 ADE 전체가 아니라 다음 세로 조각을 가진다.
-
-- `Janus Local`이 될 로컬 MLX 오케스트레이터
-- 세션 내부 `create_worker`와 병렬 tool 실행
-- 도구 jail과 위험 작업 승인
-- 대화·span·usage trace와 실행 기록
-- Electron shell, 파일 트리, 설정 폼
-
-가장 큰 결손은 Task, Task별 worktree, 명시적 workspace context, local resource scheduler,
-Git diff review, 평가 loop다.
-구체적인 전환 순서는 [ROADMAP.md](ROADMAP.md)를 따른다.
+Janus v1.0의 Task·worktree·scheduler·review·평가·배포 기반은 완료됐다. v1.1은
+로컬 모델의 문맥 효율을 높이기 위해 Skill Library, 외부 `SKILL.md` 컴파일,
+AgentProfile 활성화, 세션별 지연 로딩을 추가했다. 외부 모델·구독형 CLI agent는
+여전히 제품 가정이 아니며, 로컬 TaskSuite가 필요를 입증할 때만 다시 판단한다.

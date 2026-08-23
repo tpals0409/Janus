@@ -118,7 +118,7 @@ Janus memory peak, budget 소진율, generation/tool/verification 흔적을 2초
 별도 UX acceptance 범위:
 
 - 실제 27B Task UI 실행에서 ChangeSet review·ship까지 사람이 한 번에
-  완주하는 acceptance
+  완주하는 acceptance — 2026-08-23 사용자 수동 완주로 완료
 
 P1에서 추가로 검증한 것:
 

@@ -48,6 +48,80 @@ class DomainStoreTests(unittest.TestCase):
         self.assertEqual(["agent_default"], [item["id"] for item in agents])
         self.assertEqual("4-bit MLX", models[0]["quantization"])
 
+    def test_skill_versions_activation_and_session_snapshot_are_durable(self):
+        artifact = {
+            "namespace": "claude", "name": "review", "description": "Review code",
+            "source_kind": "claude", "source_locator": "/skills/review",
+            "source_subpath": "", "source_key": "source-review",
+            "content_hash": "a" * 64, "source_revision": None,
+            "original": {"entrypoint": "Review"},
+            "compiled": {
+                "format": "janus.skill.v1", "name": "review",
+                "description": "Review code", "instructions": "Review",
+            },
+            "report": {"warnings": []}, "compatibility": "native",
+        }
+        first = self.store.import_skill_version(**artifact)
+        duplicate = self.store.import_skill_version(**artifact)
+        self.assertEqual(first["id"], duplicate["id"])
+        self.assertEqual(1, len(self.store.list_skills()))
+
+        second = self.store.import_skill_version(
+            **{**artifact, "content_hash": "b" * 64,
+               "compiled": {
+                   **artifact["compiled"], "instructions": "Review carefully",
+               }},
+        )
+        self.assertEqual(2, second["version"])
+        enabled = self.store.set_agent_profile_skill(
+            agent_profile_id="agent_default", skill_id=first["skill_id"],
+            activation_mode="auto",
+        )
+        self.assertEqual(second["id"], enabled["skill_version_id"])
+
+        dispatch = self.store.create_dispatch(
+            task_id=self.task["id"], workspace_id=self.workspace["id"],
+            agent_profile_id="agent_default",
+        )
+        session = self.store.create_session(
+            task_id=self.task["id"], dispatch_id=dispatch["id"],
+            agent_profile_id="agent_default",
+        )
+        snapshot = self.store.snapshot_session_skills(session["id"])
+        self.assertEqual([second["id"]], [item["skill_version_id"] for item in snapshot])
+
+        third = self.store.import_skill_version(
+            **{**artifact, "name": "review-renamed", "description": "New description",
+               "content_hash": "c" * 64,
+               "compiled": {
+                   "format": "janus.skill.v1", "name": "review-renamed",
+                   "description": "New description", "instructions": "Newest",
+               }},
+        )
+        self.store.set_agent_profile_skill(
+            agent_profile_id="agent_default", skill_id=first["skill_id"],
+            activation_mode="manual", skill_version_id=third["id"],
+        )
+        unchanged = self.store.snapshot_session_skills(session["id"])
+        self.assertEqual([second["id"]], [item["skill_version_id"] for item in unchanged])
+        self.assertEqual("review", unchanged[0]["name"])
+        self.assertEqual("Review code", unchanged[0]["description"])
+
+        another = self.store.import_skill_version(
+            **{**artifact, "name": "test-writer", "source_key": "source-test-writer",
+               "source_locator": "/skills/test-writer", "content_hash": "d" * 64,
+               "compiled": {
+                   **artifact["compiled"], "name": "test-writer",
+                   "description": "Write tests",
+               }},
+        )
+        self.store.set_agent_profile_skill(
+            agent_profile_id="agent_default", skill_id=another["skill_id"],
+            activation_mode="auto",
+        )
+        still_frozen = self.store.snapshot_session_skills(session["id"])
+        self.assertEqual([second["id"]], [item["skill_version_id"] for item in still_frozen])
+
     def test_version_one_database_migrates_workspace_progress(self):
         old_path = Path(self.temp.name) / "version-one.sqlite3"
         connection = sqlite3.connect(old_path)
@@ -63,8 +137,16 @@ class DomainStoreTests(unittest.TestCase):
             columns = {
                 row["name"] for row in reopened.execute("PRAGMA table_info(workspaces)")
             }
+            profile_columns = {
+                row["name"] for row in reopened.execute("PRAGMA table_info(agent_profiles)")
+            }
+            dispatch_columns = {
+                row["name"] for row in reopened.execute("PRAGMA table_info(dispatches)")
+            }
         self.assertEqual(CURRENT_SCHEMA_VERSION, upgraded.schema_version())
         self.assertIn("progress", columns)
+        self.assertIn("context_policy_json", profile_columns)
+        self.assertIn("agent_profile_snapshot_json", dispatch_columns)
 
     def test_every_historical_schema_version_migrates_to_current(self):
         for starting_version in range(1, CURRENT_SCHEMA_VERSION):

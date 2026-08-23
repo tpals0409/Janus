@@ -1,5 +1,6 @@
 import { ShieldAlert } from 'lucide-react'
 import { useStore } from '../store'
+import { Button, Status } from './ui'
 
 /** 승인 프롬프트에 보여줄 요약. bash는 명령어 전문, edit은 치환 내용. */
 function summarize(tool: string, args: Record<string, unknown>) {
@@ -46,10 +47,7 @@ export default function ApprovalCard() {
   if (!approval) return null
 
   return (
-    <div
-      className="border-t px-4 py-3"
-      style={{ borderColor: 'var(--color-warn)', background: '#fbbf2410' }}
-    >
+    <div className="border-t border-border-strong bg-panel px-4 py-3">
       <div className="mb-2 flex items-center gap-2">
         <ShieldAlert size={14} style={{ color: 'var(--color-warn)' }} />
         <span className="text-[12px]">
@@ -57,27 +55,25 @@ export default function ApprovalCard() {
           <b className="font-mono">{approval.tool}</b> 실행을 요청합니다
         </span>
         {approvals.length > 1 && (
-          <span className="rounded bg-raised px-1.5 py-0.5 text-[10px] text-warn">
-            대기 {approvals.length - 1}건
-          </span>
+          <Status tone="warning">대기 {approvals.length - 1}건</Status>
         )}
         <div className="ml-auto flex gap-2">
-          <button
+          <Button
             onClick={() => respond(approval.id, false)}
-            className="rounded-md border border-border-strong px-3 py-1 text-[12px] text-muted hover:text-fg"
+            variant="ghost"
+            compact
           >
             거부
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={() => respond(approval.id, true)}
-            className="rounded-md px-3 py-1 text-[12px] font-medium text-white"
-            style={{ background: 'var(--color-warn)', color: '#1a1400' }}
+            compact
           >
             승인
-          </button>
+          </Button>
         </div>
       </div>
-      <div className="max-h-32 overflow-auto rounded-md border border-border bg-panel-2 px-2.5 py-2">
+      <div className="max-h-32 overflow-auto border border-border bg-base px-2.5 py-2">
         {summarize(approval.tool, approval.args)}
       </div>
     </div>

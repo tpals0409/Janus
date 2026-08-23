@@ -14,8 +14,9 @@ committed real-model artifact evidence; historical intent alone is not accepted.
 | No known P0 security, data-loss, or false-status defect | Proven within audited scope | Full 138-test suite plus the 56-test focused security/recovery gate pass. HTTP/WS token+Origin, default-deny approvals, workspace jail, stale Dispatch, atomic writes, migration refusal, backup integrity, diagnostic redaction, and honest failed/interrupted states are covered. Production `pnpm audit` and pinned backend/model `pip-audit` report no known vulnerabilities. |
 | Core value works without an external model | Proven | The only model profile/provider accepted by the core is local. Runtime resolves a local snapshot and talks only to loopback MLX; remote model IDs are refused. Clean install, Task lifecycle, worktree isolation, verification/review/ship, development surface, evaluation, supervision, backup, and diagnostics do not require an external model. |
 
-Known non-blocking boundary: a human-operated, real-27B UI session that manually
-walks from Task creation through ship remains a separate UX acceptance exercise.
-The release gate does not substitute it for either of the two independently
-proven requirements above: real-27B runtime/TaskSuite behavior and the app's
-revision-aware Task review/commit path.
+Former non-blocking boundary, now closed: the human-operated, real-27B UI
+session walking from Task creation through ship was completed by the user on
+2026-08-23. The release gate never substituted it for the two independently
+proven requirements above (real-27B runtime/TaskSuite behavior and the app's
+revision-aware Task review/commit path); it now stands as its own completed
+UX acceptance.

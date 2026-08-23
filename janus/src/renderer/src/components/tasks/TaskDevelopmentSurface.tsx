@@ -6,6 +6,7 @@ import {
   MousePointer2, Play, Save, Search, Square, Terminal as TerminalIcon
 } from 'lucide-react'
 import type { Task, TaskBrowserInspection, TaskBrowserStatus } from '../../types'
+import { Button, EmptyState } from '../ui'
 
 loader.config({ monaco })
 
@@ -50,8 +51,8 @@ function WindowedOutput({ value }: { value: string }) {
   const bottom = useRef<HTMLDivElement>(null)
   useEffect(() => bottom.current?.scrollIntoView({ block: 'end' }), [value])
   return (
-    <div className="h-full overflow-auto bg-[#07070b] p-2 font-mono text-[10px] leading-[1.55] text-[#c8ccd8]">
-      {omitted > 0 && <div className="mb-2 text-faint">… {omitted} older lines windowed out</div>}
+    <div className="h-full overflow-auto bg-base p-2 font-mono text-[10px] leading-[1.55] text-secondary">
+      {omitted > 0 && <div className="mb-2 text-faint">… 이전 {omitted}줄 숨김</div>}
       <pre className="whitespace-pre-wrap break-words">{visible.join('\n')}</pre>
       <div ref={bottom} />
     </div>
@@ -74,19 +75,19 @@ function TerminalPane({
     await onInput(terminal, `${value}\n`)
   }
   return (
-    <div className="flex min-w-0 flex-1 flex-col border border-border bg-[#07070b]">
+    <div className="flex min-w-0 flex-1 flex-col border border-border bg-base">
       <div className="flex h-7 items-center gap-2 border-b border-border px-2 font-mono text-[8.5px] text-faint">
-        <TerminalIcon size={10} /> {terminal.pane_id} · {terminal.state}
+        <TerminalIcon size={10} /> {terminal.pane_id === 'primary' ? '기본' : '보조'} · {{ running: '실행 중', exited: '종료됨', stopped: '중단됨' }[terminal.state]}
         <span className="ml-auto truncate">{terminal.cwd}</span>
-        <button onClick={() => void navigator.clipboard.writeText(stripAnsi(terminal.output))} title="Copy output" className="hover:text-fg"><Clipboard size={10} /></button>
-        {terminal.state === 'running' && <button onClick={() => void onStop(terminal)} title="Stop shell" className="hover:text-danger"><Square size={9} /></button>}
+        <button onClick={() => void navigator.clipboard.writeText(stripAnsi(terminal.output))} title="출력 복사" className="hover:text-fg"><Clipboard size={10} /></button>
+        {terminal.state === 'running' && <button onClick={() => void onStop(terminal)} title="셸 중단" className="hover:text-danger"><Square size={9} /></button>}
       </div>
       <div className="min-h-0 flex-1"><WindowedOutput value={terminal.output} /></div>
       <form onSubmit={submit} className="flex border-t border-border">
-        <span className="px-2 py-1.5 font-mono text-[10px] text-[#6dd6a8]">$</span>
+        <span className="px-2 py-1.5 font-mono text-[10px] text-secondary">$</span>
         <input
           value={command} onChange={(event) => setCommand(event.target.value)}
-          disabled={terminal.state !== 'running'} placeholder="Run in this Task worktree"
+          disabled={terminal.state !== 'running'} placeholder="이 작업 워크트리에서 실행"
           className="min-w-0 flex-1 bg-transparent py-1.5 pr-2 font-mono text-[10px] outline-none disabled:opacity-40"
         />
       </form>
@@ -207,7 +208,7 @@ export default function TaskDevelopmentSurface({ task }: { task: Task }) {
   }, [tab, refreshBrowser])
 
   const openPreview = async () => {
-    if (!window.janus) return setError('Task preview는 Electron 앱에서 사용할 수 있습니다')
+    if (!window.janus) return setError('작업 미리보기는 Electron 앱에서 사용할 수 있습니다')
     try {
       const value = await window.janus.taskBrowserOpen({ taskId: task.id, url: previewUrl })
       setBrowser(value); remember({ previewUrl })
@@ -241,29 +242,28 @@ export default function TaskDevelopmentSurface({ task }: { task: Task }) {
   return (
     <section className="task-card overflow-hidden p-0">
       <div className="flex h-9 items-center border-b border-border px-2">
-        <div className="mr-3 font-mono text-[8px] uppercase tracking-[0.16em] text-[#9dacff]">Task dev surface</div>
+        <div className="mr-3 font-mono text-[8px] uppercase tracking-[0.16em] text-muted">작업 개발 화면</div>
         {([
-          ['terminal', TerminalIcon, 'Terminal', '⌘J'], ['editor', Code2, 'Editor', '⌘P'],
-          ['preview', ExternalLink, 'Preview', '⌘⇧B']
+          ['terminal', TerminalIcon, '터미널', '⌘J'], ['editor', Code2, '편집기', '⌘P'],
+          ['preview', ExternalLink, '미리보기', '⌘⇧B']
         ] as const).map(([id, Icon, label, key]) => (
-          <button key={id} onClick={() => chooseTab(id)} className="flex h-full items-center gap-1.5 border-b-2 px-2.5 text-[10px]" style={{
-            borderColor: tab === id ? 'var(--color-accent)' : 'transparent',
-            color: tab === id ? 'var(--color-fg)' : 'var(--color-muted)'
-          }}><Icon size={11} />{label}<kbd className="font-mono text-[7px] text-faint">{key}</kbd></button>
+          <button key={id} onClick={() => chooseTab(id)} className="ui-tab flex h-full items-center gap-1.5 px-2.5 text-[10px]" aria-selected={tab === id}>
+            <Icon size={11} />{label}<kbd className="font-mono text-[7px] text-faint">{key}</kbd>
+          </button>
         ))}
         <span className="ml-auto max-w-[280px] truncate font-mono text-[8px] text-faint">{task.workspace?.root_path}</span>
       </div>
-      {error && <div className="border-b border-[#f8717130] bg-[#f871710c] px-3 py-2 text-[9px] text-danger">{error}</div>}
+      {error && <div className="error-strip border-x-0 border-t-0 text-[9px]">{error}</div>}
 
       {tab === 'terminal' && (
         <div className="flex h-[330px] flex-col">
           <div className="flex h-8 items-center gap-1.5 border-b border-border px-2">
-            {!primary && <button onClick={() => void openTerminal('primary')} className="task-primary-action"><Play size={9} /> Open terminal</button>}
-            {primary && <button onClick={() => { setSplit(!split); remember({ split: !split }); if (!split && !secondary) void openTerminal('secondary') }} className="task-quiet-action"><Columns2 size={9} /> {split ? 'Single pane' : 'Split'}</button>}
-            <span className="ml-auto font-mono text-[8px] text-faint">PTY · cwd locked to Task workspace · output window 400 lines</span>
+            {!primary && <Button onClick={() => void openTerminal('primary')} compact><Play size={9} /> 터미널 열기</Button>}
+            {primary && <button onClick={() => { setSplit(!split); remember({ split: !split }); if (!split && !secondary) void openTerminal('secondary') }} className="task-quiet-action"><Columns2 size={9} /> {split ? '단일 화면' : '분할'}</button>}
+            <span className="ml-auto font-mono text-[8px] text-faint">PTY · 작업 공간에 cwd 고정 · 최근 출력 400줄</span>
           </div>
           <div className="flex min-h-0 flex-1 gap-px bg-border p-px">
-            {primary ? <TerminalPane terminal={primary} onInput={inputTerminal} onStop={stopTerminal} /> : <div className="grid flex-1 place-items-center text-[9px] text-faint">Open a shell owned by this Task.</div>}
+            {primary ? <TerminalPane terminal={primary} onInput={inputTerminal} onStop={stopTerminal} /> : <EmptyState title="터미널 없음" description="이 작업 소유의 셸을 여세요." />}
             {split && secondary && <TerminalPane terminal={secondary} onInput={inputTerminal} onStop={stopTerminal} />}
           </div>
         </div>
@@ -271,19 +271,19 @@ export default function TaskDevelopmentSurface({ task }: { task: Task }) {
 
       {tab === 'editor' && (
         <div className="grid h-[420px] grid-cols-[230px_minmax(0,1fr)]">
-          <aside className="min-h-0 border-r border-border bg-[#09090f]">
+          <aside className="min-h-0 border-r border-border bg-panel">
             <form onSubmit={(event) => void searchFiles(event)} className="flex border-b border-border p-2">
               <Search size={11} className="mr-1.5 mt-1.5 text-faint" />
-              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search workspace text" className="min-w-0 flex-1 bg-transparent text-[9.5px] outline-none" />
+              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="작업 공간 텍스트 검색" className="min-w-0 flex-1 bg-transparent text-[9.5px] outline-none" />
             </form>
             <div className="h-[calc(100%-37px)] overflow-auto p-1.5">
               {matches.map((match, index) => (
                 <button key={`${match.path}-${match.line}-${index}`} onClick={() => void openFile(match.path)} className="mb-1 w-full rounded px-2 py-1.5 text-left hover:bg-raised">
-                  <div className="truncate font-mono text-[8.5px] text-[#9dacff]">{match.path}:{match.line}</div>
+                  <div className="truncate font-mono text-[8.5px] text-secondary">{match.path}:{match.line}</div>
                   <div className="mt-0.5 truncate text-[8.5px] text-faint">{match.text}</div>
                 </button>
               ))}
-              {!matches.length && <div className="px-2 py-6 text-center text-[9px] text-faint"><FileSearch size={14} className="mx-auto mb-2" />Search opens files in Monaco.</div>}
+              {!matches.length && <div className="px-2 py-6 text-center text-[9px] text-faint"><FileSearch size={14} className="mx-auto mb-2" />검색 결과를 Monaco 편집기로 엽니다.</div>}
             </div>
           </aside>
           <div className="min-w-0">
@@ -291,14 +291,14 @@ export default function TaskDevelopmentSurface({ task }: { task: Task }) {
               <div className="flex h-full flex-col">
                 <div className="flex h-8 items-center gap-2 border-b border-border px-2 font-mono text-[9px] text-faint">
                   <FolderTree size={10} /> <span className="truncate">{file.path}</span>
-                  {dirty && <span className="text-warn">● modified</span>}
-                  <button onClick={() => void saveFile()} disabled={!dirty} className="task-quiet-action ml-auto"><Save size={9} /> Save ⌘S</button>
+                  {dirty && <span className="text-warn">● 수정됨</span>}
+                  <button onClick={() => void saveFile()} disabled={!dirty} className="task-quiet-action ml-auto"><Save size={9} /> 저장 ⌘S</button>
                 </div>
                 <div className="min-h-0 flex-1">
                   <Editor height="100%" path={file.path} theme="vs-dark" value={draft} onChange={(value) => { setDraft(value ?? ''); setDirty((value ?? '') !== file.content) }} options={{ minimap: { enabled: false }, fontSize: 11, scrollBeyondLastLine: false, automaticLayout: true }} />
                 </div>
               </div>
-            ) : <div className="grid h-full place-items-center text-[9px] text-faint">Search and open a Task workspace file.</div>}
+            ) : <div className="grid h-full place-items-center text-[9px] text-faint">작업 공간의 파일을 검색해 여세요.</div>}
           </div>
         </div>
       )}
@@ -307,29 +307,29 @@ export default function TaskDevelopmentSurface({ task }: { task: Task }) {
         <div className="min-h-[400px]">
           <div className="flex h-9 items-center gap-1.5 border-b border-border px-2">
             <input value={previewUrl} onChange={(event) => setPreviewUrl(event.target.value)} className="task-input mt-0 min-w-0 flex-1 font-mono text-[9px]" />
-            <button onClick={() => void openPreview()} className="task-primary-action"><ExternalLink size={9} /> Open preview</button>
-            <button onClick={() => void inspect()} disabled={!browser?.open} className="task-quiet-action"><MousePointer2 size={9} /> Select element</button>
-            <button onClick={() => void capture()} disabled={!browser?.open} className="task-quiet-action"><Camera size={9} /> Screenshot</button>
+            <button onClick={() => void openPreview()} className="task-primary-action"><ExternalLink size={9} /> 미리보기 열기</button>
+            <button onClick={() => void inspect()} disabled={!browser?.open} className="task-quiet-action"><MousePointer2 size={9} /> 요소 선택</button>
+            <button onClick={() => void capture()} disabled={!browser?.open} className="task-quiet-action"><Camera size={9} /> 화면 캡처</button>
           </div>
           <div className="grid h-[360px] grid-cols-[1fr_1fr] gap-px bg-border">
-            <div className="min-h-0 overflow-auto bg-[#09090f] p-2">
-              <div className="mb-2 flex items-center justify-between task-label"><span>Console · {browser?.console.length ?? 0}</span><button onClick={() => void navigator.clipboard.writeText((browser?.console ?? []).map((item) => `[${item.level}] ${item.message}`).join('\n'))}><Clipboard size={9} /></button></div>
+            <div className="min-h-0 overflow-auto bg-panel p-2">
+              <div className="mb-2 flex items-center justify-between task-label"><span>콘솔 · {browser?.console.length ?? 0}</span><button onClick={() => void navigator.clipboard.writeText((browser?.console ?? []).map((item) => `[${item.level}] ${item.message}`).join('\n'))}><Clipboard size={9} /></button></div>
               {(browser?.console ?? []).slice(-200).map((item, index) => <div key={`${item.at}-${index}`} className={`border-b border-border/50 py-1 font-mono text-[8.5px] ${item.level === 'error' ? 'text-danger' : 'text-muted'}`}>[{item.level}] {item.message}</div>)}
-              <div className="mb-2 mt-4 task-label">Network · {browser?.network.length ?? 0}</div>
+              <div className="mb-2 mt-4 task-label">네트워크 · {browser?.network.length ?? 0}</div>
               {(browser?.network ?? []).slice(-200).map((item, index) => <div key={`${item.at}-${index}`} className="flex gap-2 border-b border-border/50 py-1 font-mono text-[8px]"><span className={item.error || (item.status ?? 0) >= 400 ? 'text-danger' : 'text-ok'}>{item.error ?? item.status ?? '…'}</span><span className="text-faint">{item.method}</span><span className="truncate text-muted">{item.url}</span></div>)}
             </div>
-            <div className="min-h-0 overflow-auto bg-[#09090f] p-2">
+            <div className="min-h-0 overflow-auto bg-panel p-2">
               {inspection ? (
                 <div>
-                  <div className="task-label">Selected element · {inspection.element.tag}{inspection.element.id ? `#${inspection.element.id}` : ''}</div>
-                  <div className="mt-2 rounded border border-border bg-[#07070b] p-2 font-mono text-[8px] text-muted">
-                    <div>source · {inspection.element.sourceContext ?? 'no source attribute exposed'}</div>
-                    <div>rect · {Math.round(inspection.element.rect.width)}×{Math.round(inspection.element.rect.height)} @ {Math.round(inspection.element.rect.x)},{Math.round(inspection.element.rect.y)}</div>
+                  <div className="task-label">선택한 요소 · {inspection.element.tag}{inspection.element.id ? `#${inspection.element.id}` : ''}</div>
+                  <div className="mt-2 border border-border bg-base p-2 font-mono text-[8px] text-muted">
+                    <div>소스 · {inspection.element.sourceContext ?? '노출된 소스 속성 없음'}</div>
+                    <div>영역 · {Math.round(inspection.element.rect.width)}×{Math.round(inspection.element.rect.height)} @ {Math.round(inspection.element.rect.x)},{Math.round(inspection.element.rect.y)}</div>
                     <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap text-faint">{JSON.stringify(inspection.element.css, null, 2)}</pre>
                   </div>
-                  <img src={inspection.screenshotDataUrl} alt="Element inspection screenshot" className="mt-2 w-full rounded border border-border" />
+                  <img src={inspection.screenshotDataUrl} alt="요소 검사 화면" className="mt-2 w-full rounded border border-border" />
                 </div>
-              ) : screenshot ? <img src={screenshot} alt="Task preview screenshot" className="w-full rounded border border-border" /> : <div className="grid h-full place-items-center text-center text-[9px] leading-relaxed text-faint">Open a localhost app in the Task-isolated browser profile.<br />Console, network, screenshots, and DOM/CSS context stay attached to this Task.</div>}
+              ) : screenshot ? <img src={screenshot} alt="작업 미리보기 화면" className="w-full rounded border border-border" /> : <div className="grid h-full place-items-center text-center text-[9px] leading-relaxed text-faint">작업별로 격리된 브라우저 프로필에서 localhost 앱을 여세요.<br />콘솔, 네트워크, 화면 캡처, DOM/CSS 컨텍스트가 이 작업에 유지됩니다.</div>}
             </div>
           </div>
         </div>

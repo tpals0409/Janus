@@ -17,7 +17,16 @@ from typing import Any
 
 from .budget import empty_usage, merge_budget, normalize_budget
 
-CURRENT_SCHEMA_VERSION = 11
+CURRENT_SCHEMA_VERSION = 13
+
+DEFAULT_CONTEXT_POLICY = {
+    "max_chars": 24_000,
+    "recent_blocks": 8,
+    "summary_max_chars": 4_000,
+    "include_task_objective": True,
+    "include_acceptance": True,
+    "include_workspace_root": True,
+}
 
 TASK_STATUSES = frozenset({"todo", "preparing", "working", "needs_you", "review", "failed"})
 TASK_TRANSITIONS = {
@@ -98,6 +107,61 @@ def _id(prefix: str) -> str:
 
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def _versioned_skill_metadata(item: dict) -> dict:
+    """Use metadata captured in the pinned version, not mutable skill-head fields."""
+    value = dict(item)
+    try:
+        compiled = json.loads(str(value.get("compiled_json") or "{}"))
+    except (json.JSONDecodeError, TypeError, ValueError):
+        compiled = {}
+    if isinstance(compiled, dict):
+        value["name"] = str(compiled.get("name") or value.get("name") or "")
+        value["description"] = str(
+            compiled.get("description") or value.get("description") or ""
+        )
+    return value
+
+
+def normalize_context_policy(value: dict | None) -> dict:
+    policy = {**DEFAULT_CONTEXT_POLICY, **(value or {})}
+    try:
+        policy["max_chars"] = int(policy["max_chars"])
+        policy["recent_blocks"] = int(policy["recent_blocks"])
+        policy["summary_max_chars"] = int(policy["summary_max_chars"])
+    except (TypeError, ValueError) as error:
+        raise Conflict("컨텍스트 용량 정책은 정수여야 합니다") from error
+    if not 8_000 <= policy["max_chars"] <= 200_000:
+        raise Conflict("max_chars는 8,000~200,000 범위여야 합니다")
+    if not 1 <= policy["recent_blocks"] <= 64:
+        raise Conflict("recent_blocks는 1~64 범위여야 합니다")
+    if not 500 <= policy["summary_max_chars"] <= 16_000:
+        raise Conflict("summary_max_chars는 500~16,000 범위여야 합니다")
+    if policy["summary_max_chars"] >= policy["max_chars"]:
+        raise Conflict("summary_max_chars는 max_chars보다 작아야 합니다")
+    for key in ("include_task_objective", "include_acceptance", "include_workspace_root"):
+        if not isinstance(policy[key], bool):
+            raise Conflict(f"{key}는 boolean이어야 합니다")
+    return policy
+
+
+def agent_profile_snapshot(profile: dict) -> dict:
+    return {
+        "id": profile["id"],
+        "name": profile["name"],
+        "description": profile["description"],
+        "system_prompt": profile["system_prompt"],
+        "tools": json.loads(profile["tools_json"]),
+        "approval": profile["approval"],
+        "worker_policy": profile["worker_policy"],
+        "max_steps": int(profile["max_steps"]),
+        "model_profile_id": profile["model_profile_id"],
+        "budget": json.loads(profile["budget_json"]),
+        "context_policy": normalize_context_policy(json.loads(
+            profile.get("context_policy_json") or "{}"
+        )),
+    }
 
 
 MIGRATION_1 = """
@@ -382,10 +446,77 @@ CREATE TABLE task_terminals (
 CREATE INDEX idx_task_terminals_task_state ON task_terminals(task_id,state);
 """
 
+MIGRATION_12 = """
+CREATE TABLE skills (
+    id TEXT PRIMARY KEY,
+    namespace TEXT NOT NULL CHECK(length(trim(namespace)) > 0),
+    name TEXT NOT NULL CHECK(length(trim(name)) > 0),
+    description TEXT NOT NULL DEFAULT '',
+    source_kind TEXT NOT NULL CHECK(source_kind IN ('janus','codex','claude','github','local','project')),
+    source_locator TEXT NOT NULL,
+    source_subpath TEXT NOT NULL DEFAULT '',
+    source_key TEXT NOT NULL UNIQUE,
+    trust_state TEXT NOT NULL DEFAULT 'untrusted' CHECK(trust_state IN ('untrusted','trusted','blocked')),
+    latest_version_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    archived_at TEXT,
+    UNIQUE(namespace,name)
+);
+
+CREATE TABLE skill_versions (
+    id TEXT PRIMARY KEY,
+    skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL CHECK(version >= 1),
+    content_hash TEXT NOT NULL CHECK(length(content_hash) = 64),
+    source_revision TEXT,
+    original_json TEXT NOT NULL,
+    compiled_json TEXT NOT NULL,
+    report_json TEXT NOT NULL,
+    compatibility TEXT NOT NULL CHECK(compatibility IN ('native','partial','adapter_required','blocked')),
+    created_at TEXT NOT NULL,
+    UNIQUE(skill_id,version),
+    UNIQUE(skill_id,content_hash)
+);
+
+CREATE TABLE agent_profile_skills (
+    agent_profile_id TEXT NOT NULL REFERENCES agent_profiles(id) ON DELETE CASCADE,
+    skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+    skill_version_id TEXT NOT NULL REFERENCES skill_versions(id) ON DELETE RESTRICT,
+    activation_mode TEXT NOT NULL CHECK(activation_mode IN ('off','auto','manual')),
+    priority INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(agent_profile_id,skill_id)
+);
+
+CREATE TABLE session_skill_snapshots (
+    session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+    skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE RESTRICT,
+    skill_version_id TEXT NOT NULL REFERENCES skill_versions(id) ON DELETE RESTRICT,
+    activation_mode TEXT NOT NULL CHECK(activation_mode IN ('auto','manual')),
+    loaded_at TEXT,
+    load_reason TEXT,
+    prompt_tokens INTEGER NOT NULL DEFAULT 0 CHECK(prompt_tokens >= 0),
+    PRIMARY KEY(session_id,skill_id)
+);
+
+CREATE INDEX idx_skills_source ON skills(source_kind,source_locator);
+CREATE INDEX idx_skill_versions_skill ON skill_versions(skill_id,version DESC);
+CREATE INDEX idx_agent_profile_skills_profile ON agent_profile_skills(agent_profile_id,activation_mode);
+CREATE INDEX idx_session_skill_snapshots_session ON session_skill_snapshots(session_id,loaded_at);
+"""
+
+MIGRATION_13 = """
+ALTER TABLE agent_profiles ADD COLUMN context_policy_json TEXT NOT NULL DEFAULT
+'{"max_chars":24000,"recent_blocks":8,"summary_max_chars":4000,"include_task_objective":true,"include_acceptance":true,"include_workspace_root":true}';
+ALTER TABLE dispatches ADD COLUMN agent_profile_snapshot_json TEXT NOT NULL DEFAULT '{}';
+"""
+
 MIGRATIONS = {
     1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3, 4: MIGRATION_4,
     5: MIGRATION_5, 6: MIGRATION_6, 7: MIGRATION_7, 8: MIGRATION_8,
-    9: MIGRATION_9, 10: MIGRATION_10, 11: MIGRATION_11,
+    9: MIGRATION_9, 10: MIGRATION_10, 11: MIGRATION_11, 12: MIGRATION_12,
+    13: MIGRATION_13,
 }
 
 
@@ -503,12 +634,27 @@ class DomainStore:
         now = _now()
         project_id = project_id or _id("project")
         path = str(Path(repo_path).expanduser().resolve())
+        clean_name = name.strip()
+        if not clean_name:
+            raise Conflict("Project 이름이 필요합니다")
         try:
             with self.transaction(immediate=True) as connection:
-                connection.execute(
-                    "INSERT INTO projects(id,name,repo_path,created_at,updated_at) VALUES (?,?,?,?,?)",
-                    (project_id, name.strip(), path, now, now),
-                )
+                existing = connection.execute(
+                    "SELECT * FROM projects WHERE repo_path=?", (path,)
+                ).fetchone()
+                if existing is not None:
+                    existing_id = str(existing["id"])
+                    if existing["archived_at"] is not None:
+                        connection.execute(
+                            "UPDATE projects SET name=?,archived_at=NULL,updated_at=? WHERE id=?",
+                            (clean_name, now, existing_id),
+                        )
+                    project_id = existing_id
+                else:
+                    connection.execute(
+                        "INSERT INTO projects(id,name,repo_path,created_at,updated_at) VALUES (?,?,?,?,?)",
+                        (project_id, clean_name, path, now, now),
+                    )
         except sqlite3.IntegrityError as error:
             raise Conflict(f"Project 생성 충돌: {error}") from error
         return self.get_project(project_id)
@@ -1175,6 +1321,202 @@ class DomainStore:
             )
         return self.get_workspace(workspace_id)
 
+    def import_skill_version(
+        self, *, namespace: str, name: str, description: str,
+        source_kind: str, source_locator: str, source_subpath: str,
+        source_key: str, content_hash: str, original: dict, compiled: dict,
+        report: dict, compatibility: str, source_revision: str | None = None,
+    ) -> dict:
+        """Create or version one imported skill without mutating older artifacts."""
+        now = _now()
+        skill_id = _id("skill")
+        version_id = _id("skill_version")
+        try:
+            with self.transaction(immediate=True) as connection:
+                existing = connection.execute(
+                    "SELECT * FROM skills WHERE source_key=?", (source_key,)
+                ).fetchone()
+                if existing is None:
+                    connection.execute(
+                        "INSERT INTO skills(id,namespace,name,description,source_kind,"
+                        "source_locator,source_subpath,source_key,created_at,updated_at) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (
+                            skill_id, namespace.strip(), name.strip(), description.strip(),
+                            source_kind, source_locator, source_subpath, source_key, now, now,
+                        ),
+                    )
+                    version = 1
+                else:
+                    skill_id = str(existing["id"])
+                    duplicate = connection.execute(
+                        "SELECT id FROM skill_versions WHERE skill_id=? AND content_hash=?",
+                        (skill_id, content_hash),
+                    ).fetchone()
+                    if duplicate is not None:
+                        version_id = str(duplicate["id"])
+                        connection.execute(
+                            "UPDATE skills SET archived_at=NULL,updated_at=? WHERE id=?",
+                            (now, skill_id),
+                        )
+                        return self.get_skill_version(version_id)
+                    version = int(connection.execute(
+                        "SELECT COALESCE(MAX(version),0)+1 FROM skill_versions WHERE skill_id=?",
+                        (skill_id,),
+                    ).fetchone()[0])
+                    connection.execute(
+                        "UPDATE skills SET name=?,description=?,source_locator=?,source_subpath=?,"
+                        "archived_at=NULL,updated_at=? WHERE id=?",
+                        (name.strip(), description.strip(), source_locator, source_subpath, now, skill_id),
+                    )
+
+                connection.execute(
+                    "INSERT INTO skill_versions(id,skill_id,version,content_hash,source_revision,"
+                    "original_json,compiled_json,report_json,compatibility,created_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        version_id, skill_id, version, content_hash, source_revision,
+                        _json(original), _json(compiled), _json(report), compatibility, now,
+                    ),
+                )
+                connection.execute(
+                    "UPDATE skills SET latest_version_id=?,updated_at=? WHERE id=?",
+                    (version_id, now, skill_id),
+                )
+        except sqlite3.IntegrityError as error:
+            raise Conflict(f"Skill 가져오기 충돌: {error}") from error
+        return self.get_skill_version(version_id)
+
+    def get_skill_version(self, version_id: str) -> dict:
+        with self._connect() as connection:
+            return self._one(
+                connection,
+                "SELECT v.*,s.namespace,s.name,s.description,s.source_kind,s.source_locator,"
+                "s.source_subpath,s.source_key,s.trust_state,s.archived_at "
+                "FROM skill_versions v JOIN skills s ON s.id=v.skill_id WHERE v.id=?",
+                (version_id,), "SkillVersion",
+            )
+
+    def get_skill(self, skill_id: str) -> dict:
+        with self._connect() as connection:
+            return self._one(
+                connection,
+                "SELECT s.*,v.version,v.content_hash,v.source_revision,v.original_json,"
+                "v.compiled_json,v.report_json,v.compatibility,v.created_at AS version_created_at "
+                "FROM skills s LEFT JOIN skill_versions v ON v.id=s.latest_version_id WHERE s.id=?",
+                (skill_id,), "Skill",
+            )
+
+    def list_skills(self, *, include_archived: bool = False) -> list[dict]:
+        where = "" if include_archived else "WHERE s.archived_at IS NULL"
+        with self._connect() as connection:
+            return [dict(row) for row in connection.execute(
+                "SELECT s.*,v.version,v.content_hash,v.source_revision,v.compiled_json,"
+                "v.report_json,v.compatibility,v.created_at AS version_created_at "
+                "FROM skills s LEFT JOIN skill_versions v ON v.id=s.latest_version_id "
+                f"{where} ORDER BY s.namespace,s.name"
+            )]
+
+    def set_agent_profile_skill(
+        self, *, agent_profile_id: str, skill_id: str,
+        activation_mode: str, skill_version_id: str | None = None, priority: int = 0,
+    ) -> dict:
+        if activation_mode not in {"off", "auto", "manual"}:
+            raise Conflict("activation_mode는 off, auto, manual 중 하나여야 합니다")
+        with self.transaction(immediate=True) as connection:
+            self._one(
+                connection, "SELECT * FROM agent_profiles WHERE id=?",
+                (agent_profile_id,), "AgentProfile",
+            )
+            skill = self._one(
+                connection, "SELECT * FROM skills WHERE id=? AND archived_at IS NULL",
+                (skill_id,), "Skill",
+            )
+            selected_version_id = skill_version_id or skill["latest_version_id"]
+            version = self._one(
+                connection, "SELECT * FROM skill_versions WHERE id=?",
+                (selected_version_id,), "SkillVersion",
+            )
+            if version["skill_id"] != skill_id:
+                raise Conflict("선택한 SkillVersion이 해당 Skill에 속하지 않습니다")
+            if activation_mode != "off" and version["compatibility"] in {"blocked", "adapter_required"}:
+                raise Conflict(
+                    f"{version['compatibility']} SkillVersion은 활성화할 수 없습니다"
+                )
+            connection.execute(
+                "INSERT INTO agent_profile_skills(agent_profile_id,skill_id,skill_version_id,"
+                "activation_mode,priority,updated_at) VALUES (?,?,?,?,?,?) "
+                "ON CONFLICT(agent_profile_id,skill_id) DO UPDATE SET "
+                "skill_version_id=excluded.skill_version_id,activation_mode=excluded.activation_mode,"
+                "priority=excluded.priority,updated_at=excluded.updated_at",
+                (
+                    agent_profile_id, skill_id, selected_version_id,
+                    activation_mode, int(priority), _now(),
+                ),
+            )
+        return self.get_agent_profile_skill(agent_profile_id, skill_id)
+
+    def get_agent_profile_skill(self, agent_profile_id: str, skill_id: str) -> dict:
+        with self._connect() as connection:
+            return _versioned_skill_metadata(self._one(
+                connection,
+                "SELECT a.*,s.namespace,s.name,s.description,v.version,v.content_hash,"
+                "v.compiled_json,v.report_json,v.compatibility "
+                "FROM agent_profile_skills a JOIN skills s ON s.id=a.skill_id "
+                "JOIN skill_versions v ON v.id=a.skill_version_id "
+                "WHERE a.agent_profile_id=? AND a.skill_id=?",
+                (agent_profile_id, skill_id), "AgentProfileSkill",
+            ))
+
+    def list_agent_profile_skills(
+        self, agent_profile_id: str, *, active_only: bool = False,
+    ) -> list[dict]:
+        where = "AND a.activation_mode <> 'off'" if active_only else ""
+        with self._connect() as connection:
+            self._one(
+                connection, "SELECT * FROM agent_profiles WHERE id=?",
+                (agent_profile_id,), "AgentProfile",
+            )
+            return [_versioned_skill_metadata(dict(row)) for row in connection.execute(
+                "SELECT a.*,s.namespace,s.name,s.description,s.source_kind,s.source_locator,"
+                "s.source_subpath,s.trust_state,v.version,v.content_hash,v.compiled_json,"
+                "v.report_json,v.compatibility FROM agent_profile_skills a "
+                "JOIN skills s ON s.id=a.skill_id JOIN skill_versions v ON v.id=a.skill_version_id "
+                f"WHERE a.agent_profile_id=? {where} ORDER BY a.priority DESC,s.namespace,s.name",
+                (agent_profile_id,),
+            )]
+
+    def snapshot_session_skills(self, session_id: str) -> list[dict]:
+        with self._connect() as connection:
+            self._one(
+                connection, "SELECT * FROM agent_sessions WHERE id=?",
+                (session_id,), "AgentSession",
+            )
+            return [_versioned_skill_metadata(dict(row)) for row in connection.execute(
+                "SELECT ss.*,s.namespace,s.name,s.description,v.version,"
+                "v.content_hash,v.compiled_json,v.compatibility "
+                "FROM session_skill_snapshots ss JOIN skill_versions v ON v.id=ss.skill_version_id "
+                "JOIN skills s ON s.id=v.skill_id WHERE ss.session_id=? "
+                "ORDER BY s.namespace,s.name",
+                (session_id,),
+            )]
+
+    def mark_session_skill_loaded(
+        self, session_id: str, skill_version_id: str, *, reason: str, prompt_tokens: int,
+    ) -> dict:
+        with self.transaction(immediate=True) as connection:
+            changed = connection.execute(
+                "UPDATE session_skill_snapshots SET loaded_at=COALESCE(loaded_at,?),"
+                "load_reason=?,prompt_tokens=? WHERE session_id=? AND skill_version_id=?",
+                (_now(), reason[:1000], max(0, int(prompt_tokens)), session_id, skill_version_id),
+            ).rowcount
+            if not changed:
+                raise NotFound(f"없는 Session Skill: {session_id}/{skill_version_id}")
+        return next(
+            item for item in self.snapshot_session_skills(session_id)
+            if item["skill_version_id"] == skill_version_id
+        )
+
     def list_model_profiles(self) -> list[dict]:
         with self._connect() as connection:
             return [dict(row) for row in connection.execute(
@@ -1219,7 +1561,7 @@ class DomainStore:
         self, *, name: str, system_prompt: str, tools: list[str],
         model_profile_id: str, approval: str = "ask", worker_policy: str = "autonomous",
         max_steps: int = 15, description: str = "", profile_id: str | None = None,
-        budget: dict | None = None,
+        budget: dict | None = None, context_policy: dict | None = None,
     ) -> dict:
         now = _now()
         profile_id = profile_id or _id("agent")
@@ -1227,12 +1569,13 @@ class DomainStore:
             with self.transaction(immediate=True) as connection:
                 connection.execute(
                     "INSERT INTO agent_profiles(id,name,description,system_prompt,tools_json,approval,"
-                    "worker_policy,max_steps,model_profile_id,budget_json,created_at,updated_at) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "worker_policy,max_steps,model_profile_id,budget_json,context_policy_json,"
+                    "created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         profile_id, name, description, system_prompt, _json(tools), approval,
                         worker_policy, max_steps, model_profile_id,
-                        _json(normalize_budget(budget, max_steps=max_steps)), now, now,
+                        _json(normalize_budget(budget, max_steps=max_steps)),
+                        _json(normalize_context_policy(context_policy)), now, now,
                     ),
                 )
         except sqlite3.IntegrityError as error:
@@ -1259,6 +1602,17 @@ class DomainStore:
                     **override.get("dispatch", {}), "step_limit": int(changes["max_steps"]),
                 }}
             fields["budget_json"] = _json(merge_budget(current_budget, override))
+        if "context_policy" in changes:
+            current_policy = json.loads(
+                self.get_agent_profile(profile_id).get("context_policy_json")
+                or _json(DEFAULT_CONTEXT_POLICY)
+            )
+            requested_policy = changes.get("context_policy")
+            if not isinstance(requested_policy, dict):
+                raise Conflict("context_policy는 객체여야 합니다")
+            fields["context_policy_json"] = _json(normalize_context_policy({
+                **current_policy, **requested_policy,
+            }))
         if not fields:
             return self.get_agent_profile(profile_id)
         assignments = ",".join(f"{key}=?" for key in fields)
@@ -1312,12 +1666,12 @@ class DomainStore:
                 ).fetchone()[0])
                 connection.execute(
                     "INSERT INTO dispatches(id,task_id,workspace_id,agent_profile_id,attempt,status,"
-                    "objective_snapshot,acceptance_snapshot,budget_json,usage_json,created_at) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    "objective_snapshot,acceptance_snapshot,budget_json,usage_json,"
+                    "agent_profile_snapshot_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         dispatch_id, task_id, workspace_id, agent_profile_id, attempt, "queued",
                         task["objective"], task["acceptance_command"], profile["budget_json"],
-                        _json(empty_usage()), now,
+                        _json(empty_usage()), _json(agent_profile_snapshot(profile)), now,
                     ),
                 )
         except sqlite3.IntegrityError as error:
@@ -1395,18 +1749,27 @@ class DomainStore:
                 connection.execute(
                     "INSERT INTO dispatches(id,task_id,workspace_id,agent_profile_id,attempt,status,"
                     "objective_snapshot,acceptance_snapshot,budget_json,usage_json,"
-                    "adaptive_decision_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "adaptive_decision_json,agent_profile_snapshot_json,created_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         dispatch_id, task_id, workspace_id, agent_profile_id, attempt, "queued",
                         task["objective"], task["acceptance_command"],
                         _json(dispatch_budget),
-                        _json(empty_usage()), _json(adaptive_decision or {}), now,
+                        _json(empty_usage()), _json(adaptive_decision or {}),
+                        _json(agent_profile_snapshot(profile)), now,
                     ),
                 )
                 connection.execute(
                     "INSERT INTO agent_sessions(id,task_id,dispatch_id,agent_profile_id,status,"
                     "created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
                     (session_id, task_id, dispatch_id, agent_profile_id, "created", now, now),
+                )
+                connection.execute(
+                    "INSERT INTO session_skill_snapshots("
+                    "session_id,skill_id,skill_version_id,activation_mode) "
+                    "SELECT ?,skill_id,skill_version_id,activation_mode FROM agent_profile_skills "
+                    "WHERE agent_profile_id=? AND activation_mode IN ('auto','manual')",
+                    (session_id, agent_profile_id),
                 )
                 connection.execute(
                     "UPDATE tasks SET status='working',updated_at=? WHERE id=?",
@@ -1498,6 +1861,13 @@ class DomainStore:
                     "INSERT INTO agent_sessions(id,task_id,dispatch_id,agent_profile_id,status,"
                     "created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
                     (session_id, task_id, dispatch_id, agent_profile_id, "created", now, now),
+                )
+                connection.execute(
+                    "INSERT INTO session_skill_snapshots("
+                    "session_id,skill_id,skill_version_id,activation_mode) "
+                    "SELECT ?,skill_id,skill_version_id,activation_mode FROM agent_profile_skills "
+                    "WHERE agent_profile_id=? AND activation_mode IN ('auto','manual')",
+                    (session_id, agent_profile_id),
                 )
         except sqlite3.IntegrityError as error:
             raise Conflict(f"AgentSession 생성 충돌: {error}") from error

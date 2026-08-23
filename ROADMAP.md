@@ -460,13 +460,30 @@ wall time이 63% 증가했다. `fixed_one`은 작은 두 fixture에서 18~23% �
 이 항목은 로컬 TaskSuite에서 병목이 확인되고 외부 실행이 그 병목을 해결한다는 근거가 생긴 뒤
 별도 제품 결정으로 연다. 현재 도메인과 UI는 이를 미리 가정하지 않는다.
 
-## 다음 코드 작업
+## v1.1 — Skill Compiler와 로컬 문맥 효율
 
-v1.0 체크리스트와 배포는 완료됐다. R3 worker 회귀 수정은
-`completed_partial` 통합, 반복 spawn 억제, Task 적합성 gate로 적용됐고
-fixed-one 최종 15회 재검증까지 끝났다. R4부터 R9까지도 이후 완료됐으므로
-이전 P2를 다음 작업으로 표시하지 않는다.
+### R10. Skill Library (완료)
 
-현재 승인된 추가 코드 범위는 없다. 다음 개발은 **로컬 에이전트 효율**을
-측정 가능한 v1.1 목표와 acceptance로 먼저 정의한 뒤 새 체크리스트로 연다.
+1. versioned Skill·AgentProfile activation·session snapshot 스키마
+2. Codex·Claude Code `SKILL.md`의 Janus IR 변환과 호환성 보고서
+3. GitHub URL 미리보기, commit SHA 고정, 하위 스킬 선택 설치
+4. 스킬 보관함과 AgentProfile별 자동·수동 활성화
+5. 목록만 선주입하고 `load_skill`·`read_skill_resource`로 지연 로딩
+
+### R11. 완료 검증
+
+1. compiler·migration·API·runtime 회귀 테스트
+2. ZIP path escape·symlink·중복·용량 제한과 network approval
+3. 실제 Qwen3.8 27B의 `load_skill` tool-call 선택 검증
+4. 공식 OpenAI GitHub 스킬의 다운로드·SHA 고정·컴파일 E2E
+5. 실제 GitHub 저장소를 이용한 UI 수동 QA
+
+### R12. AgentProfile 작성과 실행 컨텍스트 (완료)
+
+1. 프롬프트 탭을 실제 AgentProfile system prompt 저장과 연결
+2. 프로필별 컨텍스트 용량·압축·고정 소스 정책
+3. Task 시작 시 AgentProfile snapshot으로 실행 재현성 보장
+4. Task 실행 화면에 컨텍스트 소스·token·압축 상태 검사기 제공
+5. 전역 컨텍스트 메뉴 제거, 정책과 실행 상태의 소유권 분리
+
 외부 API 모델·구독형 CLI agent·원격 runtime은 별도 제품 판단 전까지 범위 밖으로 둔다.

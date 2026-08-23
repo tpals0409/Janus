@@ -3,104 +3,117 @@ import {
   Background,
   BackgroundVariant,
   Controls,
+  Panel,
   ReactFlow,
   type Edge,
-  type Node
+  type Node,
 } from '@xyflow/react'
+import type { Span } from '../types'
 import { ORCH_ID, useStore } from '../store'
 import TraceNodeCard from './nodes/TraceNode'
 
 const nodeTypes = { trace: TraceNodeCard }
 
-/**
- * 트레이스 뷰어 — 노드는 스펙이 아니라 **스팬**에서 나온다.
- * 오케스트레이터가 create_worker로 만든 워커가 실행 중에 여기 나타난다.
- * 그래프는 입력이 아니라 출력이다.
- */
+/** AgentProfile은 고정 루트, worker는 실제 Task 실행에서 생긴 span만 표시한다. */
 export default function Canvas() {
-  const spec = useStore((s) => s.spec)
-  const errors = useStore((s) => s.errors)
-  const spans = useStore((s) => s.spans)
-  const selectedSpanId = useStore((s) => s.selectedSpanId)
-  const selectNodeSpan = useStore((s) => s.selectNodeSpan)
+  const profiles = useStore((state) => state.agentProfiles)
+  const selectedProfileId = useStore((state) => state.selectedAgentProfileId)
+  const session = useStore((state) => state.taskSession)
+  const events = useStore((state) => state.taskSessionEvents)
+  const profile = profiles.find((item) => item.id === selectedProfileId) ?? null
+  const sessionMatches = Boolean(session && session.agent_profile_id === selectedProfileId)
+
+  const spans = useMemo(() => {
+    if (!sessionMatches) return []
+    const byId = new Map<string, Span>()
+    for (const event of events) {
+      if (event.kind !== 'span_start' && event.kind !== 'span_end') continue
+      const value = event.payload.span
+      if (!value || typeof value !== 'object') continue
+      const span = value as Span
+      if (span.id && span.node_id) byId.set(span.id, span)
+    }
+    return [...byId.values()]
+  }, [events, sessionMatches])
 
   const nodes: Node[] = useMemo(() => {
-    if (!spec) return []
-    const orch = spans.find((s) => s.node_id === ORCH_ID) ?? null
-    const workers = spans.filter((s) => s.node_id !== ORCH_ID)
-    // ponytail: 고정 2열 레이아웃 — 오케스트레이터 좌측, 워커는 스폰 순 우측 열.
-    // 워커가 ~8개를 넘어 겹치면 dagre 자동 배치로 교체.
+    if (!profile) return []
+    const orchestrator = spans.find((span) => span.node_id === ORCH_ID) ?? null
+    const workers = spans.filter((span) => span.node_id !== ORCH_ID)
     return [
       {
         id: ORCH_ID,
         type: 'trace',
-        position: { x: 40, y: 40 + Math.max(0, workers.length - 1) * 55 },
-        selected: orch ? orch.id === selectedSpanId : selectedSpanId === null,
-        draggable: true,
-        data: { span: orch, title: spec.name, isOrchestrator: true, pending: !orch }
+        position: { x: 52, y: 64 + Math.max(0, workers.length - 1) * 55 },
+        draggable: false,
+        data: {
+          span: orchestrator,
+          title: profile.name,
+          isOrchestrator: true,
+          pending: !orchestrator,
+          pendingLabel: '작업 실행 시 활성화',
+        },
       },
-      ...workers.map((w, i) => ({
-        id: w.node_id,
+      ...workers.map((worker, index) => ({
+        id: worker.node_id,
         type: 'trace' as const,
-        position: { x: 360, y: 40 + i * 110 },
-        selected: w.id === selectedSpanId,
-        draggable: true,
-        data: { span: w, title: w.label ?? w.node_id, isOrchestrator: false }
-      }))
+        position: { x: 390, y: 64 + index * 110 },
+        draggable: false,
+        data: {
+          span: worker,
+          title: worker.label ?? worker.node_id,
+          isOrchestrator: false,
+        },
+      })),
     ]
-  }, [spec, spans, selectedSpanId])
+  }, [profile, spans])
 
-  const edges: Edge[] = useMemo(
-    () =>
-      spans
-        .filter((s) => s.node_id !== ORCH_ID)
-        .map((w) => ({
-          id: `e-${w.node_id}`,
-          source: ORCH_ID,
-          target: w.node_id,
-          animated: w.status === 'running',
-          style: {
-            stroke:
-              w.status === 'error'
-                ? 'var(--color-danger)'
-                : w.status === 'running'
-                  ? 'var(--color-accent)'
-                  : '#4a4a63',
-            strokeWidth: 1.5
-          }
-        })),
-    [spans]
-  )
+  const edges: Edge[] = useMemo(() => nodes.slice(1).map((node) => {
+    const span = node.data.span as Span
+    return {
+      id: `e-${node.id}`,
+      source: ORCH_ID,
+      target: node.id,
+      animated: span.status === 'running',
+      style: {
+        stroke: span.status === 'error'
+          ? 'var(--color-danger)'
+          : span.status === 'running'
+            ? 'var(--color-accent)'
+            : 'var(--border-strong)',
+        strokeWidth: 1.5,
+      },
+    }
+  }), [nodes])
 
-  if (!spec) {
-    return (
-      <div className="grid h-full place-items-center px-8 text-center text-faint">
-        <div>
-          <div>{errors.length ? '스펙을 열 수 없습니다' : '에이전트를 선택하세요'}</div>
-          {errors.length > 0 && (
-            <pre className="mt-2 max-w-[720px] whitespace-pre-wrap font-mono text-[11px] text-danger">
-              {errors.join('\n')}
-            </pre>
-          )}
-        </div>
-      </div>
-    )
+  if (!profile) {
+    return <div className="grid h-full place-items-center text-[12px] text-faint">실행 프로필을 선택하세요.</div>
   }
 
+  const workerCount = nodes.length - 1
   return (
     <ReactFlow
       nodes={nodes}
       edges={edges}
       nodeTypes={nodeTypes}
-      onNodeClick={(_, n) => selectNodeSpan(n.id)}
       nodesConnectable={false}
+      nodesDraggable={false}
+      elementsSelectable={false}
       deleteKeyCode={null}
       fitView
-      fitViewOptions={{ padding: 0.25 }}
+      fitViewOptions={{ padding: 0.28 }}
       proOptions={{ hideAttribution: true }}
     >
-      <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#ffffff10" />
+      <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="var(--border-subtle)" />
       <Controls showInteractive={false} />
+      <Panel position="top-left" className="graph-overlay m-4">
+        <div className="font-mono text-[9px] tracking-wider text-faint">RUNTIME OWNERSHIP</div>
+        <div className="mt-1 text-[10px] text-muted">오케스트레이터 1 · 실행 워커 {workerCount}</div>
+      </Panel>
+      <Panel position="top-right" className="graph-overlay m-4 max-w-[270px] text-[10px] leading-relaxed text-faint">
+        워커는 영속 설정이 아닙니다. Task 실행 중 오케스트레이터가 생성·종료한 실제 span만 표시합니다.
+        {session && !sessionMatches && <div className="mt-1.5 text-warn">최근 세션은 다른 프로필의 실행입니다.</div>}
+      </Panel>
     </ReactFlow>
   )
 }

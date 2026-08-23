@@ -42,11 +42,11 @@ def _resolve(path: str, context: WorkspaceContext) -> Path:
     return rp
 
 
-def _clip(text: str) -> str:
-    if len(text) <= MAX_RENDER_CHARS:
+def _clip(text: str, limit: int = MAX_RENDER_CHARS) -> str:
+    if len(text) <= limit:
         return text
-    half = MAX_RENDER_CHARS // 2
-    omitted = len(text) - MAX_RENDER_CHARS
+    half = limit // 2
+    omitted = len(text) - limit
     return f"{text[:half]}\n\n... [{omitted}자 생략] ...\n\n{text[-half:]}"
 
 
@@ -217,13 +217,14 @@ def _r_docs(v):
 
 def _t(
     name, handler, render, schema, description, guidance="", needs_approval=False,
-    requires_workspace=False, resource_class="io_tool",
+    requires_workspace=False, resource_class="io_tool", render_chars=MAX_RENDER_CHARS,
 ):
     return {"name": name, "handler": handler, "render": render, "schema": schema,
             "description": description, "guidance": guidance,
             "needs_approval": needs_approval,
             "requires_workspace": requires_workspace,
-            "resource_class": resource_class}
+            "resource_class": resource_class,
+            "render_chars": render_chars}
 
 
 def _obj(required, **props):
@@ -252,7 +253,7 @@ TOOLS = [
        _obj(["url"], url={**_S, "description": "http/https URL."},
             timeout={**_N, "description": "Seconds. Default 10."}),
        "Fetch a URL and return the response body as text.",
-       "Use http_get to read a public web page or API."),
+       "Use http_get to read a public web page or API.", needs_approval=True),
     _t("search_docs", _search_docs, _r_docs,
        _obj(["query"], query={**_S, "description": "Search terms."}),
        "Search a small built-in document set. Demo data, not a real index.",
@@ -349,7 +350,7 @@ def render(name: str, value: dict, registry: dict | None = None) -> str:
     reg = registry or REGISTRY
     if "error" in value:
         return f"ERROR: {value['error']}"
-    return _clip(reg[name]["render"](value))
+    return _clip(reg[name]["render"](value), int(reg[name].get("render_chars", MAX_RENDER_CHARS)))
 
 
 def schemas_for(names: list[str], registry: dict | None = None) -> list[dict]:

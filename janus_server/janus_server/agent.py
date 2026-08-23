@@ -39,12 +39,14 @@ class Session:
 
     def __init__(self, system_prompt: str, registry: dict | None = None, *,
                  context_max_chars: int | None = DEFAULT_CONTEXT_MAX_CHARS,
-                 context_recent_blocks: int = DEFAULT_CONTEXT_RECENT_BLOCKS):
+                 context_recent_blocks: int = DEFAULT_CONTEXT_RECENT_BLOCKS,
+                 summary_max_chars: int = MAX_PROJECT_SUMMARY_CHARS):
         self.system_prompt = system_prompt
         self.events: list[dict] = []
         self.registry = registry  # 실행별 도구(create_worker 등)의 렌더러를 찾기 위해
         self.context_max_chars = context_max_chars
         self.context_recent_blocks = max(1, int(context_recent_blocks))
+        self.summary_max_chars = max(500, int(summary_max_chars))
         self.context_stats: dict = {}
         self._last_prefix_hash: str | None = None
 
@@ -108,11 +110,11 @@ class Session:
                 elif role == "tool" and content:
                     lines.append(f"Tool result: {content}")
         summary = "\n".join(lines)
-        if len(summary) > MAX_PROJECT_SUMMARY_CHARS:
+        if len(summary) > self.summary_max_chars:
             # 최초 objective와 최근 결정/결과를 함께 남긴다. 앞부분만 자르면
             # 현재 작업으로 이어지는 최신 상태가 사라진다.
             head = lines[0] if lines else ""
-            remaining = MAX_PROJECT_SUMMARY_CHARS - len(head) - 2
+            remaining = self.summary_max_chars - len(head) - 2
             tail: list[str] = []
             for line in reversed(lines[1:]):
                 if len(line) + 1 > remaining:

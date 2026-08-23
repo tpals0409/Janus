@@ -12,7 +12,7 @@ function Section({ label, children }: { label: string; children: React.ReactNode
 
 const inputCls =
   'w-full rounded-md border border-border-strong bg-raised px-2.5 py-1.5 text-[12px] ' +
-  'text-fg outline-none focus:border-accent'
+  'text-fg outline-none focus:border-border-emphasis'
 
 /** 오케스트레이터 설정 — 노드 선택이 필요 없다. 에이전트 = 오케스트레이터 1개다. */
 export default function Inspector() {
@@ -45,13 +45,13 @@ export default function Inspector() {
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       <div className="border-b border-border px-4 py-3">
-        <div className="mb-2 text-[10px] font-semibold tracking-wider text-faint">ORCHESTRATOR</div>
+        <div className="mb-2 text-[10px] font-semibold tracking-wider text-faint">오케스트레이터</div>
         <div className="flex items-center gap-2">
-          <Network size={14} className="shrink-0 text-accent-fg" />
+          <Network size={14} className="shrink-0 text-muted" />
           <input
             value={spec.name}
             onChange={(e) => patchSpec({ name: e.target.value })}
-            className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 font-medium outline-none hover:border-border-strong focus:border-accent"
+            className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 font-medium outline-none hover:border-border-strong focus:border-border-emphasis"
           />
         </div>
         <p className="mt-2 text-[11px] leading-snug text-faint">
@@ -60,7 +60,7 @@ export default function Inspector() {
         </p>
       </div>
 
-      <Section label="MODEL">
+      <Section label="모델">
         <select
           value={spec.model ?? ''}
           onChange={(e) => patchSpec({ model: e.target.value })}
@@ -74,16 +74,7 @@ export default function Inspector() {
         </select>
       </Section>
 
-      <Section label="SYSTEM PROMPT">
-        <textarea
-          value={spec.system_prompt ?? ''}
-          onChange={(e) => patchSpec({ system_prompt: e.target.value })}
-          rows={7}
-          className={inputCls + ' resize-y leading-relaxed'}
-        />
-      </Section>
-
-      <Section label="TOOLS">
+      <Section label="도구">
         <div className="space-y-0.5">
           {tools.map((t) => (
             <label
@@ -111,14 +102,14 @@ export default function Inspector() {
         </p>
       </Section>
 
-      <Section label="APPROVAL">
+      <Section label="승인 방식">
         <div className="flex gap-1">
           {(['auto', 'ask'] as const).map((a) => (
             <button
               key={a}
               disabled={mustAsk && a === 'auto'}
               onClick={() => patchSpec({ approval: a })}
-              title={mustAsk && a === 'auto' ? '위험 도구를 가진 에이전트는 auto를 쓸 수 없습니다' : ''}
+              title={mustAsk && a === 'auto' ? '위험 도구를 가진 에이전트는 자동 승인을 쓸 수 없습니다' : ''}
               className="flex-1 rounded-md border px-2 py-1 text-[12px] disabled:opacity-35"
               style={{
                 borderColor:
@@ -126,7 +117,7 @@ export default function Inspector() {
                 color: (spec.approval ?? 'auto') === a ? 'var(--color-accent-fg)' : 'var(--color-muted)'
               }}
             >
-              {a}
+              {a === 'auto' ? '자동' : '묻기'}
             </button>
           ))}
         </div>
@@ -137,7 +128,7 @@ export default function Inspector() {
         </p>
       </Section>
 
-      <Section label="MAX STEPS">
+      <Section label="최대 단계">
         <input
           type="number"
           min={1}
