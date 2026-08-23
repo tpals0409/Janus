@@ -26,13 +26,18 @@ models, secrets, user data, and virtual environments are excluded.
 
 A public build must be signed with a Developer ID certificate, hardened runtime,
 and notarized before distribution. Unsigned artifacts are never presented as a
-trusted public update. Until signing and a verified update feed exist, updates are
-manual releases: stop Janus, create a database backup, replace the app, start it,
-and verify `/health` plus `/maintenance/recovery`.
+trusted public update. `pnpm package:mac:signed` enforces the local release
+configuration contract, but it is not a public release until a credentialed build
+has passed `codesign`, Gatekeeper, notarization staple, and checksum verification.
+Until that pipeline and a verified update feed exist, updates are manual releases:
+stop Janus, create a database backup, replace the app, start it, and verify
+`/health` plus `/maintenance/recovery`.
 
-Automatic background updates are disabled for v1. An updater can be introduced
-only after signature verification, rollback behavior, schema compatibility, and
-interrupted-download recovery have automated tests.
+Automatic background updates are disabled for v1. The signed manifest policy now
+has automated tests for signature verification, rollback rejection, schema
+compatibility, checksum verification, and interrupted-download recovery. Enabling
+an updater still requires a signed public artifact, a production public key and
+feed URL, backup-first integration, and a verified end-to-end install/rollback run.
 
 ## Release gate
 

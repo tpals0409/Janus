@@ -416,9 +416,9 @@
 - [x] 세션 시작 시 활성 version snapshot
 - [x] 소형 catalog 선주입과 `load_skill`·`read_skill_resource` 지연 로딩
 - [x] 실제 Qwen3.8 27B가 카탈로그에서 `load_skill` tool call을 선택
-- [x] `openai/skills` `cli-creator`를 commit SHA로 고정해 다운로드·라이선스 파일·컴파일 검증
-- [x] Python 157 tests, Electron main 15 tests, TypeScript/build 통과
-- [ ] 실제 GitHub 저장소를 이용한 앱 수동 QA
+- [x] `openai/skills` `skill-creator`를 commit SHA로 고정해 다운로드·라이선스 파일·컴파일 검증
+- [x] Python 165 tests, Electron main 20 tests, renderer 10 tests, TypeScript/build 통과
+- [x] 실제 GitHub 저장소를 이용한 앱 수동 QA
 
 ### 29. AgentProfile 프롬프트와 컨텍스트
 
@@ -431,7 +431,7 @@
 - [x] AgentProfile 루트와 실제 Task worker span으로 읽기 전용 실행 그래프 구성
 - [x] 중복 전역 컨텍스트 메뉴 제거
 - [x] migration·API·runtime snapshot 회귀 테스트
-- [ ] 실제 앱에서 프롬프트 저장·정책 적용·검사기 수동 QA
+- [x] 실제 앱에서 프롬프트 저장·정책 적용·검사기 수동 QA
 
 ### 30. 공식 Janus 데스크톱 디자인 시스템
 
@@ -444,6 +444,28 @@
 - [x] TSX raw hex 제거와 accent의 runtime signal 한정
 - [x] TypeScript·Electron main test·production build·Python 회귀 테스트
 - [ ] 실제 Electron 앱 전체 화면 수동 QA
+
+## v1.2. 서비스 배포 성숙도
+
+성숙도 분석(2026-08-23) 결론: 자동 검증은 GA 후보 수준이나 실기기·배포 축은 알파 수준이다.
+"혼자 쓰는 도구"에서 "남에게 주는 서비스"로 넘어가는 경계 작업만 남았다.
+
+### 31. CI
+
+- [x] push/PR에서 Python·Electron main·renderer·TypeScript·production build를 실행하는 CI workflow
+- [x] 3개 버전 위치 일치 검증을 CI에서 실행 — VERSIONING.md는 이미 "CI tests this invariant"라고
+      약속하지만 현재 로컬 `test_version.py`만 존재한다
+- [x] `pnpm audit`·`pip-audit`를 CI 게이트로 승격
+
+### 32. 서명과 공증
+
+- [ ] Developer ID 서명 + hardened runtime + notarization 파이프라인
+- [ ] 서명된 공개 artifact와 checksum 발행 (VERSIONING.md 릴리스 게이트 6단계)
+
+### 33. 검증된 업데이트 피드
+
+- [x] 서명 검증·rollback·schema 호환·중단된 다운로드 복구의 자동 테스트 (VERSIONING.md 선행 조건)
+- [ ] backup-first 수동 앱 교체 절차를 대체하는 업데이트 피드
 
 ## 지금 시작할 작업
 
@@ -463,3 +485,6 @@
 - [x] P3-16 Independent Verification Runner
 - [x] P3-17 revision-aware Review Loop
 - [x] P3-18 Task branch commit/push/handoff
+- [x] **v1.2-31 CI workflow와 버전 불변식 CI 검증**
+- [ ] v1.2-32 서명·공증 파이프라인
+- [ ] v1.2-33 검증된 업데이트 피드
