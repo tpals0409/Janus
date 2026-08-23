@@ -27,6 +27,7 @@ module.exports = {
   ],
   mac: {
     category: "public.app-category.developer-tools",
+    icon: "build/icon.png",
     target: signedRelease ? ["dmg", "zip"] : ["dir"],
     identity: signedRelease ? undefined : null,
     hardenedRuntime: signedRelease,

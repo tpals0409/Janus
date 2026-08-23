@@ -104,6 +104,38 @@ class WorkspaceApiTests(unittest.TestCase):
         self.assertEqual(self.main_head, git(self.repo, "rev-parse", "HEAD").stdout.strip())
         self.assertEqual("", git(self.repo, "status", "--porcelain").stdout.strip())
 
+    def test_deleting_a_task_releases_its_worktree_and_keeps_the_branch(self):
+        """목록에서 감춘 Task의 worktree는 다시 닿을 수 없다 — 같이 놓아준다."""
+        task = self.create_task()
+        self.client.post(f"/tasks/{task['id']}/workspace/prepare", headers=self.headers)
+        ready = self.wait_workspace(task["id"], "ready")
+        root = Path(ready["root_path"])
+        branch = ready["branch_name"]
+        self.assertTrue(root.is_dir())
+
+        deleted = self.client.delete(f"/tasks/{task['id']}", headers=self.headers)
+        self.assertEqual(200, deleted.status_code, deleted.text)
+        self.assertIsNotNone(deleted.json()["archived_at"])
+        self.assertFalse(root.exists())
+        # 브랜치는 남는다 — 감추는 것이지 작업을 버리는 게 아니다.
+        self.assertEqual(
+            0, git(self.repo, "rev-parse", "--verify", branch, check=False).returncode
+        )
+        self.assert_main_unchanged()
+
+    def test_uncommitted_work_survives_a_task_delete(self):
+        """목록 정리가 커밋 안 된 변경을 지우면 안 된다."""
+        task = self.create_task()
+        self.client.post(f"/tasks/{task['id']}/workspace/prepare", headers=self.headers)
+        ready = self.wait_workspace(task["id"], "ready")
+        root = Path(ready["root_path"])
+        (root / "wip.txt").write_text("아직 커밋 안 함", encoding="utf-8")
+
+        deleted = self.client.delete(f"/tasks/{task['id']}", headers=self.headers)
+        self.assertEqual(200, deleted.status_code, deleted.text)
+        self.assertIsNotNone(deleted.json()["archived_at"])
+        self.assertTrue((root / "wip.txt").is_file())
+
     def test_real_prepare_safe_archive_and_separate_branch_delete(self):
         task = self.create_task()
         response = self.client.post(

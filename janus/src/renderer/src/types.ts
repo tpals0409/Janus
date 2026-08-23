@@ -565,6 +565,7 @@ export interface AgentEvent {
     | 'assistant'
     | 'step'
     | 'text_delta'
+    | 'reasoning_delta'
     | 'tool_start'
     | 'tool_result'
     | 'llm_call'

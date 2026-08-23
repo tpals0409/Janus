@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,7 +13,7 @@ os.environ.setdefault("JANUS_AUTH_TOKEN", "test-token")
 
 from fastapi.testclient import TestClient
 
-from janus_server import server
+from janus_server import agent, server
 
 
 class AgentLoadTests(unittest.TestCase):
@@ -82,6 +83,50 @@ class AgentLoadTests(unittest.TestCase):
         self.assertEqual(200, saved.status_code)
         self.assertFalse(saved.json()["saved"])
         self.assertTrue(any("항상 주입됩니다" in e for e in saved.json()["errors"]))
+
+
+class SystemPromptLanguageTests(unittest.TestCase):
+    """프롬프트가 영어라 한국어 요청에도 영어로 답하던 문제 — 답의 언어를 요청에 맞춘다."""
+
+    def test_answer_language_rule_is_present_with_and_without_tools(self):
+        rule = "same language as the request"
+        self.assertIn(rule, agent.build_system_prompt("You are an orchestrator.", []))
+        self.assertIn(
+            rule, agent.build_system_prompt("You are an orchestrator.", ["read_file"])
+        )
+
+
+class ReasoningStreamTests(unittest.TestCase):
+    """사고 토큰은 화면에만 흘리고 대화 기록에는 섞이면 안 된다."""
+
+    @staticmethod
+    def _chunk(content=None, reasoning=None):
+        delta = SimpleNamespace(content=content, tool_calls=None)
+        if reasoning is not None:
+            delta.reasoning_content = reasoning
+        return SimpleNamespace(usage=None, choices=[SimpleNamespace(delta=delta)])
+
+    def test_reasoning_is_emitted_but_kept_out_of_the_answer(self):
+        events = []
+        text, calls, _usage = agent._assemble(
+            [self._chunk(reasoning="생각 "), self._chunk(reasoning="중"),
+             self._chunk(content="답")],
+            lambda kind, **kw: events.append((kind, kw.get("text"))),
+        )
+        self.assertEqual("답", text)
+        self.assertEqual([], calls)
+        self.assertIn(("reasoning_delta", "생각 "), events)
+        self.assertIn(("reasoning_delta", "중"), events)
+        self.assertIn(("text_delta", "답"), events)
+
+    def test_missing_reasoning_field_is_not_an_error(self):
+        events = []
+        text, _calls, _usage = agent._assemble(
+            [self._chunk(content="답만")],
+            lambda kind, **kw: events.append(kind),
+        )
+        self.assertEqual("답만", text)
+        self.assertNotIn("reasoning_delta", events)
 
 
 if __name__ == "__main__":

@@ -322,11 +322,61 @@ class RuntimeTests(unittest.TestCase):
             and message["kind"] == "worker_spawn_suppressed"
         )
         self.assertEqual("autonomous_implementer_overhead", event["reason"])
+        self.assertEqual("coder", event["name"])
         tool_message = next(
             message for message in fake.captured[1]["messages"]
             if message["role"] == "tool"
         )
+        self.assertIn("WORKER NOT CREATED", tool_message["content"])
         self.assertIn("complete/integrate the task directly", tool_message["content"])
+
+    def test_later_turn_explicit_worker_request_uses_current_message(self):
+        fake = FakeClient([
+            {"text": "ready"},
+            {"calls": [("create_worker", worker_args("reader", task="read status"))]},
+            {"text": "worker done"},
+            {"text": "integrated"},
+        ])
+        spec = {**SPEC, "allow_autonomous_workers": False}
+        with orch_env(fake, spec), self.connect() as ws:
+            ws.send_json({"type": "message", "text": "status check"})
+            self.drain_turn(ws)
+            ws.send_json({"type": "message", "text": "그래프에 워커 2개 테스트 배치해"})
+            seen = self.drain_turn(ws)
+
+        workers = [
+            message["span"] for message in seen
+            if message["type"] == "span_start"
+            and message["span"]["node_id"].startswith("w")
+        ]
+        self.assertEqual(1, len(workers))
+        self.assertEqual("reader", workers[0]["label"])
+
+    def test_read_only_parent_turn_hides_mutating_tools(self):
+        fake = FakeClient([{"text": "summary"}])
+        spec = {
+            **SPEC,
+            "tools": ["read_file", "edit_file", "write_file", "run_bash"],
+            "approval": "ask",
+        }
+        with orch_env(fake, spec), self.connect() as ws:
+            ws.send_json({"type": "message", "text": "README 구조를 조사하고 요약해"})
+            seen = self.drain_turn(ws)
+
+        names = [tool["function"]["name"] for tool in fake.captured[0]["tools"]]
+        self.assertIn("read_file", names)
+        self.assertIn("create_worker", names)
+        self.assertNotIn("edit_file", names)
+        self.assertNotIn("write_file", names)
+        self.assertNotIn("run_bash", names)
+        restricted = next(
+            message for message in seen
+            if message["type"] == "agent_event"
+            and message["kind"] == "parent_tools_restricted"
+        )
+        self.assertEqual(
+            ["edit_file", "run_bash", "write_file"], restricted["removed_tools"]
+        )
 
     def test_verifier_worker_is_read_only_and_receives_bounded_context(self):
         args = json.dumps({
@@ -633,6 +683,37 @@ class SessionContextTests(unittest.TestCase):
         snapshot["resources"]["model_generation"]["queued"] = 0
         self.assertIsNone(runtime.worker_spawn_pressure(snapshot))
 
+    def test_worker_room_degrades_instead_of_collapsing_as_a_chat_grows(self):
+        """dispatch step 예산은 세션 전체에 누적된다 — 대화가 길어져도 절벽이 없어야 한다."""
+        one_slot = {"resources": {"model_generation": {"cap": 1}}}
+        rooms = [
+            runtime.effective_worker_step_limit(
+                8, 8, {"limits": {"step_limit": 60}, "usage": {"steps": used}}, one_slot
+            )
+            for used in (0, 15, 30, 45, 58)
+        ]
+        # 단조 감소하되 바닥값 아래로는 내려가지 않는다.
+        self.assertEqual(rooms, sorted(rooms, reverse=True))
+        self.assertTrue(all(room >= runtime.MIN_WORKER_STEPS for room in rooms))
+        # 예전 계산식(전체에서 60% 예비)은 여기서 이미 0으로 떨어져 바닥값에 눌러앉았다.
+        self.assertGreater(rooms[1], runtime.MIN_WORKER_STEPS)
+
+    def test_worker_never_gets_a_step_budget_that_cannot_answer(self):
+        """1 step짜리 worker는 tool call만 하고 budget_exhausted로 끝난다 — 반드시 실패한다."""
+        one_slot = {"resources": {"model_generation": {"cap": 1}}}
+        # 실제로 실패했던 상황: 한도 15, 이미 6 사용 → 부모 몫 9를 떼면 남는 게 0.
+        drained = {"limits": {"step_limit": 15}, "usage": {"steps": 6}}
+        self.assertEqual(
+            runtime.MIN_WORKER_STEPS,
+            runtime.effective_worker_step_limit(5, 8, drained, one_slot),
+        )
+        # 프로필이나 요청이 1을 지정해도 답을 낼 수 있는 최소치는 지킨다.
+        roomy = {"limits": {"step_limit": 30}, "usage": {"steps": 1}}
+        self.assertGreaterEqual(
+            runtime.effective_worker_step_limit(1, 1, roomy, one_slot),
+            runtime.MIN_WORKER_STEPS,
+        )
+
     def test_single_model_slot_reserves_tight_dispatch_steps_for_parent(self):
         dispatch = {
             "limits": {"step_limit": 10},
@@ -645,8 +726,9 @@ class SessionContextTests(unittest.TestCase):
             "resources": {"model_generation": {"cap": 2}},
         }
 
+        # 남은 9 step에서 60%를 부모가 갖고 나머지가 worker 몫 — 바닥값 아래로는 안 내려간다.
         self.assertEqual(
-            3,
+            4,
             runtime.effective_worker_step_limit(14, 8, dispatch, one_slot),
         )
         self.assertEqual(

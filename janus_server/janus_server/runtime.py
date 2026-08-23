@@ -21,6 +21,7 @@ from typing import Callable
 
 from openai import OpenAI
 
+from . import adaptive as adaptive_mod
 from . import agent as agent_mod
 from . import budget as budget_mod
 from . import spec as spec_mod
@@ -48,10 +49,30 @@ MAX_MODEL_QUEUE_FOR_SPAWN = 1
 SINGLE_SLOT_PARENT_RESERVE_NUMERATOR = 6
 SINGLE_SLOT_PARENT_RESERVE_DENOMINATOR = 10
 TIGHT_DISPATCH_STEP_LIMIT = 16
+# 도구 호출 몇 번 + 결과를 읽고 답하는 1 step. 2로 두면 두 번째 도구 호출에서 소진돼
+# 답을 못 쓴 채 끝난다(실측: read_file×2 → glob → step_limit 소진).
+MIN_WORKER_STEPS = 4
 EXPLICIT_WORKER_PHRASES = (
     "create_worker", "spawn worker", "spawn a worker", "delegate to a worker",
     "worker를", "워커를", "위임",
 )
+EXPLICIT_WORKER_KOREAN_ACTIONS = ("배치", "생성", "추가", "실행", "스폰", "위임")
+READ_ONLY_REQUEST_WORDS = (
+    "investigate", "inspect", "research", "analyze", "audit", "explain", "explore",
+    "조사", "살펴", "확인", "분석", "검토", "설명", "요약", "파악", "탐색", "훑",
+)
+MUTATING_REQUEST_WORDS = (
+    "edit", "modify", "write", "implement", "fix", "refactor", "create", "delete",
+    "수정", "변경", "작성", "구현", "고쳐", "리팩터", "생성", "삭제", "추가",
+)
+
+
+def is_read_only_request(text: str | None) -> bool:
+    lowered = str(text or "").lower()
+    return (
+        any(word in lowered for word in READ_ONLY_REQUEST_WORDS)
+        and not any(word in lowered for word in MUTATING_REQUEST_WORDS)
+    )
 
 
 def worker_spawn_pressure(snapshot: dict, *, max_model_queue: int =
@@ -73,10 +94,12 @@ def worker_spawn_fit(
     생성이 직렬인 1-slot 환경에서는 역할과 무관하게 worker가 추가 prefill/generation을
     만든다. 사용자가 명시적으로 위임했거나 profile이 override한 경우에만 허용한다.
     """
-    if policy != "autonomous" or user_task is None or allow_autonomous_workers:
+    if policy != "autonomous" or not user_task or allow_autonomous_workers:
         return None
     lowered = user_task.lower()
     if any(phrase in lowered for phrase in EXPLICIT_WORKER_PHRASES):
+        return None
+    if "워커" in lowered and any(action in lowered for action in EXPLICIT_WORKER_KOREAN_ACTIONS):
         return None
     return "autonomous_implementer_overhead"
 
@@ -94,12 +117,15 @@ def effective_worker_step_limit(
     leave the parent unable to inspect partial edits, correct them, or even produce a
     final response. Reserve 60% of the dispatch step budget for the parent in that
     topology. Larger/default dispatches still retain the configured worker cap.
+
+    바닥값은 1이 아니라 MIN_WORKER_STEPS다. 도구를 쓰는 worker는 첫 step에서 tool call만
+    내보내므로, 결과를 읽고 답할 두 번째 step이 없으면 반드시 budget_exhausted로 끝난다.
     """
     try:
         requested_limit = max(1, min(int(requested), 50))
     except (TypeError, ValueError):
         requested_limit = 8
-    limit = min(int(configured), requested_limit)
+    limit = max(MIN_WORKER_STEPS, min(int(configured), requested_limit))
     model = scheduler_snapshot["resources"][
         scheduler_mod.ResourceClass.MODEL_GENERATION.value
     ]
@@ -108,11 +134,14 @@ def effective_worker_step_limit(
 
     dispatch_limit = int(dispatch_snapshot["limits"]["step_limit"])
     dispatch_used = int(dispatch_snapshot["usage"]["steps"])
+    # 예비분은 **남은 몫**에서 뗀다. 전체에서 떼면 부모가 이미 쓴 step을 두 번 세는 셈이라,
+    # 대화가 조금만 길어져도 worker 몫이 0으로 떨어져 바닥값에 눌러앉는다.
+    remaining = max(0, dispatch_limit - dispatch_used)
     parent_reserve = (
-        dispatch_limit * SINGLE_SLOT_PARENT_RESERVE_NUMERATOR
+        remaining * SINGLE_SLOT_PARENT_RESERVE_NUMERATOR
         + SINGLE_SLOT_PARENT_RESERVE_DENOMINATOR - 1
     ) // SINGLE_SLOT_PARENT_RESERVE_DENOMINATOR
-    worker_room = max(1, dispatch_limit - dispatch_used - parent_reserve)
+    worker_room = max(MIN_WORKER_STEPS, remaining - parent_reserve)
     return min(limit, worker_room)
 
 
@@ -220,8 +249,14 @@ class Orchestration:
         self.workspace_context = workspace_context
         self.active_workspace_context: WorkspaceContext | None = None
         self.scheduler = scheduler or scheduler_mod.default_scheduler()
+        # max_steps는 budget이 dispatch step_limit을 안 주었을 때의 기본값으로 남긴다 —
+        # "빠듯한 dispatch" 판정이 이 값을 본다.
         self.budget = budget_mod.normalize_budget(budget, max_steps=self.max_steps)
-        self.max_steps = int(self.budget["dispatch"]["step_limit"])
+        # 다만 한 턴의 루프 상한으로 **덮어쓰지는** 않는다. dispatch step 예산은 세션 전체에
+        # 누적되므로, 누적치를 그대로 루프 상한으로 쓰면 한 턴이 60번까지 돌 수 있다.
+        self.max_steps = min(
+            int(self.max_steps), int(self.budget["dispatch"]["step_limit"])
+        )
         self.priority = int(
             self.budget["queue"]["priority"] if priority is None else priority
         )
@@ -451,6 +486,22 @@ class Orchestration:
             ),
         ]
 
+    def _concurrent_worker_limit(self) -> int:
+        """이번 턴에 사용자가 명시적으로 요청한 worker 수를 Dispatch 스냅샷보다 우선한다.
+
+        Dispatch 예산은 세션의 **첫** 메시지로 한 번 정해진 뒤 대화 내내 유지된다.
+        대화 도중 "워커 두개"라고 해도 그 요청은 스냅샷에 없으므로, 명시 요청까지
+        첫 메시지 기준으로 막으면 사용자가 시킨 일이 조용히 거부된다.
+        total_limit은 그대로 지킨다 — 상한을 넘기자는 게 아니라 스냅샷의 시점 오류만 보정한다.
+        """
+        configured = int(self.budget["workers"]["concurrent_limit"])
+        requested = adaptive_mod.requested_worker_count(
+            {"objective": self.current_user_text}
+        )
+        if not requested:
+            return configured
+        return max(configured, min(requested, int(self.budget["workers"]["total_limit"])))
+
     def _sink(self, node_id: str, kind: str, data: dict) -> None:
         clipped = {k: _clip(v) for k, v in data.items()}
         measured = self.telemetry.record_event(
@@ -593,12 +644,12 @@ class Orchestration:
                     rejection = "worker_policy_fixed_one"
                 elif self.worker_seq >= int(self.budget["workers"]["total_limit"]):
                     rejection = "worker_total_budget"
-                elif self.active_workers >= int(self.budget["workers"]["concurrent_limit"]):
+                elif self.active_workers >= self._concurrent_worker_limit():
                     rejection = "worker_concurrent_budget"
                 elif existing is not None and existing["status"] == "running":
                     rejection = "duplicate_worker_running"
                 elif (fit := worker_spawn_fit(
-                    self.worker_policy, self.first_message,
+                    self.worker_policy, self.current_user_text,
                     allow_autonomous_workers=self.allow_autonomous_workers,
                 )) is not None:
                     rejection = fit
@@ -628,7 +679,7 @@ class Orchestration:
                 }
             if rejection is not None:
                 self._sink(ORCH_ID, "worker_spawn_suppressed", {
-                    "reason": rejection, "role": role,
+                    "reason": rejection, "name": str(name), "role": role,
                     "fingerprint": fingerprint,
                     "model_generation": model_state,
                 })
@@ -651,15 +702,17 @@ class Orchestration:
                     previous = next(iter(self.worker_requests.values()), None)
                     prior = str((previous or {}).get("result") or "").strip()
                     guidance = (
-                        f"Worker spawn suppressed ({rejection}). "
+                        f"WORKER NOT CREATED: spawn suppressed ({rejection}). "
+                        "Do not say that this worker was created, deployed, or started. "
                         "Do not call create_worker again. Inspect the current workspace and "
-                        "complete/integrate the task directly."
+                        "complete/integrate the task directly, then explicitly report that the "
+                        "worker request was suppressed."
                     )
                     if prior:
                         guidance = prior + "\n\n" + guidance
                     return {
                         "worker": (previous or {}).get("worker"),
-                        "role": role, "result": guidance,
+                        "role": role, "created": False, "result": guidance,
                         "suppressed": True, "reason": rejection,
                     }
                 return {"error": messages[rejection], "reason": rejection}
@@ -875,6 +928,14 @@ class Orchestration:
         context = self.workspace_context.for_dispatch(dispatch_id)
         self.active_workspace_context = context
         self.dispatch_budget.begin_active()
+        turn_tools = list(self.tools)
+        if is_read_only_request(text):
+            turn_tools = [tool for tool in turn_tools if tool in T.READ_ONLY]
+            removed = sorted(set(self.tools) - set(turn_tools))
+            if removed:
+                self._sink(ORCH_ID, "parent_tools_restricted", {
+                    "mode": "read_only", "removed_tools": removed,
+                })
         if self.first_message is None:
             self.first_message = text
             self._open_span(ORCH_ID, label=self.spec.get("name"), parent_id=None,
@@ -885,7 +946,7 @@ class Orchestration:
                 system_prompt=self.spec.get("system_prompt") or "",  # session이 이미 보유
                 task=text,
                 tool_names=(
-                    self.tools
+                    turn_tools
                     + (["create_worker"] if self.worker_enabled else [])
                     + [tool["name"] for tool in self.skill_tools]
                 ),

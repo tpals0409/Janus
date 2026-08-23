@@ -15,7 +15,8 @@
 (R3/P2), Git-derived ChangeSet·Verification·Review·Ship(R4/P3), Evaluation Lab·
 Adaptive Orchestration·Operations Dashboard(R5/P4), PR·CI와 Task 개발 표면,
 견고성·데이터 복구와 배포 품질(R6~R9/P5)까지 완료됐다. Janus는
-이제 Task 생성부터 격리 worktree 실행, 독립 검증, revision-aware review, Task branch
+이제 자연어 목표 위임부터 내부 Task 구성, 격리 worktree 실행, 독립 검증,
+revision-aware review, Task branch
 commit/push 또는 명시적 cherry-pick handoff까지 앱 안에서 연결한다.**
 
 현재 앱은 로컬 MLX 오케스트레이터와 런타임 워커를 실행하고 trace를 보여주는 검증된 세로
@@ -93,10 +94,12 @@ Janus memory peak, budget 소진율, generation/tool/verification 흔적을 2초
 
 ## 현재 검증
 
-2026-08-22 현재 체크아웃에서 직접 확인:
+2026-08-23 현재 체크아웃에서 직접 확인:
 
-- Python 테스트 138개 통과(과거 schema 10개 migration subtest 포함)
-- Node main-process 테스트 15개 통과(실제 분리 프로세스 그룹 3회 start/stop 포함)
+- Python 테스트 166개 통과(과거 schema migration subtest 16개 포함)
+- Electron main-process 테스트 25개 통과(실제 분리 프로세스 그룹 start/stop 포함)
+- Electron renderer 테스트 10개 통과
+- 공식 Janus 아이콘을 포함한 unsigned macOS `Janus.app` 패키징 통과
 - 도구 자체 검사 통과
 - 오케스트레이터 spec 검사 통과
 - TypeScript 타입 검사 통과

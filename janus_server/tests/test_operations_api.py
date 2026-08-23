@@ -13,6 +13,7 @@ os.environ.setdefault("JANUS_AUTH_TOKEN", "test-token")
 from fastapi.testclient import TestClient
 
 from janus_server import server
+from janus_server.budget import normalize_budget
 
 
 class OperationsDashboardTests(unittest.TestCase):
@@ -92,8 +93,10 @@ class OperationsDashboardTests(unittest.TestCase):
         self.store.record_dispatch_budget(
             running["dispatch"]["id"],
             usage={
-                "prompt_tokens": 4096, "completion_tokens": 4096, "steps": 15,
-                "active_time_ms": 450_000, "workers_started": 2,
+                "prompt_tokens": 4096, "completion_tokens": 4096,
+                "steps": normalize_budget(None)["dispatch"]["step_limit"],
+                "active_time_ms": normalize_budget(None)["dispatch"]["time_limit_ms"] // 2,
+                "workers_started": 2,
                 "peak_concurrent_workers": 1,
             },
         )

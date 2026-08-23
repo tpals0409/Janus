@@ -154,7 +154,7 @@ Janus가 느린 이유와 worker가 도움 되는지를 숫자로 볼 수 있다
 #### 최소 UI
 
 - Agent 목록 중심 sidebar를 Project/Task 중심으로 교체
-- Task 생성: title, objective, acceptance, base ref
+- 자연어 위임에서 내부 Task의 title, objective, acceptance, base ref를 자동 구성
 - `preparing`, `working`, `needs-input`, `review`, `failed` 표시
 - Workspace 복구와 안전 삭제 동작
 

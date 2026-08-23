@@ -188,14 +188,18 @@ class Session:
 def build_system_prompt(base: str, tool_names: list[str],
                         registry: dict | None = None) -> str:
     """도구별 guidance를 시스템 프롬프트에 합친다 — 규칙을 도구 옆에 두는 패턴."""
+    # 프롬프트가 전부 영어라 모델이 답까지 영어로 낸다. 답의 언어는 요청자가 정한다.
+    language = (
+        "Write your final answer in the same language as the request you were given."
+    )
     if not tool_names:
-        return base + "\n\nYou have no tools. Answer directly."
+        return f"{base}\n\nYou have no tools. Answer directly.\n\n{language}"
     return (
         f"{base}\n\n"
         "Work by calling tools. When the task is done, reply with plain text and no "
         "tool call — that is how you finish.\n\n"
         f"Tools:\n{T.guidance_for(tool_names, registry=registry)}\n\n"
-        "Be brief. Do not narrate what you are about to do; just do it."
+        f"Be brief. Do not narrate what you are about to do; just do it.\n\n{language}"
     )
 
 
@@ -225,6 +229,9 @@ def _assemble(stream, emit, cancel=None) -> tuple[str, list[dict], dict | None]:
         if not chunk.choices:
             continue
         delta = chunk.choices[0].delta
+        # 사고 과정은 답이 아니다 — 화면에만 흘리고 대화 기록(parts)에는 넣지 않는다.
+        if reasoning := getattr(delta, "reasoning_content", None):
+            emit("reasoning_delta", text=reasoning)
         if delta.content:
             parts.append(delta.content)
             emit("text_delta", text=delta.content)
@@ -328,7 +335,11 @@ def run(
         emit("llm_call", messages=msgs if step == 0 else msgs[-2:],
              total_messages=len(msgs))
         kwargs = {"model": model, "messages": msgs, "stream": True,
-                  "stream_options": {"include_usage": True}}
+                  "stream_options": {"include_usage": True},
+                  # mlx_vlm 전용 필드 — 켜면 reasoning_content가 content와 분리돼 나온다.
+                  # ponytail: 모든 step에 thinking이 붙어 생성이 느려진다.
+                  # 답답하면 AgentProfile 설정으로 빼는 게 다음 단계다.
+                  "extra_body": {"enable_thinking": True}}
         if schemas:
             kwargs["tools"] = schemas
         generation_id = uuid.uuid4().hex[:16]
@@ -402,7 +413,8 @@ def run(
             return last_text, session.events
 
         session.append("assistant", content=text, tool_calls=calls or None)
-        if text:
+        # 개행뿐인 답은 답이 아니다 — 화면에 빈 말풍선만 남는다.
+        if text.strip():
             last_text = text
             emit("assistant", content=text)
 

@@ -115,6 +115,9 @@ AUTH_TOKEN = os.environ.get("JANUS_AUTH_TOKEN") or secrets.token_hex(32)
 if "JANUS_AUTH_TOKEN" not in os.environ:
     print(f"[janus] generated auth token: {AUTH_TOKEN}", file=sys.stderr)
 
+# supervisor의 SIGTERM grace(5s)보다 짧아야 SIGKILL 없이 정상 종료된다.
+GRACEFUL_SHUTDOWN_SECONDS = 3
+
 _DEFAULT_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173,file://,null"
 ALLOWED_ORIGINS = frozenset(
     origin.strip()
@@ -374,7 +377,8 @@ async def stream_domain_events(ws: WebSocket):
             except TimeoutError:
                 message = {"topic": "system", "event": "heartbeat"}
             await ws.send_json(message)
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, asyncio.CancelledError):
+        # 종료 시 uvicorn이 이 연결을 끊는다 — 정상 경로이므로 traceback을 남기지 않는다.
         pass
     finally:
         _EVENT_BUS.unsubscribe(subscription.id)
@@ -670,6 +674,75 @@ def create_task(project_id: str, body: dict):
     )
 
 
+def _delegation_title(objective: str) -> str:
+    first_line = " ".join(objective.strip().splitlines()[0].split())
+    return first_line if len(first_line) <= 72 else f"{first_line[:71]}…"
+
+
+def _delegation_base_ref(repo: Path) -> str:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(repo), "symbolic-ref", "--quiet", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+        branch = completed.stdout.strip()
+        if completed.returncode == 0 and branch:
+            return branch
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return "main"
+
+
+def _delegation_acceptance(project: dict, repo: Path) -> str:
+    configured = json.loads(project.get("verification_commands_json") or "[]")
+    for preferred in ("acceptance", "test", "typecheck", "lint", "custom"):
+        match = next((item for item in configured if item.get("kind") == preferred), None)
+        if match and str(match.get("command") or "").strip():
+            return str(match["command"]).strip()
+
+    package = repo / "package.json"
+    if package.is_file():
+        try:
+            scripts = json.loads(package.read_text(encoding="utf-8")).get("scripts") or {}
+        except (OSError, json.JSONDecodeError):
+            scripts = {}
+        if scripts.get("test"):
+            if (repo / "pnpm-lock.yaml").is_file():
+                return "pnpm test"
+            if (repo / "yarn.lock").is_file():
+                return "yarn test"
+            return "npm test"
+        if scripts.get("typecheck"):
+            manager = "pnpm" if (repo / "pnpm-lock.yaml").is_file() else "npm run"
+            return f"{manager} typecheck"
+    if (repo / "pyproject.toml").is_file():
+        return "uv run pytest -q" if (repo / "uv.lock").is_file() else "python -m pytest -q"
+    if (repo / "Cargo.toml").is_file():
+        return "cargo test"
+    if (repo / "go.mod").is_file():
+        return "go test ./..."
+    return "git diff --check"
+
+
+@app.post("/projects/{project_id}/delegations")
+def delegate_project_work(project_id: str, body: dict):
+    objective = str(body.get("objective") or "").strip()
+    if not objective:
+        raise D.Conflict("위임할 목표를 입력하세요")
+    if len(objective) > 12_000:
+        raise D.Conflict("위임 목표는 12,000자 이하여야 합니다")
+    store = get_domain_store()
+    project = store.get_project(project_id)
+    repo = Path(project["repo_path"]).resolve()
+    return store.create_task(
+        project_id=project_id,
+        title=_delegation_title(objective),
+        objective=objective,
+        acceptance_command=_delegation_acceptance(project, repo),
+        base_ref=_delegation_base_ref(repo),
+    )
+
+
 @app.get("/tasks/{task_id}")
 def get_task(task_id: str):
     task = get_domain_store().get_task(task_id)
@@ -700,7 +773,29 @@ def transition_task(task_id: str, body: dict):
 
 @app.delete("/tasks/{task_id}")
 def archive_task(task_id: str):
-    return get_domain_store().archive_task(task_id)
+    """Task를 목록에서 감춘다. 대화 기록과 Git 브랜치는 남는다.
+
+    감춘 Task의 worktree는 UI로 다시 닿을 수 없으므로 같이 놓아준다.
+    브랜치는 보존되므로 작업 내용이 사라지지는 않는다.
+    """
+    store = get_domain_store()
+    workspace = store.get_task_workspace(task_id)
+    if workspace is not None and workspace["state"] != "archived" and workspace["owned"]:
+        latest = store.latest_dispatch(task_id)
+        if latest is not None and latest["status"] in {"queued", "running", "needs_you"}:
+            raise D.Conflict("활성 AgentSession을 먼저 중지해야 작업을 삭제할 수 있습니다")
+        if _workspace_job_active(workspace["id"]):
+            raise D.Conflict("작업 공간을 준비하는 중에는 삭제할 수 없습니다")
+        try:
+            if workspace.get("root_path"):
+                get_workspace_service().archive(
+                    repo_path=workspace["repo_path"], root_path=workspace["root_path"]
+                )
+            store.transition_workspace(workspace["id"], "archived", progress="archived")
+        except WS.UnsafeWorkspace:
+            # 커밋되지 않은 변경은 목록 정리보다 무겁다 — worktree는 두고 Task만 감춘다.
+            pass
+    return store.archive_task(task_id)
 
 
 def _workspace_job_active(workspace_id: str) -> bool:
@@ -2446,7 +2541,12 @@ def _task_session_detail(store: D.DomainStore, session_id: str) -> dict:
     dispatch = _dispatch_json(store.get_dispatch(session["dispatch_id"]))
     workspace = store.get_workspace(dispatch["workspace_id"])
     skills = [_skill_json(item) for item in store.snapshot_session_skills(session_id)]
-    events = store.list_session_events(session_id)
+    # session_ready는 접속 handshake이지 대화/실행 기록이 아니다. 이전 빌드에서
+    # 잘못 영속화된 기록도 세션 상세와 컨텍스트에서 제외한다.
+    events = [
+        event for event in store.list_session_events(session_id)
+        if event["kind"] != "session_ready"
+    ]
     spec = _task_runtime_spec(
         store, session["agent_profile_id"], budget=dispatch["budget"],
         adaptive_decision=dispatch["adaptive_decision"],
@@ -3074,12 +3174,12 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
                     "error": "더 최신 Dispatch가 이 Task의 실행 권한을 소유합니다",
                 }))
 
-    send({
+    await _safe_send(_payload_with_ids({
         "type": "session_ready",
         "agent_profile_id": session["agent_profile_id"],
         "resumed_events": transcript_count,
         "session_status": session["status"],
-    })
+    }))
 
     try:
         while True:
@@ -3315,9 +3415,13 @@ async def run_agent(ws: WebSocket, agent_id: str):
 
 def main():
     import uvicorn
+
     uvicorn.run(
         app, host="127.0.0.1", port=int(os.environ.get("JANUS_PORT", "8765")),
         log_level="info",
+        # SIGTERM 뒤 스트리밍 연결을 기다리다 supervisor의 5초 grace를 넘기면
+        # SIGKILL을 맞아 SQLite 쓰기가 끊긴다. 남은 연결은 강제로 닫고 정상 종료한다.
+        timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_SECONDS,
     )
 
 

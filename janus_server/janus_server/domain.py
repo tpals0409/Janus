@@ -17,7 +17,7 @@ from typing import Any
 
 from .budget import empty_usage, merge_budget, normalize_budget
 
-CURRENT_SCHEMA_VERSION = 13
+CURRENT_SCHEMA_VERSION = 14
 
 DEFAULT_CONTEXT_POLICY = {
     "max_chars": 24_000,
@@ -512,11 +512,26 @@ ALTER TABLE agent_profiles ADD COLUMN context_policy_json TEXT NOT NULL DEFAULT
 ALTER TABLE dispatches ADD COLUMN agent_profile_snapshot_json TEXT NOT NULL DEFAULT '{}';
 """
 
+# 예전 기본 예산은 대화 하나를 못 버텼다(실측 34k 토큰 > 한도 32,768).
+# 사용자가 직접 바꾼 값은 건드리지 않고, 예전 **기본값 그대로인** 프로필만 올린다.
+MIGRATION_14 = """
+UPDATE agent_profiles SET budget_json = json_set(
+    budget_json,
+    '$.dispatch.token_limit', 262144,
+    '$.dispatch.time_limit_ms', 3600000,
+    '$.dispatch.step_limit', 60,
+    '$.worker.token_limit', 16384
+), updated_at = updated_at
+WHERE json_extract(budget_json, '$.dispatch.token_limit') = 32768
+  AND json_extract(budget_json, '$.dispatch.time_limit_ms') = 900000
+  AND json_extract(budget_json, '$.worker.token_limit') = 8192;
+"""
+
 MIGRATIONS = {
     1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3, 4: MIGRATION_4,
     5: MIGRATION_5, 6: MIGRATION_6, 7: MIGRATION_7, 8: MIGRATION_8,
     9: MIGRATION_9, 10: MIGRATION_10, 11: MIGRATION_11, 12: MIGRATION_12,
-    13: MIGRATION_13,
+    13: MIGRATION_13, 14: MIGRATION_14,
 }
 
 
@@ -610,7 +625,7 @@ class DomainStore:
                     "You are a local coding agent. Make verified changes in the assigned workspace.",
                     _json(["read_file", "glob", "grep", "write_file", "edit_file"]),
                     "ask", "autonomous", 15, "model_qwen38_27b_4bit",
-                    _json(normalize_budget(None, max_steps=15)), now, now,
+                    _json(normalize_budget(None)), now, now,
                 ),
             )
             connection.execute("COMMIT")

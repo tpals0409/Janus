@@ -9,9 +9,12 @@ from contextlib import ExitStack
 from typing import Callable
 
 
+# dispatch 예산은 한 턴이 아니라 **세션 전체**에 누적된다. 실측으로 5턴짜리 대화가
+# 모델 호출 11회에 26k~34k 토큰을 썼다 — 예전 32,768은 대화 하나를 못 버텼다.
+# 호출당 약 2,600 토큰을 기준으로 100회 남짓 버티도록 잡았다.
 DEFAULT_BUDGET = {
-    "dispatch": {"token_limit": 32_768, "time_limit_ms": 900_000, "step_limit": 30},
-    "worker": {"token_limit": 8_192, "time_limit_ms": 300_000, "step_limit": 8},
+    "dispatch": {"token_limit": 262_144, "time_limit_ms": 3_600_000, "step_limit": 60},
+    "worker": {"token_limit": 16_384, "time_limit_ms": 300_000, "step_limit": 8},
     "workers": {"total_limit": 4, "concurrent_limit": 2},
     "queue": {"timeout_ms": 300_000, "priority": 0},
 }

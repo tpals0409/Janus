@@ -8,6 +8,7 @@ effective worker topology, and budget that existed at dispatch time travel toget
 from __future__ import annotations
 
 from copy import deepcopy
+import re
 from typing import Any
 
 from .budget import merge_budget, normalize_budget
@@ -18,6 +19,38 @@ TASK_CLASSES = {
 }
 
 
+# "워커 2개"만 세지 말 것 — 한국어로는 "워커 두개"라고 더 자주 쓴다.
+KOREAN_NUMERALS = {
+    "한": 1, "하나": 1, "두": 2, "둘": 2, "세": 3, "셋": 3, "네": 4, "넷": 4,
+    "다섯": 5, "여섯": 6, "일곱": 7, "여덟": 8, "아홉": 9, "열": 10,
+}
+_COUNT = r"[0-9]+|" + "|".join(sorted(KOREAN_NUMERALS, key=len, reverse=True))
+
+
+def _as_count(token: str) -> int | None:
+    if token.isdigit():
+        return int(token)
+    return KOREAN_NUMERALS.get(token)
+
+
+def requested_worker_count(task: dict) -> int | None:
+    """Extract an explicit numeric worker request from the Task contract."""
+    text = " ".join(
+        str(task.get(key) or "") for key in ("title", "objective")
+    ).lower()
+    patterns = (
+        rf"(?:workers?|워커)\s*({_COUNT})",
+        rf"({_COUNT})\s*(?:개(?:의|를|가|는)?\s*)?(?:workers?|워커)",
+    )
+    counts = [
+        value
+        for pattern in patterns
+        for match in re.finditer(pattern, text)
+        if (value := _as_count(match.group(1))) is not None
+    ]
+    return max(counts) if counts else None
+
+
 def classify_task(task: dict) -> tuple[str, list[str]]:
     text = " ".join(
         str(task.get(key) or "") for key in ("title", "objective", "acceptance_command")
@@ -26,7 +59,10 @@ def classify_task(task: dict) -> tuple[str, list[str]]:
 
     investigation_words = (
         "investigate", "diagnose", "analyze", "audit", "research", "explain",
-        "조사", "진단", "분석", "감사", "원인",
+        "inspect", "explore",
+        # 읽기 전용 한국어 요청은 "조사"만 쓰지 않는다. 사전에 없는 낱말을 쓰면
+        # general로 떨어져 worker fanout이 막힌다.
+        "조사", "진단", "분석", "감사", "원인", "파악", "살펴", "탐색", "훑",
     )
     refactor_words = (
         "refactor", "migration", "across", "multiple files", "architecture",
@@ -107,6 +143,7 @@ def decide(
     failure_type, failure_evidence = classify_failure(
         previous_dispatch, verification_runs
     )
+    explicit_workers = requested_worker_count(task)
 
     base_budget = normalize_budget(
         base_profile.get("budget"), max_steps=int(base_profile.get("max_steps", 15))
@@ -127,14 +164,29 @@ def decide(
         }
         reasons.append("direct_owner_for_narrow_change")
     elif task_class == "investigation":
-        worker_policy = "fixed_one"
+        worker_policy = "autonomous" if explicit_workers and explicit_workers > 1 else "fixed_one"
         roles = ["researcher"]
-        role_sequence = ["researcher"]
+        worker_count = max(1, explicit_workers or 1)
+        role_sequence = ["researcher"] * worker_count
+        allow_autonomous = bool(explicit_workers and explicit_workers > 1)
         budget_override = {
-            "worker": {"step_limit": min(base_budget["worker"]["step_limit"], 5)},
-            "workers": {"total_limit": 1, "concurrent_limit": 1},
+            "worker": {
+                "token_limit": max(base_budget["worker"]["token_limit"], 16_384),
+                "step_limit": min(base_budget["worker"]["step_limit"], 8),
+            },
+            "workers": {
+                "total_limit": min(worker_count, base_budget["workers"]["total_limit"]),
+                # Worker lifetimes may overlap while the model scheduler serializes
+                # their generation on a one-slot local model. Do not discard an
+                # explicitly requested worker merely because another one is queued.
+                "concurrent_limit": min(
+                    worker_count, base_budget["workers"]["concurrent_limit"]
+                ),
+            },
         }
-        reasons.append("read_only_scout")
+        reasons.append(
+            "explicit_read_only_fanout" if worker_count > 1 else "read_only_scout"
+        )
     elif task_class == "test_heavy":
         worker_policy = "autonomous"
         roles = ["implementer", "verifier"]
@@ -230,11 +282,16 @@ def decide(
         budget_override["workers"] = {"total_limit": 1, "concurrent_limit": 1}
         reasons.append("queue:backpressure_single_worker")
     elif cap == 1:
-        allow_autonomous = failure_type == "verification_failure"
-        budget_override["workers"] = {
-            **budget_override.get("workers", {}), "concurrent_limit": 1,
-        }
-        reasons.append("queue:single_generation_slot")
+        allow_autonomous = allow_autonomous or failure_type == "verification_failure"
+        if not (explicit_workers and explicit_workers > 1):
+            budget_override["workers"] = {
+                **budget_override.get("workers", {}), "concurrent_limit": 1,
+            }
+        reasons.append(
+            "queue:single_generation_slot_sequential_workers"
+            if explicit_workers and explicit_workers > 1
+            else "queue:single_generation_slot"
+        )
     else:
         allowed_concurrent = min(
             free_slots, budget_override.get("workers", {}).get(

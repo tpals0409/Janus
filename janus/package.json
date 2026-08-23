@@ -10,8 +10,9 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "check:bundle": "pnpm build && node scripts/check-bundle-size.mjs",
-    "package:mac": "pnpm build && electron-builder --config electron-builder.config.cjs --mac dir --publish never",
-    "package:mac:signed": "pnpm build && JANUS_SIGNED_RELEASE=1 electron-builder --config electron-builder.config.cjs --mac dmg zip --publish never",
+    "generate:icon": "swift scripts/generate-macos-icon.swift build/icon.png",
+    "package:mac": "pnpm generate:icon && pnpm build && electron-builder --config electron-builder.config.cjs --mac dir --publish never",
+    "package:mac:signed": "pnpm generate:icon && pnpm build && JANUS_SIGNED_RELEASE=1 electron-builder --config electron-builder.config.cjs --mac dmg zip --publish never",
     "verify:mac:signed": "node scripts/verify-macos-release.mjs dist",
     "start": "electron-vite preview",
     "test:main": "node --test src/main/*.test.ts scripts/*.test.mjs",
@@ -20,6 +21,8 @@
   },
   "dependencies": {
     "@xyflow/react": "^12.11.3",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "zustand": "^5.0.15"
   },
   "devDependencies": {

@@ -168,7 +168,9 @@
 ### 9. Task 중심 UI
 
 - [x] Project/Task sidebar
-- [x] Task 생성: title/objective/acceptance/base ref
+- [x] 자연어 목표 위임에서 내부 Task의 title/objective/acceptance/base ref 자동 생성
+- [x] 저장소 종류·프로젝트 검증 설정·현재 브랜치 기반 작업 계약 추론
+- [x] 위임 후 worktree 준비·AgentSession 시작·첫 목표 전송 자동 연결
 - [x] Todo/Preparing/Working/Needs You/Review/Failed 상태
 - [x] Workspace 준비·실패·복구 표시
 - [x] 안전한 archive/delete UI
@@ -417,7 +419,8 @@
 - [x] 소형 catalog 선주입과 `load_skill`·`read_skill_resource` 지연 로딩
 - [x] 실제 Qwen3.8 27B가 카탈로그에서 `load_skill` tool call을 선택
 - [x] `openai/skills` `skill-creator`를 commit SHA로 고정해 다운로드·라이선스 파일·컴파일 검증
-- [x] Python 165 tests, Electron main 20 tests, renderer 10 tests, TypeScript/build 통과
+- [x] Python 166 tests(+migration subtest 16), Electron main 25 tests, renderer 10 tests,
+      TypeScript/build 통과
 - [x] 실제 GitHub 저장소를 이용한 앱 수동 QA
 
 ### 29. AgentProfile 프롬프트와 컨텍스트
@@ -437,6 +440,7 @@
 
 - [x] 제품 도메인과 충돌하던 Tools·Context·Graph·Inspector 정의 교정
 - [x] 공식 SVG 심볼과 Graphite 글로벌 token 적용
+- [x] 공식 심볼 기반 macOS 앱 아이콘과 packaged bundle 적용
 - [x] Button·Tabs·Field·Status·Panel·Dialog 공통 primitive 도입
 - [x] Title bar·icon navigation·resource sidebar·status bar 구조 개편
 - [x] Task·AgentProfile·Evaluation·Monitor 화면을 compact panel UI로 통일
@@ -445,10 +449,104 @@
 - [x] TypeScript·Electron main test·production build·Python 회귀 테스트
 - [ ] 실제 Electron 앱 전체 화면 수동 QA
 
-## v1.2. 서비스 배포 성숙도
+### 30-A. 채팅·오케스트레이션 실사용 QA
+
+완료 근거는 채팅 기록만으로 판단하지 않는다. Task·Dispatch·AgentSession 상태, 실행 이벤트,
+워커 그래프, worktree 변경, 검증 결과가 서로 일치해야 한다.
+
+#### QA 안전 기준
+
+- [x] 실제 진행 중인 프로젝트를 오케스트레이션 QA 대상에서 제외한다.
+- [x] 원격 저장소가 없는 전용 `janus-qa-fixture` 저장소를 Janus에 등록한다.
+      — 기준 commit `b1f354d`, dependency-free unit test 2개 통과
+- [x] 각 QA 시작 전 선택 프로젝트가 `janus-qa-fixture`인지 확인한다.
+      — 2026-08-23 두 워커 QA 시작 전 선택 프로젝트와 격리 worktree 경로 확인
+- [x] QA가 끝날 때 원본 fixture의 `git status`가 깨끗한지 확인한다.
+      — 두 워커 QA 중 worktree의 `README.md`만 변경됐고 원본 fixture는 clean 유지
+
+실행 순서는 `단일 워커 → 두 워커 분할 → 거짓 실행 방지 → 권한·복구 → 채팅 경계 조건`이다.
+입력기 편의성보다 모델의 위임 판단과 실행 진실성을 먼저 검증한다.
+
+#### P0. 단일 워커 위임
+
+- [x] `README.md를 읽는 verifier 워커 1개를 배치하고 결과를 요약해`를 전송한다.
+- [x] 현재 메시지의 명시적 워커 요청을 인식하고 실제 워커를 정확히 1개 생성한다.
+- [x] 실행 그래프가 워커의 `대기 → 실행 → 완료/실패` 상태를 실제 이벤트와 동일하게 표시한다.
+- [x] 워커에는 역할에 필요한 읽기 도구와 최소 컨텍스트만 전달된다.
+- [x] 오케스트레이터가 워커 결과를 기다린 뒤 최종 답변에 출처와 핵심 결과를 통합한다.
+- [x] `workers_started=1`, span 시작·종료, Task·Dispatch·Session 최종 상태가 서로 일치한다.
+      — 2026-08-23 Task `task_65aa12e2f7dc4f3e81593bc4949c5793`, worker span
+      `w1-readme-reader` success, session `idle`, 실제 README 내용 일치
+- [ ] 단순 읽기 위임에서는 오케스트레이터가 워커와 동일한 `read_file`을 다시 실행하지 않는다.
+      — 현재 실패: worker 1회 + parent 1회로 `read_file` 총 2회 실행
+
+#### P0. 두 워커 분할과 결과 통합
+
+- [x] `워커 2개를 배치해. 첫 번째는 README 구조를, 두 번째는 테스트 구성을 조사하고 결과를 합쳐`를 전송한다.
+- [ ] 서로 다른 역할의 워커가 정확히 2개 생성되고 그래프에서 별도 노드로 보인다.
+- [ ] 독립 작업은 함께 스케줄되며, 단일 로컬 모델 슬롯 대기는 유실이 아닌 명시적 queue 상태로 표시된다.
+- [ ] 각 워커의 도구 호출·결과·종료 상태가 상대 워커와 섞이지 않는다.
+- [ ] 오케스트레이터가 두 결과를 모두 받은 뒤 중복을 제거하고 하나의 답변으로 통합한다.
+- [ ] `workers_started=2`, 실행 이벤트, 그래프, 최종 답변이 실제 실행 수와 일치한다.
+- [ ] 읽기 전용 조사 지시에서는 오케스트레이터와 워커 모두 파일을 수정하지 않는다.
+
+      — 2026-08-23 실패 재현: Task `task_0fc0f78675764e65883fb17d0d447a41`,
+      Session `session_8fc549395b5d484f834b884f7e2a453d`. `test-researcher` 1개만 생성된 뒤
+      `worker:w1-test-researcher:token_limit`으로 실패했고, 목표가 다른 `readme-researcher`는
+      `worker_policy_fixed_one`으로 억제됐다. 부모는 `edit_file`을 2회 실행해 격리 worktree의
+      `README.md`를 수정했다. 워커 실패·억제 뒤 UI가 `작업 중 / 연결 준비`에 오래 머물다가 최종적으로
+      `budget exhausted: dispatch:token_limit` 실패로 종료됐으며 통합 답변은 생성하지 못했다.
+
+#### P0. 거짓 실행 방지와 Backpressure
+
+- [ ] 워커를 요구하지 않은 단순 질문에는 불필요한 워커를 만들지 않는다.
+- [ ] 같은 역할·같은 목표의 중복 워커 요청은 억제하고 억제 사유를 실행 기록에 남긴다.
+- [ ] 동시 실행 상한을 넘는 요청은 queue 또는 suppression으로 처리하고 사유를 표시한다.
+- [ ] 생성이 억제된 워커를 오케스트레이터가 `배치했다`, `실행 중이다`라고 답하지 않는다.
+- [ ] 모델 queue가 밀려도 메시지·도구 결과·워커 종료 이벤트가 유실되거나 중복되지 않는다.
+
+#### P1. 채팅 기본 동작
+
+- [x] 새 대화를 만들고 첫 메시지를 Enter로 전송하면 사용자 메시지가 정확히 한 번만 표시된다.
+      — 2026-08-23 `QA-CHAT-ENTER-20260823-1934`, 대화 본문 1회 표시 확인
+- [x] Shift+Enter는 메시지를 전송하지 않고 줄바꿈만 수행한다.
+      — 2026-08-23 사용자 직접 QA로 줄바꿈·Enter 전송 정상 확인
+- [ ] 한글 IME 조합 중 Enter는 메시지를 잘못 전송하지 않는다.
+- [ ] 응답 중 `실행 중`, 응답 후 `대화 가능` 상태로 전이하며 상태가 반복 진동하지 않는다.
+- [ ] 후속 질문이 같은 대화의 앞선 지시와 결과를 기억한다.
+- [ ] 앱을 닫았다 다시 열어도 메시지의 순서와 개수가 그대로 복원된다.
+- [ ] 새 대화·다른 프로젝트에 이전 대화의 컨텍스트나 워커 그래프가 섞이지 않는다.
+
+#### P1. 도구 권한과 승인
+
+- [ ] 읽기 전용 verifier 워커에는 파일 수정 도구가 제공되지 않는다.
+- [ ] 파일 수정 요청은 승인 UI를 표시하고 Reject 시 worktree가 변경되지 않는다.
+- [ ] Allow 시 승인한 변경만 Task worktree에 적용되며 main checkout은 수정하지 않는다.
+- [ ] 프로젝트 디렉토리 밖 파일 접근은 차단되고 사용자에게 실패 이유가 표시된다.
+
+#### P1. 취소·오류·재시작 복구
+
+- [ ] 실행 중 취소하면 활성 워커와 lease가 정리되고 다음 메시지를 정상 전송할 수 있다.
+- [ ] 워커 하나가 실패해도 다른 워커 결과를 보존하고 오케스트레이터가 부분 실패를 보고한다.
+- [ ] 비정상 WebSocket 종료를 오류로 표시하고 중복 재연결·중복 세션을 만들지 않는다.
+- [ ] 유휴 상태에서 앱을 재시작하면 대화가 한 번만 복원되고 자동 연결도 한 번만 수행된다.
+- [ ] 실행 중 앱을 재시작해도 Task를 재개 또는 명시적 실패 상태로 복구하며 워커를 중복 배치하지 않는다.
+
+#### P1. 변경·검증·최종 판정
+
+- [ ] 워커가 만든 파일 변경이 변경 패널과 실제 `git diff`에 동일하게 표시된다.
+- [ ] 검증 명령의 exit code와 요약이 워커 주장과 분리되어 표시된다.
+- [ ] 최종 답변의 성공·실패·변경 파일·검증 결과가 실제 상태와 일치한다.
+- [ ] 각 결함은 재현 프롬프트, 기대 결과, 실제 결과, Task·Session ID와 함께 기록한다.
+- [ ] 위 P0 항목을 모두 통과한 뒤에만 채팅·오케스트레이션 핵심 QA를 완료로 표시한다.
+
+## v1.2. 서비스 배포 성숙도 — 정식 외부 배포 시 재개
 
 성숙도 분석(2026-08-23) 결론: 자동 검증은 GA 후보 수준이나 실기기·배포 축은 알파 수준이다.
 "혼자 쓰는 도구"에서 "남에게 주는 서비스"로 넘어가는 경계 작업만 남았다.
+
+현재 제품 목표는 단일 사용자 로컬 ADE 완성이다. 아래 서명·공증·공개 artifact·자동 업데이트는
+로컬 실행이나 unsigned 패키지 검증의 선행 조건이 아니므로 정식 외부 배포를 결정할 때 재개한다.
 
 ### 31. CI
 
@@ -459,13 +557,14 @@
 
 ### 32. 서명과 공증
 
-- [ ] Developer ID 서명 + hardened runtime + notarization 파이프라인
-- [ ] 서명된 공개 artifact와 checksum 발행 (VERSIONING.md 릴리스 게이트 6단계)
+- [ ] **보류 — 정식 외부 배포 시** Developer ID 서명 + hardened runtime + notarization 파이프라인
+- [ ] **보류 — 정식 외부 배포 시** 서명된 공개 artifact와 checksum 발행
+      (VERSIONING.md 릴리스 게이트 6단계)
 
 ### 33. 검증된 업데이트 피드
 
 - [x] 서명 검증·rollback·schema 호환·중단된 다운로드 복구의 자동 테스트 (VERSIONING.md 선행 조건)
-- [ ] backup-first 수동 앱 교체 절차를 대체하는 업데이트 피드
+- [ ] **보류 — 정식 외부 배포 시** backup-first 수동 앱 교체 절차를 대체하는 업데이트 피드
 
 ## 지금 시작할 작업
 
@@ -486,5 +585,6 @@
 - [x] P3-17 revision-aware Review Loop
 - [x] P3-18 Task branch commit/push/handoff
 - [x] **v1.2-31 CI workflow와 버전 불변식 CI 검증**
-- [ ] v1.2-32 서명·공증 파이프라인
-- [ ] v1.2-33 검증된 업데이트 피드
+- [ ] **현재 P0: 실제 Electron 앱 전체 화면 및 30-A 채팅·오케스트레이션 수동 QA**
+- [ ] **보류: v1.2-32 서명·공증 파이프라인**
+- [ ] **보류: v1.2-33 검증된 업데이트 피드**

@@ -18,6 +18,19 @@ let openTaskSequence = 0
 
 export const ORCH_ID = 'orchestrator'
 
+function optimisticUserMessage(session: AgentSessionDetail, text: string, events: SessionEvent[]): SessionEvent {
+  return {
+    session_id: session.id,
+    seq: (events.at(-1)?.seq ?? 0) + 1,
+    kind: 'optimistic_transcript',
+    payload: { kind: 'user', content: text },
+    task_id: session.task_id,
+    dispatch_id: session.dispatch_id,
+    workspace_id: session.workspace_id,
+    created_at: new Date().toISOString()
+  }
+}
+
 interface State {
   serverUp: boolean | null
   /** true면 서버는 살아 있는데 토큰/Origin이 거부됐다 (연결 실패와 다르다) */
@@ -66,6 +79,7 @@ interface State {
   taskTurnActive: boolean
   taskRuntimeError: string | null
   taskApprovals: ApprovalRequest[]
+  pendingDelegation: { taskId: string; objective: string } | null
 
   agentId: string | null
   spec: Spec | null
@@ -76,7 +90,7 @@ interface State {
   view: 'graph' | 'yaml' | 'file'
 
   /** IDE성 상태 — 워크스페이스 파일 트리와 열어본 파일 */
-  sidebarTab: 'config' | 'files'
+  sidebarTab: 'tasks' | 'files'
   tree: Record<string, TreeEntry[]>
   openedFile: { path: string; content: string } | null
   recentFolders: string[]
@@ -119,6 +133,7 @@ interface State {
     acceptance_command: string
     base_ref: string
   }): Promise<void>
+  delegateTask(objective: string): Promise<void>
   updateTask(patch: Partial<Pick<Task, 'title' | 'objective' | 'acceptance_command' | 'base_ref'>>): Promise<void>
   prepareWorkspace(): Promise<void>
   retryWorkspace(): Promise<void>
@@ -161,7 +176,7 @@ interface State {
   exportEvaluation(id: string, format: 'json' | 'csv' | 'markdown'): Promise<void>
   archiveWorkspace(force?: boolean): Promise<void>
   deleteWorkspaceBranch(): Promise<void>
-  archiveSelectedTask(): Promise<void>
+  archiveTask(id?: string): Promise<void>
   clearTaskError(): void
   loadLatestTaskSession(): Promise<void>
   selectAgentProfile(id: string): void
@@ -173,16 +188,20 @@ interface State {
   dismissSkillPreview(): void
   importLocalSkills(): Promise<void>
   setAgentProfileSkill(skillId: string, mode: SkillActivationMode): Promise<void>
-  startTaskSession(options?: { priority?: number; queue_timeout_ms?: number }): Promise<void>
+  startTaskSession(options?: {
+    priority?: number
+    queue_timeout_ms?: number
+    initialMessage?: string
+  }): Promise<void>
   resumeTaskSession(): Promise<void>
-  connectTaskSession(session: AgentSessionDetail): void
+  connectTaskSession(session: AgentSessionDetail, initialMessage?: string): void
   sendTaskMessage(text: string): void
   cancelTaskTurn(): void
   stopTaskSession(): Promise<void>
   respondTaskApproval(id: string, approved: boolean): void
   pickWorkspace(): Promise<void>
   setWorkspaceTo(path: string): Promise<void>
-  setSidebarTab(t: 'config' | 'files'): void
+  setSidebarTab(t: 'tasks' | 'files'): void
   setBottomTab(t: 'traces' | 'logs' | 'metrics'): void
   loadDir(rel: string): Promise<void>
   refreshTree(): void
@@ -266,13 +285,14 @@ export const useStore = create<State>((set, get) => ({
   taskTurnActive: false,
   taskRuntimeError: null,
   taskApprovals: [],
+  pendingDelegation: null,
   agentId: null,
   spec: null,
   yaml: '',
   errors: [],
   dirty: false,
   view: 'graph',
-  sidebarTab: 'config',
+  sidebarTab: 'tasks',
   tree: {},
   openedFile: null,
   recentFolders: JSON.parse(localStorage.getItem('janus.recentFolders') ?? '[]'),
@@ -541,6 +561,29 @@ export const useStore = create<State>((set, get) => ({
       await get().selectTask(task.id)
     } catch (error) {
       set({ taskActionError: errorMessage(error) })
+    } finally {
+      set({ taskBusy: false })
+    }
+  },
+
+  async delegateTask(objective) {
+    const projectId = get().projectId
+    const trimmed = objective.trim()
+    if (!projectId || !trimmed) return
+    set({ taskBusy: true, taskActionError: null })
+    try {
+      const task = (await apiJson(`${BASE}/projects/${projectId}/delegations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ objective: trimmed })
+      })) as Task
+      const tasks = (await apiJson(`${BASE}/projects/${projectId}/tasks`)) as Task[]
+      set({ tasks, pendingDelegation: { taskId: task.id, objective: trimmed } })
+      await get().selectTask(task.id)
+      await apiJson(`${BASE}/tasks/${task.id}/workspace/prepare`, { method: 'POST' })
+      await get().refreshSelectedTask()
+    } catch (error) {
+      set({ taskActionError: errorMessage(error), pendingDelegation: null })
     } finally {
       set({ taskBusy: false })
     }
@@ -998,13 +1041,19 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  async archiveSelectedTask() {
-    const { taskId, projectId } = get()
-    if (!taskId || !projectId) return
+  async archiveTask(id) {
+    const { projectId, taskId } = get()
+    const target = id ?? taskId
+    if (!target || !projectId) return
     set({ taskBusy: true, taskActionError: null })
     try {
-      await apiJson(`${BASE}/tasks/${taskId}`, { method: 'DELETE' })
+      await apiJson(`${BASE}/tasks/${target}`, { method: 'DELETE' })
       const tasks = (await apiJson(`${BASE}/projects/${projectId}/tasks`)) as Task[]
+      // 열려 있지 않은 작업을 지웠다면 보고 있던 화면을 흔들지 않는다.
+      if (target !== taskId) {
+        set({ tasks })
+        return
+      }
       set({ tasks, taskId: null, task: null, workspaceInspection: null, changeSet: null, verificationRuns: [], review: null, shipments: [], shipHandoff: null, taskPullRequest: null })
       if (tasks[0]) await get().selectTask(tasks[0].id)
     } catch (error) {
@@ -1176,13 +1225,14 @@ export const useStore = create<State>((set, get) => ({
     if (!taskId) return
     set({ taskBusy: true, taskRuntimeError: null })
     try {
+      const { initialMessage, ...requestOptions } = options ?? {}
       const session = (await apiJson(`${BASE}/tasks/${taskId}/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agent_profile_id: selectedAgentProfileId, ...options })
+        body: JSON.stringify({ agent_profile_id: selectedAgentProfileId, ...requestOptions })
       })) as AgentSessionDetail
       set({ taskSession: session, taskSessionEvents: session.events })
-      get().connectTaskSession(session)
+      get().connectTaskSession(session, initialMessage)
       await get().refreshSelectedTask()
     } catch (error) {
       set({ taskRuntimeError: errorMessage(error) })
@@ -1208,7 +1258,7 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  connectTaskSession(session) {
+  connectTaskSession(session, initialMessage) {
     get().taskWs?.close()
     const socket = new WebSocket(
       websocketUrl(`/tasks/${session.task_id}/sessions/${session.id}`),
@@ -1223,7 +1273,18 @@ export const useStore = create<State>((set, get) => ({
     })
 
     socket.onopen = () => {
-      if (get().taskWs === socket) set({ taskConnected: true })
+      if (get().taskWs !== socket) return
+      set({ taskConnected: true })
+      const trimmed = initialMessage?.trim()
+      if (trimmed) {
+        const events = get().taskSessionEvents
+        set({
+          taskSessionEvents: [...events, optimisticUserMessage(session, trimmed, events)],
+          pendingDelegation: null
+        })
+        socket.send(JSON.stringify({ type: 'message', text: trimmed }))
+        set({ taskTurnActive: true, taskRuntimeError: null })
+      }
     }
     socket.onmessage = (message) => {
       if (get().taskWs !== socket) return
@@ -1268,9 +1329,16 @@ export const useStore = create<State>((set, get) => ({
         set({ taskRuntimeError: 'Task runtime에 연결할 수 없습니다', taskTurnActive: false })
       }
     }
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       if (get().taskWs === socket) {
-        set({ taskWs: null, taskConnected: false, taskTurnActive: false })
+        set({
+          taskWs: null,
+          taskConnected: false,
+          taskTurnActive: false,
+          ...(event.code === 1000 ? {} : {
+            taskRuntimeError: `세션 연결이 종료됐습니다 (code ${event.code})`
+          })
+        })
       }
     }
   },
@@ -1279,6 +1347,10 @@ export const useStore = create<State>((set, get) => ({
     const socket = get().taskWs
     const trimmed = text.trim()
     if (!trimmed || !socket || socket.readyState !== WebSocket.OPEN || get().taskTurnActive) return
+    const session = get().taskSession
+    if (!session) return
+    const events = get().taskSessionEvents
+    set({ taskSessionEvents: [...events, optimisticUserMessage(session, trimmed, events)] })
     socket.send(JSON.stringify({ type: 'message', text: trimmed }))
     set({ taskTurnActive: true, taskRuntimeError: null })
   },

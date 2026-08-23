@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
+import { dirname, resolve } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
 const configPath = require.resolve("../electron-builder.config.cjs");
+const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 function loadConfig(signed) {
   const previous = process.env.JANUS_SIGNED_RELEASE;
@@ -19,6 +23,8 @@ function loadConfig(signed) {
 test("local mac package remains unsigned and unpacked", () => {
   const config = loadConfig(false);
   assert.deepEqual(config.mac.target, ["dir"]);
+  assert.equal(config.mac.icon, "build/icon.png");
+  assert.equal(existsSync(resolve(projectRoot, config.mac.icon)), true);
   assert.equal(config.mac.identity, null);
   assert.equal(config.mac.hardenedRuntime, false);
   assert.equal(config.mac.notarize, false);

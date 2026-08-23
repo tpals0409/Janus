@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import os
+import subprocess
+import sys
+import types
 import tempfile
 import unittest
 from contextlib import contextmanager
@@ -196,6 +200,34 @@ class DomainApiTests(unittest.TestCase):
             )
             self.assertEqual(400, escaped.status_code)
 
+    def test_project_delegation_infers_internal_task_contract(self):
+        with domain_api() as (client, path):
+            repo = path.parent / "delegated-repo"
+            repo.mkdir()
+            subprocess.run(
+                ["git", "init", "-b", "develop", str(repo)],
+                check=True, capture_output=True, text=True,
+            )
+            (repo / "package.json").write_text(
+                json.dumps({"scripts": {"test": "vitest run"}}), encoding="utf-8",
+            )
+            (repo / "pnpm-lock.yaml").write_text("lockfileVersion: '9.0'\n", encoding="utf-8")
+            project = client.post(
+                "/projects", headers=HEADERS,
+                json={"name": "Delegate", "repo_path": str(repo)},
+            ).json()
+
+            delegated = client.post(
+                f"/projects/{project['id']}/delegations", headers=HEADERS,
+                json={"objective": "인증 오류를 조사하고 수정해줘\n재현 테스트도 추가해줘"},
+            )
+            self.assertEqual(200, delegated.status_code, delegated.text)
+            task = delegated.json()
+            self.assertEqual("인증 오류를 조사하고 수정해줘", task["title"])
+            self.assertEqual("develop", task["base_ref"])
+            self.assertEqual("pnpm test", task["acceptance_command"])
+            self.assertEqual("todo", task["status"])
+
     def test_project_task_profile_crud_and_transition(self):
         with domain_api() as (client, _path):
             health = client.get("/health", headers=HEADERS)
@@ -256,6 +288,27 @@ class DomainApiTests(unittest.TestCase):
     def test_domain_routes_still_require_authentication(self):
         with domain_api() as (client, _path):
             self.assertEqual(401, client.get("/projects").status_code)
+
+
+class GracefulShutdownTest(unittest.TestCase):
+    def test_main_bounds_graceful_shutdown_under_supervisor_grace(self):
+        """SIGTERM 뒤 5초(supervisor grace) 안에 끝나야 SIGKILL을 안 맞는다."""
+        self.assertLess(server.GRACEFUL_SHUTDOWN_SECONDS * 1000, 5000)
+        captured = {}
+        real = sys.modules.get("uvicorn")
+        fake = types.ModuleType("uvicorn")
+        fake.run = lambda app, **kwargs: captured.update(kwargs)
+        sys.modules["uvicorn"] = fake
+        try:
+            server.main()
+        finally:
+            if real is None:
+                del sys.modules["uvicorn"]
+            else:
+                sys.modules["uvicorn"] = real
+        self.assertEqual(
+            server.GRACEFUL_SHUTDOWN_SECONDS, captured["timeout_graceful_shutdown"]
+        )
 
 
 if __name__ == "__main__":

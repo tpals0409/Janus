@@ -32,3 +32,5 @@ out/
 /janus_server/artifacts/r3/tasksuite/20260822-p2-worker-integration-smoke/
 /janus_server/artifacts/r3/tasksuite/20260822-p2-worker-reserve-smoke/
 /.serena/
+# QA용 일회성 저장소 — 자체 git 저장소이고 버려도 되는 산출물이다.
+/janus-qa-fixture/

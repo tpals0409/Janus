@@ -97,6 +97,51 @@ class BudgetTests(unittest.TestCase):
         self.assertEqual(2, second.snapshot()["usage"]["prompt_tokens"]
                          + second.snapshot()["usage"]["completion_tokens"])
 
+    def test_whitespace_only_answer_is_not_emitted(self):
+        """개행뿐인 답은 화면에 빈 말풍선만 남긴다 — 이벤트로 내보내지 않는다."""
+        with tempfile.TemporaryDirectory() as tmp:
+            context = WorkspaceContext(Path(tmp), "task_blank", "workspace_blank")
+            events: list[tuple[str, dict]] = []
+            agent.run(
+                client=FakeClient([{"text": "\n\n"}]), model="fake",
+                system_prompt="test", task="go", tool_names=[],
+                workspace_context=context, approve=lambda *_: True,
+                emit=lambda kind, **data: events.append((kind, data)),
+                scheduler=ResourceScheduler(),
+            )
+        answers = [data for kind, data in events if kind == "assistant"]
+        self.assertEqual([], answers)
+        # 조각 자체는 흘러야 한다 — 지우는 건 완결된 빈 답뿐이다.
+        self.assertIn("text_delta", [kind for kind, _ in events])
+
+    def test_mid_conversation_worker_request_beats_the_first_message_snapshot(self):
+        """Dispatch 예산은 첫 메시지로 정해진다 — 대화 도중 시킨 일이 거부되면 안 된다."""
+        budget = normalize_budget({
+            "workers": {"total_limit": 4, "concurrent_limit": 1},
+        })
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch.object(runtime, "resolve_local_model", lambda name: name),
+            patch.object(runtime, "make_client", lambda: FakeClient([])),
+        ):
+            context = WorkspaceContext(
+                root=Path(tmp), task_id="task", workspace_id="workspace"
+            ).for_dispatch("dispatch")
+            orch = runtime.Orchestration(
+                {"name": "test", "model": "qwen3.8-27b", "tools": ["echo"]},
+                send=lambda _event: None, approver=None,
+                workspace_context=context, scheduler=ResourceScheduler(), budget=budget,
+            )
+            # 세션 첫 메시지("너는 누구야")로 정해진 스냅샷은 1이다.
+            orch.current_user_text = "너는 누구야"
+            self.assertEqual(1, orch._concurrent_worker_limit())
+            # 대화 도중의 명시 요청은 한글 수사로도 읽어야 한다.
+            orch.current_user_text = "워커 두개 배치해서, 이 프로젝트 조사해"
+            self.assertEqual(2, orch._concurrent_worker_limit())
+            # total_limit은 넘지 않는다.
+            orch.current_user_text = "워커 열개 만들어"
+            self.assertEqual(4, orch._concurrent_worker_limit())
+
     def test_worker_total_and_concurrent_caps_are_enforced(self):
         budget = normalize_budget({
             "workers": {"total_limit": 2, "concurrent_limit": 1},

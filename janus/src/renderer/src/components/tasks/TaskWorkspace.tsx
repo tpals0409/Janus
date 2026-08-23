@@ -1,21 +1,22 @@
-import { FormEvent, Suspense, lazy, useEffect, useMemo, useState } from 'react'
+import { FormEvent, Suspense, lazy, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   AlertTriangle,
   Archive,
   Check,
-  ChevronRight,
   CircleDot,
   FolderGit2,
   GitPullRequest,
   GitBranch,
+  GitCompareArrows,
   ExternalLink,
+  Laptop,
   Loader2,
   MessageSquare,
   Play,
-  Plus,
   RefreshCw,
   RotateCcw,
   Send,
+  Settings2,
   ShieldCheck,
   Square,
   Wifi,
@@ -24,25 +25,27 @@ import {
 } from 'lucide-react'
 import { useStore } from '../../store'
 import { useDomainEvent } from '../../domainEvents'
-import type { ChangeLayer, ChangeSetFile, Project, Task, TaskStatus } from '../../types'
+import type { ChangeLayer, ChangeSetFile, Project, Span, Task, TaskStatus } from '../../types'
 import ContextInspector from './ContextInspector'
 import TaskSidebar from './TaskSidebar'
-import { Button, ConfirmDialog, EmptyState, Field, IconButton, Input, Status, Tabs, Textarea } from '../ui'
+import { Button, ConfirmDialog, EmptyState, Status } from '../ui'
 
 const TaskDevelopmentSurface = lazy(() => import('./TaskDevelopmentSurface'))
+const FileView = lazy(() => import('../FileView'))
+// 마크다운 렌더러는 초기 번들 예산을 넘긴다 — 첫 답변이 올 때 받아온다.
+const TaskMarkdown = lazy(() => import('./TaskMarkdown'))
 
 const STATUS: Record<TaskStatus, { label: string; color: string; short: string }> = {
   todo: { label: '할 일', color: 'var(--color-muted)', short: '할' },
   preparing: { label: '준비 중', color: 'var(--color-warn)', short: '준' },
   working: { label: '작업 중', color: 'var(--color-accent-fg)', short: '작' },
-  needs_you: { label: '확인 필요', color: 'var(--color-warn)', short: '확' },
+  needs_you: { label: '응답 대기', color: 'var(--color-warn)', short: '대' },
   review: { label: '검토', color: 'var(--color-ok)', short: '검' },
   failed: { label: '실패', color: 'var(--color-danger)', short: '실' }
 }
 
-const RUNWAY: TaskStatus[] = ['todo', 'preparing', 'working', 'needs_you', 'review']
 const STATE_LABEL: Record<string, string> = {
-  created: '생성됨', idle: '대기 중', running: '실행 중', stopped: '중단됨',
+  created: '연결 준비', idle: '대화 가능', running: '실행 중', stopped: '중단됨',
   completed: '완료', queued: '대기열', passed: '통과', failed: '실패', error: '오류',
   preparing: '준비 중', ready: '준비됨', archived: '보관됨', merged: '병합됨',
   pending: '대기 중', success: '성공', neutral: '중립', skipped: '건너뜀', unknown: '알 수 없음',
@@ -57,122 +60,48 @@ function StatusBadge({ status }: { status: TaskStatus }) {
   return <Status tone={tone}>{meta.label}</Status>
 }
 
-function TaskRunway({ status }: { status: TaskStatus }) {
-  const active = status === 'failed' ? -1 : RUNWAY.indexOf(status)
-  return (
-    <div className="task-runway" aria-label={`작업 상태: ${STATUS[status].label}`}>
-      {RUNWAY.map((step, index) => {
-        const reached = active >= index
-        const current = status === step
-        return (
-          <div className="task-runway-step" key={step}>
-            <div
-              className="task-runway-node"
-              data-current={current || undefined}
-              data-reached={reached || undefined}
-            >
-              {reached && index < active ? <Check size={10} /> : STATUS[step].short}
-            </div>
-            <span style={{ color: current ? STATUS[step].color : undefined }}>
-              {STATUS[step].label}
-            </span>
-          </div>
-        )
-      })}
-      {status === 'failed' && (
-        <div className="ml-auto flex items-center gap-2 text-[11px] text-danger">
-          <AlertTriangle size={13} /> 실패
-        </div>
-      )}
-    </div>
-  )
-}
-
-function NewTaskDialog({ project, onClose }: { project: Project; onClose: () => void }) {
-  const createTask = useStore((state) => state.createTask)
+function DelegationBar({ project }: { project: Project }) {
+  const delegateTask = useStore((state) => state.delegateTask)
   const busy = useStore((state) => state.taskBusy)
-  const [title, setTitle] = useState('')
   const [objective, setObjective] = useState('')
-  const [acceptance, setAcceptance] = useState('')
-  const [baseRef, setBaseRef] = useState('main')
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (![title, objective, acceptance, baseRef].every((value) => value.trim())) return
-    await createTask({
-      title: title.trim(),
-      objective: objective.trim(),
-      acceptance_command: acceptance.trim(),
-      base_ref: baseRef.trim()
-    })
-    onClose()
+    if (!objective.trim() || busy) return
+    await delegateTask(objective)
+    if (!useStore.getState().taskActionError) setObjective('')
   }
 
   return (
-    <div className="ui-dialog-backdrop">
-      <form
-        onSubmit={submit}
-        className="ui-dialog w-full max-w-[620px]"
-      >
-        <div className="flex items-start justify-between border-b border-border px-5 py-4">
-          <div>
-            <div className="text-[10px] font-semibold tracking-[0.16em] text-muted">
-              새 작업 · {project.name.toUpperCase()}
-            </div>
-            <h2 className="task-title mt-1 text-[16px] font-semibold">작업 계약 정의</h2>
-          </div>
-          <IconButton type="button" onClick={onClose} label="닫기">
-            <X size={16} />
-          </IconButton>
-        </div>
-        <div className="space-y-4 p-5">
-          <Field label="제목">
-            <Input
-              autoFocus
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="세션 복구를 결정적으로 만들기"
-            />
-          </Field>
-          <Field label="목표">
-            <Textarea
-              value={objective}
-              onChange={(event) => setObjective(event.target.value)}
-              placeholder="로컬 에이전트가 남겨야 할 결과를 설명하세요."
-              rows={4}
-            />
-          </Field>
-          <div className="grid grid-cols-[1fr_160px] gap-3">
-            <Field label="수용 검증 명령">
-              <Input
-                value={acceptance}
-                onChange={(event) => setAcceptance(event.target.value)}
-                placeholder="python -m pytest -q"
-                className="font-mono"
-              />
-            </Field>
-            <Field label="기준 리프">
-              <Input
-                value={baseRef}
-                onChange={(event) => setBaseRef(event.target.value)}
-                className="font-mono"
-              />
-            </Field>
-          </div>
-        </div>
-        <div className="flex items-center justify-between border-t border-border px-5 py-3">
-          <span className="text-[10.5px] text-faint">작업을 생성한 뒤 작업 공간을 준비합니다.</span>
-          <div className="flex gap-2">
-            <Button type="button" onClick={onClose} variant="ghost">취소</Button>
-            <Button
-              disabled={busy || !title.trim() || !objective.trim() || !acceptance.trim()}
-            >
-              {busy ? '생성 중…' : '작업 생성'}
-            </Button>
-          </div>
+    <main className="new-chat-surface">
+      <div className="new-chat-intro">
+        <div className="font-mono text-[11px] text-faint">{'{ | }'}</div>
+        <h1>{project.name}에서 새 작업</h1>
+        <p>목표를 말하면 Janus가 작업 계약과 격리된 실행 공간을 만듭니다.</p>
+      </div>
+      <form onSubmit={submit} className="janus-composer janus-composer--new">
+        <textarea
+          autoFocus
+          rows={3}
+          value={objective}
+          onChange={(event) => setObjective(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+            event.preventDefault()
+            event.currentTarget.form?.requestSubmit()
+          }}
+          placeholder="무엇을 요청할까요?"
+          aria-label="Janus에게 위임할 목표"
+        />
+        <div className="janus-composer__footer">
+          <span className="font-mono text-[9px] text-faint">{project.name} · 로컬 실행</span>
+          <Button type="submit" disabled={busy || !objective.trim()} compact>
+            {busy ? <Loader2 size={11} className="animate-spin" /> : <Send size={12} />}
+            <span className="sr-only">{busy ? '준비 중' : '위임'}</span>
+          </Button>
         </div>
       </form>
-    </div>
+    </main>
   )
 }
 
@@ -381,6 +310,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
   const busy = useStore((state) => state.taskBusy)
   const runtimeError = useStore((state) => state.taskRuntimeError)
   const approvals = useStore((state) => state.taskApprovals)
+  const pendingDelegation = useStore((state) => state.pendingDelegation)
   const startSession = useStore((state) => state.startTaskSession)
   const resumeSession = useStore((state) => state.resumeTaskSession)
   const sendMessage = useStore((state) => state.sendTaskMessage)
@@ -388,7 +318,6 @@ function TaskRuntimeCard({ task }: { task: Task }) {
   const stopSession = useStore((state) => state.stopTaskSession)
   const respondApproval = useStore((state) => state.respondTaskApproval)
   const [message, setMessage] = useState('')
-  const [runtimeView, setRuntimeView] = useState<'conversation' | 'context'>('conversation')
   const [confirmNewAttempt, setConfirmNewAttempt] = useState(false)
   const ready = task.workspace?.state === 'ready'
   const resumable = session?.status === 'created' || session?.status === 'idle'
@@ -407,25 +336,84 @@ function TaskRuntimeCard({ task }: { task: Task }) {
     setQueueTimeout(Math.round(selectedProfile.budget.queue.timeout_ms / 1000))
   }, [selectedProfile])
 
+  const transcriptRef = useRef<HTMLDivElement>(null)
   const transcript = useMemo(() => {
     const persisted = events.filter((event) => event.kind === 'transcript')
     const lastTranscriptSeq = persisted.at(-1)?.seq ?? 0
     const live = events.filter((event) => {
-      if (event.seq <= lastTranscriptSeq || event.kind !== 'agent_event') return false
+      if (event.seq <= lastTranscriptSeq) return false
+      if (event.kind === 'optimistic_transcript') return true
+      if (event.kind !== 'agent_event') return false
+      // worker에게 보낸 지시/받은 답은 대화가 아니다 — 사람이 두 번 입력한 것처럼 보인다.
+      if (event.payload.worker_id) return false
       const kind = String(event.payload.kind ?? '')
       return kind === 'user' || kind === 'assistant'
+        || kind === 'reasoning_delta' || kind === 'text_delta'
     })
-    return [...persisted, ...live].map((event) => {
-      const payload = event.kind === 'transcript' ? event.payload : event.payload
-      return {
-        key: `${event.seq}-${event.kind}`,
-        role: String(payload.kind ?? 'event'),
-        content: String(payload.content ?? payload.text ?? '')
+    const confirmedUsers = new Set(
+      live
+        .filter((event) => event.kind === 'agent_event' && event.payload.kind === 'user')
+        .map((event) => String(event.payload.content ?? event.payload.text ?? ''))
+    )
+    const visibleLive = live.filter((event) => !(
+      event.kind === 'optimistic_transcript' &&
+      confirmedUsers.has(String(event.payload.content ?? event.payload.text ?? ''))
+    ))
+    const items: { key: string; role: string; content: string; streaming?: boolean }[] = []
+    const ROLES: Record<string, string> = { reasoning_delta: 'reasoning', text_delta: 'assistant' }
+    for (const event of [...persisted, ...visibleLive]) {
+      const payload = event.payload
+      const raw = String(payload.kind ?? 'event')
+      const role = ROLES[raw] ?? raw
+      const streaming = raw.endsWith('_delta')
+      const content = String(payload.content ?? payload.text ?? '')
+      if (!content) continue
+      const previous = items.at(-1)
+      // 토큰은 조각으로 흘러온다 — 이어 붙여야 한 덩어리 글이 된다.
+      // 줄바꿈뿐인 조각도 글의 일부이므로 이어 붙이는 중에는 버리지 않는다.
+      if (streaming && previous?.streaming && previous.role === role) {
+        previous.content += content
+        continue
       }
-    }).filter((item) => item.content)
+      // 공백뿐인 내용은 빈 말풍선이 된다. 이미 저장된 기록에도 남아 있어 여기서 막는다.
+      if (!content.trim()) continue
+      // 한 step이 끝나면 완결된 assistant 이벤트가 온다. 같은 글이므로 흘려둔 조각을 대체한다.
+      if (!streaming && role === 'assistant' && previous?.streaming && previous.role === 'assistant') {
+        previous.content = content
+        previous.streaming = false
+        continue
+      }
+      items.push({ key: `${event.seq}-${event.kind}`, role, content, streaming })
+    }
+    if (
+      items.length === 0 && !session &&
+      pendingDelegation?.taskId === task.id
+    ) {
+      items.push({ key: `pending-${task.id}`, role: 'user', content: pendingDelegation.objective })
+    }
+    return items
+  }, [events, pendingDelegation, session, task.id])
+
+  const phase = useMemo(() => {
+    for (let i = events.length - 1; i >= 0; i -= 1) {
+      const kind = String(events[i].payload.kind ?? '')
+      if (kind === 'text_delta' || kind === 'assistant') return '답하는 중'
+      if (kind === 'reasoning_delta') return '사고 중'
+      if (kind.startsWith('tool_')) return '도구 실행 중'
+      if (kind === 'resource_queue_wait' || kind === 'resource_queue_enter') return '모델 대기 중'
+    }
+    return '준비 중'
   }, [events])
 
-  const activity = events.filter((event) => event.kind !== 'transcript').slice(-7)
+  // 답이 흘러나오는 동안 바닥에 붙어 있게 한다. 위로 올려 읽는 중이면 끌어내리지 않는다.
+  useEffect(() => {
+    const node = transcriptRef.current
+    if (!node) return
+    const distance = node.scrollHeight - node.scrollTop - node.clientHeight
+    if (distance > 120) return
+    node.scrollTop = node.scrollHeight
+  }, [transcript, phase])
+
   const queueWait = useMemo(() => {
     const waiting = new Map<string, Record<string, unknown>>()
     for (const event of events) {
@@ -449,6 +437,16 @@ function TaskRuntimeCard({ task }: { task: Task }) {
 
   return (
     <section className="task-card task-runtime-card">
+      <details className="task-session-settings" open={!session}>
+        <summary>
+          <span className="flex min-w-0 items-center gap-2">
+            <CircleDot size={12} className={connected ? 'text-ok' : 'text-faint'} />
+            <strong>{session ? `시도 ${session.dispatch.attempt}` : '에이전트 세션 준비'}</strong>
+            <span className="font-mono text-[9px] text-faint">{session ? stateLabel(session.status) : '실행 전'}</span>
+          </span>
+          <span className="flex items-center gap-1.5 text-[9px] text-faint"><Settings2 size={11} /> 실행 설정</span>
+        </summary>
+        <div className="task-session-settings__body">
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="task-label">에이전트 세션</div>
@@ -598,21 +596,11 @@ function TaskRuntimeCard({ task }: { task: Task }) {
           </span>
         </div>
       )}
+        </div>
+      </details>
 
-      <div className="mt-4 flex h-8 items-center border-y border-border bg-base px-2">
-        <Tabs
-          items={session ? ['conversation', 'context'] as const : ['conversation'] as const}
-          value={runtimeView === 'context' && !session ? 'conversation' : runtimeView}
-          onChange={setRuntimeView}
-          label="세션 상세"
-          className="h-full"
-          labels={{ conversation: '대화와 활동', context: '컨텍스트 검사기' }}
-        />
-        {session?.context && <span className="ml-auto font-mono text-[8.5px] text-faint">고정 ~{session.context.estimated_static_tokens.toLocaleString()} TOKENS</span>}
-      </div>
-
-      {runtimeView === 'context' && session ? <ContextInspector session={session} events={events} /> : <div className="task-session-console">
-        <div className="task-transcript">
+      <div className="task-session-console">
+        <div ref={transcriptRef} className="task-transcript">
           {transcript.length === 0 ? (
             <div className="grid h-full place-items-center px-6 text-center text-[10.5px] leading-relaxed text-faint">
               {session
@@ -620,29 +608,40 @@ function TaskRuntimeCard({ task }: { task: Task }) {
                 : '프로필을 선택하고 시도를 시작하세요. 실행 로그는 재시작 후에도 남습니다.'}
             </div>
           ) : transcript.map((item) => (
-            <div key={item.key} className="task-message" data-role={item.role}>
-              <span>{item.role === 'user' ? '나' : 'JANUS'}</span>
-              <p>{item.content}</p>
-            </div>
+            item.role === 'reasoning' ? (
+              <details key={item.key} className="task-reasoning">
+                <summary>사고 과정</summary>
+                <p>{item.content}</p>
+              </details>
+            ) : (
+              <div key={item.key} className="task-message" data-role={item.role}>
+                <span>{item.role === 'user' ? '나' : 'JANUS'}</span>
+                {item.role === 'user' ? (
+                  <p>{item.content}</p>
+                ) : (
+                  <div className="task-markdown">
+                    <Suspense fallback={<p>{item.content}</p>}>
+                      <TaskMarkdown content={item.content} />
+                    </Suspense>
+                  </div>
+                )}
+              </div>
+            )
           ))}
-        </div>
-        <div className="task-activity">
-          <div className="task-label mb-2">실시간 활동</div>
-          {activity.length === 0 ? (
-            <div className="text-[9.5px] text-faint">이벤트 없음</div>
-          ) : activity.map((event) => (
-            <div key={`${event.seq}-${event.kind}`} className="task-activity-row">
-              <span>{event.seq}</span>
-              <strong>{event.kind === 'skill_loaded' ? '스킬 로딩' : event.kind}</strong>
-              <em>
-                {event.kind === 'skill_loaded'
-                  ? `${String(event.payload.namespace ?? '')}:${String(event.payload.name ?? '')} · ${Number(event.payload.prompt_tokens ?? 0)}토큰 · ${String(event.payload.reason ?? '')}`
-                  : String(event.payload.kind ?? event.payload.type ?? '')}
-              </em>
+          {active && (
+            <div className="task-thinking" role="status" aria-live="polite">
+              <span className="task-thinking__mark" aria-hidden="true" />
+              <span>{phase}</span>
             </div>
-          ))}
+          )}
+          {!session && pendingDelegation?.taskId === task.id && (
+            <div className="task-message" data-role="assistant">
+              <span>JANUS</span>
+              <p>작업 공간을 준비하고 있습니다. 로컬 모델이 준비되면 이 대화에서 바로 실행합니다.</p>
+            </div>
+          )}
         </div>
-      </div>}
+      </div>
 
       {approvals.map((approval) => (
         <div key={approval.id} className="mt-3 flex items-center justify-between gap-4 border border-warning bg-panel px-3 py-2">
@@ -656,33 +655,42 @@ function TaskRuntimeCard({ task }: { task: Task }) {
         </div>
       ))}
 
-      <form onSubmit={submit} className="mt-3 flex gap-2 border-t border-border pt-3">
-        {!connected && resumable && (
-          <button type="button" onClick={() => void resumeSession()} disabled={busy} className="task-quiet-action">
-            <Play size={11} /> 재개
-          </button>
-        )}
-        <input
+      <form onSubmit={submit} className="janus-composer janus-composer--session">
+        <textarea
+          rows={3}
+          aria-label="작업 지시"
           value={message}
           onChange={(event) => setMessage(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+            event.preventDefault()
+            event.currentTarget.form?.requestSubmit()
+          }}
           disabled={!connected || active || !resumable}
           placeholder={connected ? '다음 작업 지시 보내기…' : '계속하려면 세션을 재개하세요'}
-          className="task-input mt-0 min-w-0 flex-1"
         />
-        {active ? (
-          <button type="button" onClick={cancelTurn} className="task-danger-link border border-danger">
-            <Square size={11} /> 턴 취소
-          </button>
-        ) : (
-          <button disabled={!connected || !message.trim() || !resumable} className="task-primary-action">
-            <Send size={11} /> 보내기
-          </button>
-        )}
-        {session && ['created', 'running', 'idle'].includes(session.status) && (
-          <button type="button" onClick={() => void stopSession()} className="task-quiet-action">
-            세션 중단
-          </button>
-        )}
+        <div className="janus-composer__footer">
+          <div className="flex items-center gap-2">
+            {!connected && resumable && (
+              <button type="button" onClick={() => void resumeSession()} disabled={busy} className="task-quiet-action">
+                <Play size={11} /> 재개
+              </button>
+            )}
+            <span className="font-mono text-[9px] text-faint">{selectedProfile?.name ?? '로컬 에이전트'}</span>
+            {session && ['created', 'running', 'idle'].includes(session.status) && (
+              <button type="button" onClick={() => void stopSession()} className="text-[9px] text-faint hover:text-secondary">세션 중단</button>
+            )}
+          </div>
+          {active ? (
+            <button type="button" onClick={cancelTurn} className="task-danger-link border border-danger">
+              <Square size={11} /> 턴 취소
+            </button>
+          ) : (
+            <button disabled={!connected || !message.trim() || !resumable} className="janus-composer__send" aria-label="보내기">
+              <Send size={13} />
+            </button>
+          )}
+        </div>
       </form>
       <ConfirmDialog
         open={confirmNewAttempt}
@@ -1324,27 +1332,171 @@ function TaskShippingCard() {
   )
 }
 
-function TaskDetail({ task }: { task: Task }) {
-  const archiveTask = useStore((state) => state.archiveSelectedTask)
-  const busy = useStore((state) => state.taskBusy)
+type TaskView = 'conversation' | 'workspace' | 'changes' | 'verification' | 'review' | 'ship' | 'development' | 'context'
+
+type RuntimeWorkerState = 'running' | 'success' | 'error' | 'suppressed'
+
+function RuntimeWorkerGraph() {
   const session = useStore((state) => state.taskSession)
   const connected = useStore((state) => state.taskConnected)
-  const canArchiveTask = !task.workspace || task.workspace.state === 'archived'
-  const [confirmArchive, setConfirmArchive] = useState(false)
+  const events = useStore((state) => state.taskSessionEvents)
+  const workers = useMemo(() => {
+    const spans = new Map<string, { id: string; name: string; role: string; state: RuntimeWorkerState; reason?: string }>()
+    const suppressed: Array<{ id: string; name: string; role: string; state: RuntimeWorkerState; reason?: string }> = []
+    for (const event of events) {
+      if (event.kind === 'span_start' || event.kind === 'span_end') {
+        const raw = event.payload.span
+        if (!raw || typeof raw !== 'object') continue
+        const span = raw as Span
+        if (!span.node_id || span.node_id === 'orchestrator') continue
+        spans.set(span.node_id, {
+          id: span.node_id,
+          name: span.label ?? span.node_id,
+          role: '워커',
+          state: span.status
+        })
+      }
+      if (event.kind === 'agent_event' && event.payload.kind === 'worker_spawn_suppressed') {
+        suppressed.push({
+          id: `suppressed-${event.seq}`,
+          name: String(event.payload.name ?? `요청 ${suppressed.length + 1}`),
+          role: String(event.payload.role ?? '워커'),
+          state: 'suppressed',
+          reason: String(event.payload.reason ?? '정책 억제')
+        })
+      }
+    }
+    return [...spans.values(), ...suppressed].slice(-6)
+  }, [events])
+  const stateMeta: Record<RuntimeWorkerState, { glyph: string; label: string; tone: string }> = {
+    running: { glyph: '●', label: '실행 중', tone: 'var(--accent)' },
+    success: { glyph: '✓', label: '완료', tone: 'var(--success)' },
+    error: { glyph: '×', label: '실패', tone: 'var(--danger)' },
+    suppressed: { glyph: '—', label: '억제', tone: 'var(--warning)' }
+  }
 
   return (
-    <main className="workspace-surface min-w-0 flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-[1120px] px-5 py-5">
-        <div className="mb-4 flex items-start justify-between gap-6">
-          <div className="min-w-0">
-            <div className="mb-2 flex items-center gap-2">
-              <StatusBadge status={task.status} />
-              <span className="font-mono text-[9.5px] text-faint">{task.id}</span>
-            </div>
-            <h1 className="task-title text-[20px] font-semibold leading-tight tracking-[-0.01em]">
-              {task.title}
-            </h1>
+    <div className="runtime-graph" aria-label="런타임 워커 그래프">
+      <div className="runtime-graph__root">
+        <span className={connected ? 'text-ok' : 'text-muted'}>{connected ? '●' : '○'}</span>
+        <strong>Assistant</strong>
+        <em>{session ? stateLabel(session.status) : '세션 전'}</em>
+      </div>
+      {workers.length ? (
+        <div className="runtime-graph__workers">
+          {workers.map((worker) => {
+            const meta = stateMeta[worker.state]
+            return (
+              <div className="runtime-graph__worker" key={worker.id} title={worker.reason}>
+                <span style={{ color: meta.tone }}>{meta.glyph}</span>
+                <div className="min-w-0">
+                  <strong>{worker.name}</strong>
+                  <small>{worker.role}</small>
+                </div>
+                <em style={{ color: meta.tone }}>{meta.label}</em>
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <div className="runtime-graph__empty">워커가 시작되면 이 축에 표시됩니다.</div>
+      )}
+    </div>
+  )
+}
+
+function TaskContextPanel({ task, view, onView }: { task: Task; view: TaskView; onView: (view: TaskView) => void }) {
+  const changeSet = useStore((state) => state.changeSet)
+  const verificationRuns = useStore((state) => state.verificationRuns)
+  const review = useStore((state) => state.review)
+  const shipments = useStore((state) => state.shipments)
+  const session = useStore((state) => state.taskSession)
+  const changedFiles = changeSet ? Object.values(changeSet.counts).reduce((total, count) => total + count, 0) : 0
+  const latestVerification = verificationRuns.at(0)
+
+  const row = (target: TaskView, icon: ReactNode, label: string, value?: ReactNode) => (
+    <button className="context-panel-row" aria-current={view === target ? 'page' : undefined} onClick={() => onView(target)}>
+      <span>{icon}</span>
+      <strong>{label}</strong>
+      {value && <em>{value}</em>}
+    </button>
+  )
+
+  return (
+    <aside className="task-context-panel" aria-label="실행 컨텍스트">
+      <div className="task-context-panel__title">
+        <span>환경</span>
+        <Status tone={task.workspace?.state === 'ready' ? 'success' : 'muted'}>
+          {task.workspace?.state === 'ready' ? '로컬' : '준비 중'}
+        </Status>
+      </div>
+      <section>
+        <div className="task-context-panel__section-label">실행 그래프</div>
+        <RuntimeWorkerGraph />
+      </section>
+      <section>
+        {row('changes', <GitCompareArrows size={14} />, '변경 사항', changedFiles ? `${changedFiles}` : '—')}
+        {row('workspace', <Laptop size={14} />, '로컬', task.workspace?.state ? stateLabel(task.workspace.state) : '미생성')}
+        {row('workspace', <GitBranch size={14} />, task.workspace?.branch_name ?? task.base_ref)}
+        {row('verification', <ShieldCheck size={14} />, '검증', latestVerification ? stateLabel(latestVerification.status) : '—')}
+        {row('review', <MessageSquare size={14} />, '검토', review?.comments.length ? `${review.comments.length}` : '—')}
+        {row('ship', <GitPullRequest size={14} />, '커밋 또는 푸시', shipments.length ? `${shipments.length}` : '—')}
+      </section>
+      <section>
+        <div className="task-context-panel__section-label">실행</div>
+        {row('conversation', <CircleDot size={14} />, session ? `시도 ${session.dispatch.attempt}` : '세션 미시작', session ? stateLabel(session.status) : undefined)}
+        {row('context', <Settings2 size={14} />, '컨텍스트', session?.context ? `~${session.context.estimated_static_tokens.toLocaleString()}` : '—')}
+        {row('development', <Settings2 size={14} />, '개발 도구')}
+      </section>
+      <div className="task-context-panel__meta">
+        <span>{task.workspace?.root_path ?? '작업 공간 준비 전'}</span>
+      </div>
+    </aside>
+  )
+}
+
+function TaskDetail({ task }: { task: Task }) {
+  const archiveTask = useStore((state) => state.archiveTask)
+  const busy = useStore((state) => state.taskBusy)
+  const session = useStore((state) => state.taskSession)
+  const events = useStore((state) => state.taskSessionEvents)
+  const canArchiveTask = !task.workspace || task.workspace.state === 'archived'
+  const [confirmArchive, setConfirmArchive] = useState(false)
+  const [view, setView] = useState<TaskView>('conversation')
+
+  useEffect(() => setView('conversation'), [task.id])
+
+  const workspaceReady = task.workspace?.state === 'ready'
+  const unavailable = (title: string) => (
+    <div className="grid h-full place-items-center px-8 text-center">
+      <EmptyState
+        title={`${title} 준비 중`}
+        description="작업 공간이 준비되면 이 화면에서 확인할 수 있습니다."
+      />
+    </div>
+  )
+
+  return (
+    <>
+    <main className="task-chat-shell min-w-0 flex-1">
+      <header className="task-chat-header">
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <StatusBadge status={task.status} />
+            <h1 className="truncate text-[13px] font-medium text-fg">{task.title}</h1>
           </div>
+          <div className="mt-1 flex min-w-0 items-center gap-2 font-mono text-[9px] text-faint">
+            <span className="truncate">{task.workspace?.branch_name ?? task.base_ref}</span>
+            <span>·</span>
+            <span className="truncate">{task.workspace?.root_path ?? task.id}</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {view !== 'conversation' && (
+            <Button onClick={() => setView('conversation')} variant="ghost" compact>
+              <MessageSquare size={12} /> 대화로 돌아가기
+            </Button>
+          )}
           <Button
             onClick={() => setConfirmArchive(true)}
             disabled={busy || !canArchiveTask}
@@ -1354,21 +1506,12 @@ function TaskDetail({ task }: { task: Task }) {
           >
             <Archive size={12} /> 작업 보관
           </Button>
-          <ConfirmDialog
-            open={confirmArchive}
-            title={`“${task.title}” 작업을 보관할까요?`}
-            description="보관된 작업은 활성 작업 목록에서 숨겨집니다."
-            confirmLabel="작업 보관"
-            danger
-            onClose={() => setConfirmArchive(false)}
-            onConfirm={() => { setConfirmArchive(false); void archiveTask() }}
-          />
         </div>
-
-        <TaskRunway status={task.status} />
-
-        <div className="mt-4 grid grid-cols-[minmax(0,1fr)_300px] gap-0 border-x border-b border-border-subtle">
-          <div className="space-y-4 p-4">
+      </header>
+      <div className={`task-chat-view task-chat-view--${view}`}>
+        {view === 'conversation' && <TaskRuntimeCard task={task} />}
+        {view === 'workspace' && (
+          <div className="task-secondary-view">
             <section className="task-card">
               <div className="task-label">목표</div>
               <p className="mt-2 whitespace-pre-wrap text-[13px] leading-6 text-fg">{task.objective}</p>
@@ -1388,112 +1531,68 @@ function TaskDetail({ task }: { task: Task }) {
               </div>
             </section>
             <WorkspaceCard task={task} />
-            {task.workspace?.state === 'ready' && <ChangeSetCard />}
-            {task.workspace?.state === 'ready' && <VerificationCard task={task} />}
-            {task.workspace?.state === 'ready' && <ReviewDecisionCard task={task} />}
-            {task.workspace?.state === 'ready' && <TaskShippingCard />}
           </div>
-
-          <aside className="task-inspector space-y-0">
-            <section className="task-card">
-              <div className="task-label">다음 행동</div>
-              <h3 className="mt-2 text-[14px] font-semibold">
-                {!task.workspace
-                  ? '작업 공간 준비'
-                  : task.workspace.state === 'preparing'
-                    ? '워크트리 생성 중'
-                    : task.workspace.state === 'failed'
-                      ? '준비 복구'
-                      : task.workspace.state === 'ready'
-                        ? !session
-                          ? '에이전트 세션 시작'
-                          : connected
-                            ? '다음 지시 보내기'
-                            : session.status === 'idle' || session.status === 'created'
-                              ? '세션 재개'
-                              : '새 시도 시작'
-                        : '작업 공간 보관됨'}
-              </h3>
-              <p className="mt-2 text-[11px] leading-relaxed text-faint">
-                {!task.workspace
-                  ? 'Janus는 격리된 브랜치를 생성하기 전에 Git 저장소와 기준 리프를 검증합니다.'
-                  : task.workspace.state === 'preparing'
-                    ? `백그라운드 단계: ${stateLabel(task.workspace.progress)}`
-                    : task.workspace.state === 'failed'
-                      ? '저장소 또는 기준 리프를 수정한 뒤 기록된 소유권을 잃지 않고 재시도하세요.'
-                      : task.workspace.state === 'ready'
-                        ? !session
-                          ? '에이전트 프로필을 선택하세요. Janus가 디스패치, 대화 기록, 실행 로그를 영속화합니다.'
-                          : `시도 ${session.dispatch.attempt} · ${stateLabel(session.status)} · ${session.agent_profile_id}`
-                        : '명시적으로 삭제할 때까지 브랜치는 유지됩니다.'}
-              </p>
-              <div className="mt-4 flex items-center gap-1.5 text-[10px] text-faint">
-                <ChevronRight size={11} /> 최신 디스패치가 모든 실행 이벤트를 소유합니다
-              </div>
-            </section>
-            <section className="task-card">
-              <div className="task-label">소유권</div>
-              <dl className="mt-3 space-y-2 text-[10.5px]">
-                <div className="flex justify-between gap-3">
-                  <dt className="text-faint">작업</dt>
-                  <dd className="truncate font-mono text-muted">{task.id}</dd>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <dt className="text-faint">작업 공간</dt>
-                  <dd className="truncate font-mono text-muted">{task.workspace?.id ?? '미생성'}</dd>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <dt className="text-faint">시도</dt>
-                  <dd className="font-mono text-muted">{task.dispatches?.length ?? 0}</dd>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <dt className="text-faint">세션</dt>
-                  <dd className="truncate font-mono text-muted">{session?.id ?? '미시작'}</dd>
-                </div>
-              </dl>
-            </section>
-          </aside>
-          <div className="col-span-2 space-y-4 border-t border-border-subtle p-4">
-            <TaskRuntimeCard task={task} />
-            {task.workspace?.state === 'ready' && (
-              <Suspense fallback={<section className="task-card text-[9px] text-faint">작업 개발 화면 로딩 중…</section>}>
-                <TaskDevelopmentSurface task={task} />
-              </Suspense>
-            )}
-          </div>
-        </div>
+        )}
+        {view === 'changes' && (workspaceReady ? <div className="task-secondary-view"><ChangeSetCard /></div> : unavailable('변경'))}
+        {view === 'verification' && (workspaceReady ? <div className="task-secondary-view"><VerificationCard task={task} /></div> : unavailable('검증'))}
+        {view === 'review' && (workspaceReady ? <div className="task-secondary-view"><ReviewDecisionCard task={task} /></div> : unavailable('검토'))}
+        {view === 'ship' && (workspaceReady ? <div className="task-secondary-view"><TaskShippingCard /></div> : unavailable('출하'))}
+        {view === 'context' && (session ? <ContextInspector session={session} events={events} /> : unavailable('컨텍스트'))}
+        {view === 'development' && (workspaceReady ? (
+          <Suspense fallback={<section className="task-card text-[9px] text-faint">작업 개발 화면 로딩 중…</section>}>
+            <TaskDevelopmentSurface task={task} />
+          </Suspense>
+        ) : unavailable('개발'))}
       </div>
+      <ConfirmDialog
+        open={confirmArchive}
+        title={`“${task.title}” 작업을 보관할까요?`}
+        description="보관된 작업은 활성 작업 목록에서 숨겨집니다."
+        confirmLabel="작업 보관"
+        danger
+        onClose={() => setConfirmArchive(false)}
+        onConfirm={() => { setConfirmArchive(false); void archiveTask() }}
+      />
     </main>
+    <TaskContextPanel task={task} view={view} onView={setView} />
+    </>
   )
 }
 
-function EmptyTaskState({ hasProject, onNewTask }: { hasProject: boolean; onNewTask: () => void }) {
+function EmptyTaskState({ hasProject }: { hasProject: boolean }) {
   const addProject = useStore((state) => state.addProjectFromPicker)
   return (
     <div className="workspace-surface grid min-w-0 flex-1 place-items-center px-8 text-center">
       <EmptyState
-        title={hasProject ? '목표를 작업으로 만들기' : '로컬 Git 저장소 추가'}
+        title={hasProject ? 'Janus에게 목표를 위임하세요' : '로컬 Git 저장소 추가'}
         description={hasProject
-          ? '에이전트가 작업을 시작하기 전에 결과, 수용 검증 명령, 기준 리프를 정의하세요.'
+          ? 'Janus가 내부 작업 계약과 검증 경계를 만들고 격리된 로컬 에이전트 실행을 시작합니다.'
           : 'Janus는 main 체크아웃을 수정하지 않고 작업 소유 브랜치와 워크트리를 만듭니다.'}
-        action={(
-          <Button onClick={hasProject ? onNewTask : addProject}>
-          <Plus size={13} /> {hasProject ? '새 작업' : '저장소 추가'}
-          </Button>
-        )}
+        action={hasProject ? undefined : <Button onClick={addProject}><FolderGit2 size={13} /> 저장소 추가</Button>}
       />
     </div>
   )
 }
 
-export default function TaskWorkspace() {
+export default function TaskWorkspace({ onNavigate }: { onNavigate?: (destination: string) => void }) {
   const projects = useStore((state) => state.projects)
   const projectId = useStore((state) => state.projectId)
   const task = useStore((state) => state.task)
+  const sidebarTab = useStore((state) => state.sidebarTab)
+  const openedFile = useStore((state) => state.openedFile)
   const refresh = useStore((state) => state.refreshSelectedTask)
   const error = useStore((state) => state.taskActionError)
   const clearError = useStore((state) => state.clearTaskError)
-  const [creating, setCreating] = useState(false)
+  const pendingDelegation = useStore((state) => state.pendingDelegation)
+  const session = useStore((state) => state.taskSession)
+  const taskSocket = useStore((state) => state.taskWs)
+  const connected = useStore((state) => state.taskConnected)
+  const runtimeError = useStore((state) => state.taskRuntimeError)
+  const busy = useStore((state) => state.taskBusy)
+  const mlxUp = useStore((state) => state.mlxUp)
+  const startTaskSession = useStore((state) => state.startTaskSession)
+  const resumeTaskSession = useStore((state) => state.resumeTaskSession)
+  const [newConversation, setNewConversation] = useState(false)
   const project = useMemo(
     () => projects.find((item) => item.id === projectId) ?? null,
     [projects, projectId]
@@ -1504,14 +1603,39 @@ export default function TaskWorkspace() {
     (event) => { if (event.task_id === task?.id) void refresh() }
   )
 
+  useEffect(() => {
+    if (
+      !pendingDelegation || pendingDelegation.taskId !== task?.id ||
+      task.workspace?.state !== 'ready' || session || busy || !mlxUp
+    ) return
+    void startTaskSession({ initialMessage: pendingDelegation.objective })
+  }, [pendingDelegation, task, session, busy, mlxUp, startTaskSession])
+
+  useEffect(() => {
+    if (
+      pendingDelegation || !session || taskSocket || connected || busy || !mlxUp || runtimeError ||
+      (session.status !== 'created' && session.status !== 'idle')
+    ) return
+    void resumeTaskSession()
+  }, [pendingDelegation, session, taskSocket, connected, busy, mlxUp, runtimeError, resumeTaskSession])
+
+  useEffect(() => setNewConversation(false), [task?.id])
+
   return (
     <>
-      <TaskSidebar onNewTask={() => setCreating(true)} />
-      <div className="relative flex min-w-0 flex-1">
-        {task ? (
+      <TaskSidebar onNavigate={onNavigate} onNewConversation={() => { setNewConversation(true); useStore.getState().setSidebarTab('tasks') }} />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="relative flex min-h-0 flex-1">
+        {sidebarTab === 'files' && openedFile ? (
+          <Suspense fallback={<div className="grid flex-1 place-items-center text-[11px] text-faint">파일 뷰어 로딩 중…</div>}>
+            <FileView />
+          </Suspense>
+        ) : sidebarTab === 'tasks' && project && (!task || newConversation) ? (
+          <DelegationBar project={project} />
+        ) : task && !newConversation ? (
           <TaskDetail task={task} />
         ) : (
-          <EmptyTaskState hasProject={Boolean(project)} onNewTask={() => setCreating(true)} />
+          <EmptyTaskState hasProject={Boolean(project)} />
         )}
         {error && (
           <div className="toast-error">
@@ -1522,10 +1646,8 @@ export default function TaskWorkspace() {
             </button>
           </div>
         )}
+        </div>
       </div>
-      {creating && project && (
-        <NewTaskDialog project={project} onClose={() => setCreating(false)} />
-      )}
     </>
   )
 }

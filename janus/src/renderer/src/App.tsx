@@ -135,19 +135,19 @@ export default function App() {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <NavRail active={nav} onSelect={setNav} />
         {nav === 'tasks' ? (
-          <TaskWorkspace />
+          <TaskWorkspace onNavigate={setNav} />
         ) : nav === 'evals' ? (
-          <EvaluationLab />
+          <><NavRail active={nav} onSelect={setNav} /><EvaluationLab /></>
         ) : nav === 'monitor' ? (
-          <OperationsDashboard onOpenTask={() => setNav('tasks')} />
+          <><NavRail active={nav} onSelect={setNav} /><OperationsDashboard onOpenTask={() => setNav('tasks')} /></>
         ) : nav !== 'agents' ? (
-          <div className="grid flex-1 place-items-center text-[12px] text-faint">
+          <><NavRail active={nav} onSelect={setNav} /><div className="grid flex-1 place-items-center text-[12px] text-faint">
             이 화면은 아직 구현되지 않았습니다
-          </div>
+          </div></>
         ) : (
           <>
+            <NavRail active={nav} onSelect={setNav} />
             <AgentProfileList />
             <main className="flex min-w-0 flex-1 flex-col">
               <Tabs items={DESIGN_TABS} value={tab} onChange={setTab} label="에이전트 프로필" />
