@@ -337,3 +337,41 @@ pnpm dev
 ```
 
 백엔드·MLX 로그: Electron backend status가 표시하는 Janus user-data `logs/` 경로
+
+## 2026-08-23 개선 체크리스트 — 완료
+
+### P0 · 회귀 기준점
+
+- [x] 기존 스킬·프로필·컨텍스트·Graphite UI 변경을 전체 테스트 후 기준 커밋으로 고정
+- [x] renderer에 Vitest + Testing Library 통합 테스트 추가
+- [x] Electron main, renderer, TypeScript, production build를 하나의 반복 가능한 검증 경로로 구성
+
+### P1 · 로컬 에이전트 효율
+
+- [x] terminal 250ms, verification 500ms, evaluation 1s, operations 2s, workspace 650ms polling 제거
+- [x] 인증된 `/events` WebSocket과 thread-safe bounded event bus 추가
+- [x] terminal output은 payload stream, 나머지는 domain invalidation으로 분리
+- [x] TaskSuite에 `none`/`relevant`/`noisy` 스킬 코호트와 load rate·prompt token 비용 계측 추가
+- [x] 같은 고정 Task·모델·정책에서 성공률·wall time·token·개입·스킬 비용을 비교하는 A/B 결과 형식 추가
+
+장시간 실제 27B 반복 실험은 기능 출구 조건이 아니라 운영 측정이다. 모델 서버가 떠 있지 않은
+개발 환경에서도 하네스·코호트·집계 테스트는 결정적으로 검증되며, 필요할 때
+`run_tasksuite_v0.py --skills-json tasksuite/v0/skill_cohorts/relevant.json`으로 실행한다.
+
+### P2 · 구조와 접근성
+
+- [x] 서버 주소·인증·HTTP/WebSocket 오류 처리를 `renderer/api.ts`로 분리
+- [x] Task 프로젝트/작업 탐색을 `TaskSidebar.tsx`로 분리
+- [x] 공통 Tabs에 Arrow/Home/End roving focus 추가
+- [x] 공통 Dialog focus trap·Escape close·focus restore 및 ConfirmDialog 추가
+- [x] 네이티브 `window.confirm` 제거, Skill import dialog를 공통 계약으로 전환
+- [x] Checkbox·SegmentedControl·Toolbar·Menu 공통 컴포넌트 추가
+- [x] 구성 상태의 green signal 오용과 실행 전 “오케스트레이터 1” 표시 수정
+
+### P3 · 번들 및 유지보수
+
+- [x] 미사용 legacy File/Inspector/YAML/Trace 화면 6개 제거
+- [x] Monaco 전체 import를 13개 구문 언어 선택 등록으로 교체
+- [x] TypeScript 13.31MB 등 Monaco worker bundle 제거
+- [x] lazy 개발 화면 7.72MB → 5.16MB, 약 33% 감소
+- [x] initial renderer 1.30MB, 개발 화면 5.50MB 상한과 worker 재유입 금지 bundle gate 추가
