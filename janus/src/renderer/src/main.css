@@ -655,6 +655,128 @@ button {
   background: var(--bg-canvas);
 }
 
+.file-ide {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  background: var(--bg-canvas);
+}
+
+.file-ide__tabs {
+  display: flex;
+  height: 36px;
+  flex: none;
+  align-items: flex-end;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-base);
+  padding-left: 8px;
+}
+
+.file-ide__tab {
+  position: relative;
+  display: flex;
+  min-width: 150px;
+  max-width: 240px;
+  height: 34px;
+  align-items: center;
+  gap: 7px;
+  border-right: 1px solid var(--border-subtle);
+  background: var(--bg-canvas);
+  padding: 0 7px 0 11px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.file-ide__tab::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: var(--accent);
+  content: '';
+}
+
+.file-ide__tab > svg {
+  flex: none;
+  color: var(--info);
+}
+
+.file-ide__tab > span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-ide__tab button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+}
+
+.file-ide__tab button:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.file-ide__breadcrumbs {
+  display: flex;
+  min-height: 30px;
+  flex: none;
+  align-items: center;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 0 14px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  scrollbar-width: none;
+}
+
+.file-ide__breadcrumbs > span {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+}
+
+.file-ide__breadcrumbs > span:last-child {
+  color: var(--text-secondary);
+}
+
+.file-ide__editor {
+  min-height: 0;
+  flex: 1;
+}
+
+.file-ide__status {
+  display: flex;
+  height: 23px;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-base);
+  padding: 0 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.file-ide__readonly {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-secondary);
+}
+
 .task-chat-shell {
   display: flex;
   height: 100%;

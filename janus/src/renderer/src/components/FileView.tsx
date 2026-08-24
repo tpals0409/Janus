@@ -1,44 +1,118 @@
-import Editor, { loader } from '@monaco-editor/react'
+import { useState } from 'react'
+import Editor, { loader, type OnMount } from '@monaco-editor/react'
 import * as monaco from 'monaco-editor/editor/editor.api'
-import { FileCode2, X } from 'lucide-react'
+import { ChevronRight, FileCode2, LockKeyhole, X } from 'lucide-react'
 import { useStore } from '../store'
 
 loader.config({ monaco })
 
+monaco.editor.defineTheme('janus-ide', {
+  base: 'vs-dark',
+  inherit: true,
+  rules: [],
+  colors: {
+    'editor.background': '#171819',
+    'editor.foreground': '#d8d9d9',
+    'editorLineNumber.foreground': '#515557',
+    'editorLineNumber.activeForeground': '#a3a7aa',
+    'editor.lineHighlightBackground': '#1d1f20',
+    'editorCursor.foreground': '#91b5a2',
+    'editor.selectionBackground': '#33433b',
+    'editorIndentGuide.background1': '#242627',
+    'editorIndentGuide.activeBackground1': '#414445',
+    'editorGutter.background': '#171819',
+    'minimap.background': '#151617'
+  }
+})
+
+function basename(path: string): string {
+  return path.split('/').filter(Boolean).pop() ?? path
+}
+
+function languageFor(path: string): string {
+  const extension = path.split('.').pop()?.toLowerCase() ?? ''
+  return ({
+    ts: 'TypeScript', tsx: 'TypeScript React', js: 'JavaScript', jsx: 'JavaScript React',
+    css: 'CSS', scss: 'SCSS', html: 'HTML', json: 'JSON', md: 'Markdown', py: 'Python',
+    rs: 'Rust', go: 'Go', swift: 'Swift', sh: 'Shell', yaml: 'YAML', yml: 'YAML',
+    xml: 'XML', sql: 'SQL', toml: 'TOML'
+  } as Record<string, string>)[extension] ?? (extension ? extension.toUpperCase() : 'Plain Text')
+}
+
 export default function FileView() {
   const openedFile = useStore((state) => state.openedFile)
   const closeFile = useStore((state) => state.closeFile)
+  const [cursor, setCursor] = useState({ line: 1, column: 1 })
   if (!openedFile) return null
 
+  const parts = openedFile.path.split('/').filter(Boolean)
+  const language = languageFor(openedFile.path)
+  const mount: OnMount = (editor) => {
+    const update = () => {
+      const position = editor.getPosition()
+      if (position) setCursor({ line: position.lineNumber, column: position.column })
+    }
+    update()
+    editor.onDidChangeCursorPosition(update)
+  }
+
   return (
-    <main className="workspace-surface min-w-0 flex-1">
-      <header className="workspace-toolbar">
-        <div className="workspace-toolbar__icon"><FileCode2 size={15} /></div>
-        <div className="workspace-toolbar__title min-w-0">
-          <h2 className="truncate font-mono">{openedFile.path}</h2>
-          <p>선택한 프로젝트 루트 · 읽기 전용</p>
+    <main className="file-ide min-w-0 flex-1">
+      <div className="file-ide__tabs" role="tablist" aria-label="열린 파일">
+        <div className="file-ide__tab" role="tab" aria-selected="true">
+          <FileCode2 size={13} aria-hidden="true" />
+          <span>{basename(openedFile.path)}</span>
+          <button onClick={closeFile} title="파일 닫기" aria-label={`${basename(openedFile.path)} 닫기`}>
+            <X size={12} />
+          </button>
         </div>
-        <button onClick={closeFile} title="파일 닫기" className="task-quiet-action ml-auto">
-          <X size={11} /> 닫기
-        </button>
-      </header>
-      <div className="min-h-0 flex-1">
+      </div>
+      <nav className="file-ide__breadcrumbs" aria-label="파일 경로">
+        {parts.map((part, index) => (
+          <span key={`${part}-${index}`}>
+            {index > 0 && <ChevronRight size={11} aria-hidden="true" />}
+            <span>{part}</span>
+          </span>
+        ))}
+      </nav>
+      <div className="file-ide__editor">
         <Editor
           height="100%"
           path={openedFile.path}
-          theme="vs-dark"
+          theme="janus-ide"
           value={openedFile.content}
+          onMount={mount}
           options={{
             readOnly: true,
-            minimap: { enabled: false },
-            fontSize: 12,
+            readOnlyMessage: { value: '프로젝트 파일 탐색에서는 읽기 전용입니다.' },
+            minimap: { enabled: true, scale: 1, showSlider: 'mouseover', maxColumn: 88 },
+            fontFamily: 'Geist Mono, JetBrains Mono, SFMono-Regular, Menlo, monospace',
+            fontSize: 12.5,
+            lineHeight: 20,
+            lineNumbersMinChars: 4,
+            glyphMargin: true,
+            folding: true,
+            guides: { indentation: true, bracketPairs: true, highlightActiveIndentation: true },
+            bracketPairColorization: { enabled: true },
+            renderLineHighlight: 'all',
+            renderWhitespace: 'selection',
+            cursorBlinking: 'smooth',
+            smoothScrolling: true,
+            stickyScroll: { enabled: true },
             scrollBeyondLastLine: false,
-            renderLineHighlight: 'none',
+            wordWrap: 'off',
             automaticLayout: true,
-            padding: { top: 12 }
+            padding: { top: 10, bottom: 18 }
           }}
         />
       </div>
+      <footer className="file-ide__status">
+        <span>Ln {cursor.line}, Col {cursor.column}</span>
+        <span>Spaces: 2</span>
+        <span>UTF-8</span>
+        <span>{language}</span>
+        <span className="file-ide__readonly"><LockKeyhole size={10} /> 읽기 전용</span>
+      </footer>
     </main>
   )
 }
