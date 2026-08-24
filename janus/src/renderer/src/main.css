@@ -725,6 +725,36 @@ button {
   color: var(--text-primary);
 }
 
+.file-ide__view-toggle {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 8px 3px auto;
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  padding: 2px;
+}
+
+.file-ide__view-toggle button {
+  display: inline-flex;
+  height: 26px;
+  align-items: center;
+  gap: 5px;
+  border-radius: var(--radius-sm);
+  padding: 0 8px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.file-ide__view-toggle button[aria-pressed='true'] {
+  background: var(--bg-active);
+  color: var(--text-primary);
+}
+
+.file-ide__view-toggle button:disabled {
+  color: var(--text-disabled);
+}
+
 .file-ide__breadcrumbs {
   display: flex;
   min-height: 30px;

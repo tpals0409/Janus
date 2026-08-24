@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Editor, { loader, type OnMount } from '@monaco-editor/react'
 import * as monaco from 'monaco-editor/editor/editor.api'
 import 'monaco-editor/languages/definitions/css/register'
@@ -13,7 +13,7 @@ import 'monaco-editor/languages/definitions/sql/register'
 import 'monaco-editor/languages/definitions/typescript/register'
 import 'monaco-editor/languages/definitions/xml/register'
 import 'monaco-editor/languages/definitions/yaml/register'
-import { ChevronRight, FileCode2, LockKeyhole, X } from 'lucide-react'
+import { ChevronRight, FileCode2, GitCompareArrows, LockKeyhole, X } from 'lucide-react'
 import { useStore } from '../store'
 
 loader.config({ monaco })
@@ -21,7 +21,12 @@ loader.config({ monaco })
 monaco.editor.defineTheme('janus-ide', {
   base: 'vs-dark',
   inherit: true,
-  rules: [],
+  rules: [
+    { token: 'diff.add', foreground: '83A995' },
+    { token: 'diff.remove', foreground: 'C97878' },
+    { token: 'diff.hunk', foreground: '7796AD', fontStyle: 'bold' },
+    { token: 'diff.header', foreground: 'A3A7AA' }
+  ],
   colors: {
     'editor.background': '#171819',
     'editor.foreground': '#d8d9d9',
@@ -36,6 +41,23 @@ monaco.editor.defineTheme('janus-ide', {
     'minimap.background': '#151617'
   }
 })
+
+if (!monaco.languages.getLanguages().some((language) => language.id === 'janus-diff')) {
+  monaco.languages.register({ id: 'janus-diff' })
+  monaco.languages.setMonarchTokensProvider('janus-diff', {
+    tokenizer: {
+      root: [
+        [/^\+\+\+.*$/, 'diff.header'],
+        [/^---.*$/, 'diff.header'],
+        [/^@@.*@@.*$/, 'diff.hunk'],
+        [/^\+.*/, 'diff.add'],
+        [/^-.*/, 'diff.remove'],
+        [/^diff --git.*$/, 'diff.header'],
+        [/^(?:index|new file mode|deleted file mode|similarity index).*$/, 'diff.header']
+      ]
+    }
+  })
+}
 
 function basename(path: string): string {
   return path.split('/').filter(Boolean).pop() ?? path
@@ -64,12 +86,27 @@ function languageIdFor(path: string): string {
 export default function FileView() {
   const openedFile = useStore((state) => state.openedFile)
   const closeFile = useStore((state) => state.closeFile)
+  const changeSet = useStore((state) => state.changeSet)
   const [cursor, setCursor] = useState({ line: 1, column: 1 })
+  const [view, setView] = useState<'code' | 'diff'>('code')
+  useEffect(() => {
+    setView('code')
+    setCursor({ line: 1, column: 1 })
+  }, [openedFile?.path])
   if (!openedFile) return null
 
   const parts = openedFile.path.split('/').filter(Boolean)
   const language = languageFor(openedFile.path)
   const languageId = languageIdFor(openedFile.path)
+  const changedFile = changeSet
+    ? Object.values(changeSet.sections).flat().find((file) => file.path === openedFile.path)
+    : undefined
+  const diff = changedFile?.diff ?? null
+  const showingDiff = view === 'diff' && Boolean(changedFile)
+  const editorValue = showingDiff
+    ? diff ?? `Binary file changed · ${changedFile?.diff_bytes ?? 0} bytes`
+    : openedFile.content
+
   const mount: OnMount = (editor) => {
     const update = () => {
       const position = editor.getPosition()
@@ -89,6 +126,19 @@ export default function FileView() {
             <X size={12} />
           </button>
         </div>
+        <div className="file-ide__view-toggle" role="group" aria-label="파일 보기 방식">
+          <button aria-pressed={!showingDiff} onClick={() => setView('code')}>
+            <FileCode2 size={12} /> 코드
+          </button>
+          <button
+            aria-pressed={showingDiff}
+            onClick={() => setView('diff')}
+            disabled={!changedFile}
+            title={changedFile ? `${changedFile.status} · ${changedFile.diff_bytes} bytes` : 'Git 변경 없음'}
+          >
+            <GitCompareArrows size={12} /> Git diff
+          </button>
+        </div>
       </div>
       <nav className="file-ide__breadcrumbs" aria-label="파일 경로">
         {parts.map((part, index) => (
@@ -101,21 +151,22 @@ export default function FileView() {
       <div className="file-ide__editor">
         <Editor
           height="100%"
-          path={openedFile.path}
-          language={languageId}
+          path={showingDiff ? `${openedFile.path}.janus-diff` : openedFile.path}
+          language={showingDiff ? 'janus-diff' : languageId}
           theme="janus-ide"
-          value={openedFile.content}
+          value={editorValue}
           onMount={mount}
           options={{
             readOnly: true,
             readOnlyMessage: { value: '프로젝트 파일 탐색에서는 읽기 전용입니다.' },
-            minimap: { enabled: true, scale: 1, showSlider: 'mouseover', maxColumn: 88 },
+            minimap: { enabled: !showingDiff, scale: 1, showSlider: 'mouseover', maxColumn: 88 },
             fontFamily: 'Geist Mono, JetBrains Mono, SFMono-Regular, Menlo, monospace',
             fontSize: 12.5,
             lineHeight: 20,
+            lineNumbers: showingDiff ? 'off' : 'on',
             lineNumbersMinChars: 4,
-            glyphMargin: true,
-            folding: true,
+            glyphMargin: !showingDiff,
+            folding: !showingDiff,
             guides: { indentation: true, bracketPairs: true, highlightActiveIndentation: true },
             bracketPairColorization: { enabled: true },
             renderLineHighlight: 'all',
@@ -134,7 +185,7 @@ export default function FileView() {
         <span>Ln {cursor.line}, Col {cursor.column}</span>
         <span>Spaces: 2</span>
         <span>UTF-8</span>
-        <span>{language}</span>
+        <span>{showingDiff ? 'Git Diff' : language}</span>
         <span className="file-ide__readonly"><LockKeyhole size={10} /> 읽기 전용</span>
       </footer>
     </main>
