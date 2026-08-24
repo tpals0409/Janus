@@ -1,7 +1,6 @@
 import {
   Boxes,
   ChartNoAxesColumn,
-  FlaskConical,
   Home,
   ListTodo
 } from 'lucide-react'
@@ -12,7 +11,6 @@ import { Status } from './ui'
 const NAV: { id: string; label: string; Icon: typeof Home; wired?: boolean }[] = [
   { id: 'tasks', label: '작업', Icon: ListTodo, wired: true },
   { id: 'agents', label: '에이전트', Icon: Boxes, wired: true },
-  { id: 'evals', label: '평가', Icon: FlaskConical, wired: true },
   { id: 'monitor', label: '모니터', Icon: ChartNoAxesColumn, wired: true }
 ]
 

@@ -263,11 +263,6 @@ describe('Janus renderer fixture', () => {
     await user.click(screen.getByRole('tab', { name: '프롬프트' }))
     expect(screen.getByRole('heading', { name: '시스템 프롬프트' })).toBeVisible()
 
-    await user.click(screen.getByRole('button', { name: '평가' }))
-    expect(screen.getByRole('heading', { name: '평가' })).toBeVisible()
-    expect(screen.getByRole('heading', { name: '대조 프로필' })).toBeVisible()
-    expect(screen.getByRole('heading', { name: '후보 프로필' })).toBeVisible()
-
     await user.click(screen.getByRole('button', { name: '모니터' }))
     expect(screen.getByRole('heading', { name: '운영' })).toBeVisible()
 

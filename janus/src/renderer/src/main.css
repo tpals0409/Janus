@@ -1501,21 +1501,20 @@ button {
 
 .task-development-surface__toolbar { display: flex; height: 42px; flex: none; align-items: center; border-bottom: 1px solid var(--border-subtle); padding: 0 12px; }
 
-/* 평가 화면 — 설정과 판정을 하나의 A/B 작업대 안에서 연결한다. */
-.evaluation-page { width: min(100%, 1080px); margin: 0 auto; padding: 18px 24px 32px; }
-.evaluation-page__header { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 14px; }
-.evaluation-page__header p { margin-top: 4px; color: var(--text-faint); font-size: 11.5px; }
-.evaluation-workbench { overflow: hidden; border: 1px solid var(--border-subtle); background: var(--bg-panel); }
-.evaluation-workbench__profiles { display: grid; grid-template-columns: minmax(0, 1fr) 42px minmax(0, 1fr); border-bottom: 1px solid var(--border-subtle); }
-.evaluation-workbench__versus { display: grid; place-items: center; border-right: 1px solid var(--border-subtle); border-left: 1px solid var(--border-subtle); color: var(--text-faint); font-family: var(--font-mono); font-size: 10px; }
-.evaluation-lane { min-width: 0; padding: 18px; }
-.evaluation-ledger { background: color-mix(in srgb, var(--bg-canvas) 40%, var(--bg-panel)); }
-.evaluation-ledger > :first-child { border-top: 0; }
-
-@media (max-width: 840px) {
-  .evaluation-workbench__profiles { grid-template-columns: minmax(0, 1fr); }
-  .evaluation-workbench__versus { min-height: 32px; border: 0; border-top: 1px solid var(--border-subtle); border-bottom: 1px solid var(--border-subtle); }
-}
+.agent-learning { max-width: 840px; margin-top: 24px; border-top: 1px solid var(--border-subtle); padding-top: 16px; }
+.agent-learning > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.agent-learning > header > div { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; }
+.agent-learning__description { margin-top: 5px; color: var(--text-faint); font-size: 10.5px; }
+.agent-learning__list { display: grid; gap: 6px; margin-top: 12px; }
+.agent-learning__list article { display: flex; align-items: flex-start; gap: 12px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--bg-panel); padding: 10px 11px; }
+.agent-learning__list article[data-status='paused'] { opacity: .55; }
+.agent-learning__list article > div > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.agent-learning__list strong { font-size: 11px; font-weight: 550; }
+.agent-learning__list small { flex: none; color: var(--text-faint); font-family: var(--font-mono); font-size: 9.5px; }
+.agent-learning__list article p { margin-top: 3px; color: var(--text-muted); font-size: 10.5px; line-height: 1.45; }
+.agent-learning__list article button { display: grid; width: 25px; height: 25px; flex: none; place-items: center; border-radius: 6px; color: var(--text-faint); }
+.agent-learning__list article button:hover { background: var(--bg-panel-2); color: var(--text); }
+.agent-learning__empty { border: 1px dashed var(--border-subtle); border-radius: 8px; padding: 16px; text-align: center; color: var(--text-faint); font-size: 10.5px; }
 
 @media (max-width: 900px) {
   .agent-overview { grid-template-columns: minmax(0, 1fr); }

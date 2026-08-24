@@ -17,7 +17,7 @@ from typing import Any
 
 from .budget import empty_usage, merge_budget, normalize_budget
 
-CURRENT_SCHEMA_VERSION = 19
+CURRENT_SCHEMA_VERSION = 20
 
 DEFAULT_CONTEXT_POLICY = {
     "max_chars": 24_000,
@@ -578,12 +578,35 @@ UPDATE tasks SET attention_reason = CASE
 END;
 """
 
+MIGRATION_20 = """
+CREATE TABLE project_learnings (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK(kind IN ('preference','verification','workflow','avoidance')),
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    confidence REAL NOT NULL CHECK(confidence >= 0 AND confidence <= 1),
+    evidence_count INTEGER NOT NULL DEFAULT 1 CHECK(evidence_count >= 1),
+    success_count INTEGER NOT NULL DEFAULT 0 CHECK(success_count >= 0),
+    failure_count INTEGER NOT NULL DEFAULT 0 CHECK(failure_count >= 0),
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','paused','archived')),
+    evidence_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    last_applied_at TEXT,
+    UNIQUE(project_id,fingerprint)
+);
+CREATE INDEX idx_project_learnings_active
+ON project_learnings(project_id,status,confidence DESC,updated_at DESC);
+"""
+
 MIGRATIONS = {
     1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3, 4: MIGRATION_4,
     5: MIGRATION_5, 6: MIGRATION_6, 7: MIGRATION_7, 8: MIGRATION_8,
     9: MIGRATION_9, 10: MIGRATION_10, 11: MIGRATION_11, 12: MIGRATION_12,
     13: MIGRATION_13, 14: MIGRATION_14, 15: MIGRATION_15, 16: MIGRATION_16,
-    17: MIGRATION_17, 18: MIGRATION_18, 19: MIGRATION_19,
+    17: MIGRATION_17, 18: MIGRATION_18, 19: MIGRATION_19, 20: MIGRATION_20,
 }
 
 
@@ -1933,6 +1956,82 @@ class DomainStore:
                 (task_id,),
             ).fetchone()
             return dict(row) if row is not None else None
+
+    def upsert_project_learning(
+        self, *, project_id: str, kind: str, title: str, content: str,
+        fingerprint: str, confidence: float, evidence: str,
+    ) -> dict:
+        if kind not in {"preference", "verification", "workflow", "avoidance"}:
+            raise Conflict(f"지원하지 않는 학습 유형: {kind}")
+        now = _now()
+        with self.transaction(immediate=True) as connection:
+            self._one(connection, "SELECT id FROM projects WHERE id=?", (project_id,), "Project")
+            existing = connection.execute(
+                "SELECT * FROM project_learnings WHERE project_id=? AND fingerprint=?",
+                (project_id, fingerprint),
+            ).fetchone()
+            if existing is None:
+                learning_id = _id("learning")
+                connection.execute(
+                    "INSERT INTO project_learnings(id,project_id,kind,title,content,fingerprint,"
+                    "confidence,evidence_count,evidence_json,created_at,updated_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (learning_id, project_id, kind, title.strip(), content.strip(), fingerprint,
+                     max(0.0, min(1.0, float(confidence))), 1, _json([evidence]), now, now),
+                )
+            else:
+                learning_id = str(existing["id"])
+                evidence_items = json.loads(existing["evidence_json"] or "[]")
+                if evidence not in evidence_items:
+                    evidence_items.append(evidence)
+                count = int(existing["evidence_count"]) + 1
+                boosted = min(0.99, max(float(existing["confidence"]), float(confidence)) + 0.04)
+                connection.execute(
+                    "UPDATE project_learnings SET evidence_count=?,confidence=?,evidence_json=?,"
+                    "status='active',updated_at=? WHERE id=?",
+                    (count, boosted, _json(evidence_items[-20:]), now, learning_id),
+                )
+        return self.get_project_learning(learning_id)
+
+    def get_project_learning(self, learning_id: str) -> dict:
+        with self._connect() as connection:
+            return self._one(
+                connection, "SELECT * FROM project_learnings WHERE id=?",
+                (learning_id,), "ProjectLearning",
+            )
+
+    def list_project_learnings(
+        self, project_id: str, *, active_only: bool = False, limit: int = 100,
+    ) -> list[dict]:
+        with self._connect() as connection:
+            self._one(connection, "SELECT id FROM projects WHERE id=?", (project_id,), "Project")
+            where = "AND status='active'" if active_only else ""
+            return [dict(row) for row in connection.execute(
+                f"SELECT * FROM project_learnings WHERE project_id=? {where} "
+                "ORDER BY confidence DESC,updated_at DESC LIMIT ?",
+                (project_id, max(1, min(500, int(limit)))),
+            )]
+
+    def set_project_learning_status(self, learning_id: str, status: str) -> dict:
+        if status not in {"active", "paused", "archived"}:
+            raise Conflict(f"지원하지 않는 학습 상태: {status}")
+        with self.transaction(immediate=True) as connection:
+            changed = connection.execute(
+                "UPDATE project_learnings SET status=?,updated_at=? WHERE id=?",
+                (status, _now(), learning_id),
+            ).rowcount
+            if not changed:
+                raise NotFound(f"없는 ProjectLearning: {learning_id}")
+        return self.get_project_learning(learning_id)
+
+    def mark_project_learnings_applied(self, learning_ids: list[str]) -> None:
+        if not learning_ids:
+            return
+        with self.transaction(immediate=True) as connection:
+            connection.executemany(
+                "UPDATE project_learnings SET last_applied_at=? WHERE id=?",
+                [(_now(), learning_id) for learning_id in learning_ids],
+            )
 
     def transition_dispatch(
         self, dispatch_id: str, target: str, *, error: str | None = None,

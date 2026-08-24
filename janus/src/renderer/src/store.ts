@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type {
   AgentEvent, AgentProfile, AgentProfileSkill, AgentSessionDetail, AgentSummary, ApprovalRequest, ApprovalResponseScope, ChangeSet,
   BackendStatus, ModelProfile, Project, RunDetail, RunSummary, SessionEvent, Span,
-  EvaluationComparison, EvaluationExperiment, OperationsSnapshot, PullRequestSnapshot, ReviewSnapshot, ShipHandoff, Spec,
+  OperationsSnapshot, ProjectLearning, PullRequestSnapshot, ReviewSnapshot, ShipHandoff, Spec,
   SkillActivationMode, SkillImportPreview, SkillSummary, Task, TaskShipment, ToolInfo, TreeEntry,
   VerificationCommand, VerificationRun,
   WorkspaceInspection
@@ -63,10 +63,8 @@ interface State {
   shipments: TaskShipment[]
   shipHandoff: ShipHandoff | null
   taskPullRequest: PullRequestSnapshot | null
-  evaluationExperiments: EvaluationExperiment[]
-  evaluationComparisons: EvaluationComparison[]
-  evaluationBusy: boolean
-  evaluationError: string | null
+  projectLearnings: ProjectLearning[]
+  learningError: string | null
   operations: OperationsSnapshot | null
   operationsError: string | null
   taskBusy: boolean
@@ -158,23 +156,13 @@ interface State {
   pushTask(remote?: string): Promise<void>
   loadShipHandoff(): Promise<void>
   loadTaskPullRequest(): Promise<void>
+  loadProjectLearnings(): Promise<void>
+  setProjectLearningStatus(id: string, status: ProjectLearning['status']): Promise<void>
   createTaskPullRequest(input: {
     title: string; body: string; base: string; draft: boolean
   }): Promise<void>
   refreshTaskPullRequest(): Promise<void>
-  loadEvaluations(): Promise<void>
   loadOperations(): Promise<void>
-  startEvaluation(input: {
-    role: 'baseline' | 'candidate'; label: string; agent_profile_id: string
-    repeats: number; tasks: string[]; turn_timeout_seconds: number
-  }): Promise<void>
-  cancelEvaluation(id: string): Promise<void>
-  importEvaluation(role: 'baseline' | 'candidate', report: Record<string, unknown>): Promise<void>
-  compareEvaluations(input: {
-    baseline_id: string; candidate_id: string; thresholds: Record<string, number>
-  }): Promise<void>
-  promoteEvaluation(comparisonId: string): Promise<void>
-  exportEvaluation(id: string, format: 'json' | 'csv' | 'markdown'): Promise<void>
   archiveWorkspace(force?: boolean): Promise<void>
   deleteWorkspaceBranch(): Promise<void>
   archiveTask(id?: string): Promise<void>
@@ -273,10 +261,8 @@ export const useStore = create<State>((set, get) => ({
   shipments: [],
   shipHandoff: null,
   taskPullRequest: null,
-  evaluationExperiments: [],
-  evaluationComparisons: [],
-  evaluationBusy: false,
-  evaluationError: null,
+  projectLearnings: [],
+  learningError: null,
   operations: null,
   operationsError: null,
   taskBusy: false,
@@ -428,6 +414,8 @@ export const useStore = create<State>((set, get) => ({
       shipments: [],
       shipHandoff: null,
       taskPullRequest: null,
+      projectLearnings: [],
+      learningError: null,
       taskActionError: null,
       ...(projectDefault ? { selectedAgentProfileId: projectDefault } : {})
     })
@@ -439,6 +427,7 @@ export const useStore = create<State>((set, get) => ({
       set({ tasks })
       const selected = tasks[0]
       if (selected) await get().selectTask(selected.id)
+      await get().loadProjectLearnings()
     } catch (error) {
       if (sequence === openProjectSequence) set({ taskActionError: errorMessage(error) })
     }
@@ -882,15 +871,30 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  async loadEvaluations() {
+  async loadProjectLearnings() {
+    const projectId = get().projectId
+    if (!projectId) return
     try {
-      const [evaluationExperiments, evaluationComparisons] = await Promise.all([
-        apiJson(`${BASE}/evaluations/experiments`) as Promise<EvaluationExperiment[]>,
-        apiJson(`${BASE}/evaluations/comparisons`) as Promise<EvaluationComparison[]>
-      ])
-      set({ evaluationExperiments, evaluationComparisons, evaluationError: null })
+      const projectLearnings = await apiJson(
+        `${BASE}/projects/${projectId}/learnings`
+      ) as ProjectLearning[]
+      if (get().projectId === projectId) set({ projectLearnings, learningError: null })
     } catch (error) {
-      set({ evaluationError: errorMessage(error) })
+      if (get().projectId === projectId) set({ learningError: errorMessage(error) })
+    }
+  },
+
+  async setProjectLearningStatus(id, status) {
+    const projectId = get().projectId
+    if (!projectId) return
+    try {
+      await apiJson(`${BASE}/projects/${projectId}/learnings/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status })
+      })
+      await get().loadProjectLearnings()
+    } catch (error) {
+      set({ learningError: errorMessage(error) })
     }
   },
 
@@ -900,105 +904,6 @@ export const useStore = create<State>((set, get) => ({
       set({ operations, operationsError: null })
     } catch (error) {
       set({ operationsError: errorMessage(error) })
-    }
-  },
-
-  async startEvaluation(input) {
-    set({ evaluationBusy: true, evaluationError: null })
-    try {
-      await apiJson(`${BASE}/evaluations/experiments/run`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...input, model_startup_timeout_seconds: 240 })
-      })
-      await get().loadEvaluations()
-    } catch (error) {
-      set({ evaluationError: errorMessage(error) })
-    } finally {
-      set({ evaluationBusy: false })
-    }
-  },
-
-  async cancelEvaluation(id) {
-    set({ evaluationBusy: true, evaluationError: null })
-    try {
-      await apiJson(`${BASE}/evaluations/experiments/${id}/cancel`, { method: 'POST' })
-      await get().loadEvaluations()
-    } catch (error) {
-      set({ evaluationError: errorMessage(error) })
-    } finally {
-      set({ evaluationBusy: false })
-    }
-  },
-
-  async importEvaluation(role, report) {
-    set({ evaluationBusy: true, evaluationError: null })
-    try {
-      await apiJson(`${BASE}/evaluations/experiments/import`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role, report })
-      })
-      await get().loadEvaluations()
-    } catch (error) {
-      set({ evaluationError: errorMessage(error) })
-    } finally {
-      set({ evaluationBusy: false })
-    }
-  },
-
-  async compareEvaluations(input) {
-    set({ evaluationBusy: true, evaluationError: null })
-    try {
-      await apiJson(`${BASE}/evaluations/comparisons`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(input)
-      })
-      await get().loadEvaluations()
-    } catch (error) {
-      set({ evaluationError: errorMessage(error) })
-    } finally {
-      set({ evaluationBusy: false })
-    }
-  },
-
-  async promoteEvaluation(comparisonId) {
-    const projectId = get().projectId
-    if (!projectId) {
-      set({ evaluationError: '프로필을 승격하기 전에 프로젝트를 선택하세요.' })
-      return
-    }
-    set({ evaluationBusy: true, evaluationError: null })
-    try {
-      const result = await apiJson(`${BASE}/projects/${projectId}/agent-profile/promote`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ comparison_id: comparisonId })
-      }) as { project: Project; agent_profile: AgentProfile }
-      set((state) => ({
-        projects: state.projects.map((project) =>
-          project.id === result.project.id ? result.project : project
-        ),
-        selectedAgentProfileId: result.agent_profile.id
-      }))
-      localStorage.setItem('janus.agentProfile', result.agent_profile.id)
-    } catch (error) {
-      set({ evaluationError: errorMessage(error) })
-    } finally {
-      set({ evaluationBusy: false })
-    }
-  },
-
-  async exportEvaluation(id, format) {
-    try {
-      const response = await apiFetch(`${BASE}/evaluations/comparisons/${id}/export?format=${format}`)
-      if (!response.ok) throw new ApiError(response.status, await response.text())
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = `evaluation-${id}.${format === 'markdown' ? 'md' : format}`
-      anchor.click()
-      URL.revokeObjectURL(url)
-    } catch (error) {
-      set({ evaluationError: errorMessage(error) })
     }
   },
 

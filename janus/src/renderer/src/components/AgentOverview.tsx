@@ -1,4 +1,4 @@
-import { BookOpen, Boxes, Braces, PackageOpen, ShieldCheck, Wrench } from 'lucide-react'
+import { BookOpen, Boxes, Brain, Braces, PackageOpen, Pause, Play, ShieldCheck, Wrench } from 'lucide-react'
 import { useStore } from '../store'
 import { EmptyState, Status } from './ui'
 
@@ -8,6 +8,9 @@ export default function AgentOverview({ onOpen }: { onOpen: (tab: AgentDetailTab
   const profiles = useStore((state) => state.agentProfiles)
   const profileId = useStore((state) => state.selectedAgentProfileId)
   const assignments = useStore((state) => state.agentProfileSkills)
+  const learnings = useStore((state) => state.projectLearnings)
+  const learningError = useStore((state) => state.learningError)
+  const setLearningStatus = useStore((state) => state.setProjectLearningStatus)
   const profile = profiles.find((item) => item.id === profileId)
 
   if (!profile) return <EmptyState title="실행 프로필을 선택하세요" description="역할과 실행 계약을 한 화면에서 확인합니다." />
@@ -50,6 +53,36 @@ export default function AgentOverview({ onOpen }: { onOpen: (tab: AgentDetailTab
             </button>
           ))}
         </div>
+
+        <section className="agent-learning">
+          <header>
+            <div><Brain size={15} /><span>자동 학습</span></div>
+            <Status tone={learnings.some((item) => item.status === 'active') ? 'success' : 'muted'}>
+              {learnings.filter((item) => item.status === 'active').length}개 적용 중
+            </Status>
+          </header>
+          <p className="agent-learning__description">완료된 작업의 검증 방법과 명시적인 사용자 선호를 다음 세션에 자동 적용합니다.</p>
+          {learningError && <p className="text-danger">{learningError}</p>}
+          <div className="agent-learning__list">
+            {learnings.slice(0, 6).map((item) => (
+              <article key={item.id} data-status={item.status}>
+                <div className="min-w-0 flex-1">
+                  <div><strong>{item.title}</strong><small>{Math.round(item.confidence * 100)}% · 근거 {item.evidence_count}개</small></div>
+                  <p>{item.content}</p>
+                </div>
+                <button
+                  type="button"
+                  title={item.status === 'active' ? '자동 적용 일시정지' : '다시 자동 적용'}
+                  aria-label={item.status === 'active' ? `${item.title} 일시정지` : `${item.title} 활성화`}
+                  onClick={() => void setLearningStatus(item.id, item.status === 'active' ? 'paused' : 'active')}
+                >
+                  {item.status === 'active' ? <Pause size={13} /> : <Play size={13} />}
+                </button>
+              </article>
+            ))}
+            {learnings.length === 0 && <div className="agent-learning__empty">아직 학습한 내용이 없습니다. 작업을 완료하면 자동으로 쌓입니다.</div>}
+          </div>
+        </section>
       </div>
 
       <aside className="agent-overview__contract">

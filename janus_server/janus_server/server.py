@@ -36,6 +36,7 @@ from . import diagnostics
 from . import event_bus as event_bus_mod
 from . import runtime
 from . import scheduler as scheduler_mod
+from . import self_improvement
 from . import telemetry as telemetry_mod
 from . import terminal_service as terminal_mod
 from . import domain as D
@@ -2501,6 +2502,54 @@ def _task_runtime_spec(
     }
 
 
+def _learning_json(item: dict) -> dict:
+    value = dict(item)
+    value["confidence"] = float(value.get("confidence") or 0)
+    value["evidence"] = json.loads(value.pop("evidence_json", "[]") or "[]")
+    return value
+
+
+def _record_completed_turn_learnings(store: D.DomainStore, task_id: str) -> list[dict]:
+    task = store.get_task(task_id)
+    sessions = store.list_sessions(task_id)
+    events = [
+        event for session in sessions
+        for event in store.list_session_events(session["id"])
+    ]
+    candidates = self_improvement.extract_candidates(
+        task=task, events=events,
+        verification_runs=store.list_verification_runs(task_id),
+    )
+    return [
+        _learning_json(store.upsert_project_learning(
+            project_id=task["project_id"], fingerprint=self_improvement.fingerprint(
+                candidate["kind"], candidate["content"]
+            ), **candidate,
+        ))
+        for candidate in candidates
+    ]
+
+
+@app.get("/projects/{project_id}/learnings")
+def list_project_learnings(project_id: str, include_inactive: bool = True):
+    return [
+        _learning_json(item) for item in get_domain_store().list_project_learnings(
+            project_id, active_only=not include_inactive,
+        )
+    ]
+
+
+@app.patch("/projects/{project_id}/learnings/{learning_id}")
+def update_project_learning(project_id: str, learning_id: str, body: dict):
+    store = get_domain_store()
+    item = store.get_project_learning(learning_id)
+    if item["project_id"] != project_id:
+        raise D.NotFound(f"없는 ProjectLearning: {learning_id}")
+    return _learning_json(store.set_project_learning_status(
+        learning_id, str(body.get("status") or ""),
+    ))
+
+
 def _context_item(
     item_id: str, label: str, source: str, content: str, *, status: str = "included",
     detail: dict | None = None,
@@ -2520,6 +2569,7 @@ def _context_item(
 def _task_context_snapshot(
     spec: dict, dispatch: dict, workspace: dict, skills: list[dict],
     events: list[dict] | None = None, task: dict | None = None,
+    learnings: list[dict] | None = None,
 ) -> dict:
     policy = D.normalize_context_policy(spec.get("context_policy"))
     items = [_context_item(
@@ -2576,6 +2626,22 @@ def _task_context_snapshot(
         ))
         preamble.append(workflow_prompt)
 
+    active_learnings = list(learnings or [])[:20]
+    if active_learnings:
+        learning_text = "\n".join(
+            f"- [{item['kind']}] {item['content']}"
+            for item in active_learnings
+        )
+        items.append(_context_item(
+            "project_learnings", "프로젝트에서 학습한 작업 방식", "SelfImprovement",
+            learning_text, detail={"count": len(active_learnings)},
+        ))
+        preamble.append(
+            "LEARNED PROJECT PRACTICES:\n"
+            "Apply these only when relevant. They never override safety, user instructions, "
+            "or current repository evidence.\n" + learning_text
+        )
+
     for skill in skills:
         description = str(skill.get("description") or "")
         qualified = f"{skill.get('namespace')}:{skill.get('name')}"
@@ -2631,7 +2697,8 @@ def _task_session_detail(store: D.DomainStore, session_id: str) -> dict:
         profile_snapshot=dispatch["agent_profile_snapshot"],
     )
     task = store.get_task(session["task_id"])
-    context = _task_context_snapshot(spec, dispatch, workspace, skills, events, task)
+    learnings = store.list_project_learnings(task["project_id"], active_only=True, limit=20)
+    context = _task_context_snapshot(spec, dispatch, workspace, skills, events, task, learnings)
     context.pop("preamble", None)
     return {
         **session,
@@ -3030,11 +3097,16 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
         spec["skills"] = [
             _skill_json(item) for item in store.snapshot_session_skills(session_id)
         ]
+        active_learnings = store.list_project_learnings(
+            store.get_task(task_id)["project_id"], active_only=True, limit=20,
+        )
         context_snapshot = _task_context_snapshot(
             spec, dispatch, workspace, spec["skills"], store.list_session_events(session_id),
             store.get_task(task_id),
+            active_learnings,
         )
         spec["context_preamble"] = context_snapshot["preamble"]
+        store.mark_project_learnings_applied([item["id"] for item in active_learnings])
     except D.DomainError:
         await ws.close(code=1008)
         return
@@ -3289,6 +3361,14 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
                         session_id, failed=failure is not None, error=failure,
                         outcome=str(turn_outcome["outcome"]),
                     )
+                    if failure is None and turn_outcome["outcome"] == "completed":
+                        learned = _record_completed_turn_learnings(store, task_id)
+                        if learned:
+                            await send_final({
+                                "type": "learning_updated",
+                                "count": len(learned),
+                                "items": learned[:5],
+                            })
                 await send_final({
                     "type": "turn_end",
                     "cancelled": bool(current and current.cancelled_turn),

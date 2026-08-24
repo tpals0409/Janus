@@ -5,7 +5,6 @@ import { useStore } from './store'
 import Canvas from './components/Canvas'
 import { AgentProfileList, NavRail, StatusBar } from './components/Shell'
 import TaskWorkspace from './components/tasks/TaskWorkspace'
-import EvaluationLab from './components/evaluations/EvaluationLab'
 import OperationsDashboard from './components/operations/OperationsDashboard'
 import PromptEditor from './components/PromptEditor'
 import SkillLibrary from './components/SkillLibrary'
@@ -123,7 +122,6 @@ export default function App() {
         <div className="app-titlebar__context">
           {nav === 'tasks'
             ? task?.title ?? projects.find((project) => project.id === projectId)?.name ?? '작업'
-            : nav === 'evals' ? '평가 실험실'
             : nav === 'monitor' ? '운영 모니터'
             : selectedProfile?.name ?? '실행 프로필'}
         </div>
@@ -138,8 +136,6 @@ export default function App() {
       <div className="flex min-h-0 flex-1">
         {nav === 'tasks' ? (
           <TaskWorkspace onNavigate={setNav} />
-        ) : nav === 'evals' ? (
-          <><NavRail active={nav} onSelect={setNav} /><EvaluationLab /></>
         ) : nav === 'monitor' ? (
           <><NavRail active={nav} onSelect={setNav} /><OperationsDashboard onOpenTask={() => setNav('tasks')} /></>
         ) : nav !== 'agents' ? (

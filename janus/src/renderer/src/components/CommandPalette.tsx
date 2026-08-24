@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Boxes, ChartNoAxesColumn, FlaskConical, ListTodo, Search, TerminalSquare } from 'lucide-react'
+import { Boxes, ChartNoAxesColumn, ListTodo, Search, TerminalSquare } from 'lucide-react'
 import { useStore } from '../store'
 
 type Command = {
@@ -23,7 +23,6 @@ export default function CommandPalette({ onNavigate }: { onNavigate: (id: string
   const commands = useMemo<Command[]>(() => [
     { id: 'nav:tasks', label: '작업 열기', detail: '프로젝트와 Task 실행', icon: ListTodo, run: () => onNavigate('tasks') },
     { id: 'nav:agents', label: '에이전트 열기', detail: 'AgentProfile 구성', icon: Boxes, run: () => onNavigate('agents') },
-    { id: 'nav:evals', label: '평가 열기', detail: '로컬 TaskSuite 비교', icon: FlaskConical, run: () => onNavigate('evals') },
     { id: 'nav:monitor', label: '모니터 열기', detail: '실행 상태와 자원', icon: ChartNoAxesColumn, run: () => onNavigate('monitor') },
     ...profiles.map((profile): Command => ({
       id: `profile:${profile.id}`,

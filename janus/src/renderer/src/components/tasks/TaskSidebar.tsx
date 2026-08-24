@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Boxes, ChartNoAxesColumn, ChevronDown, Files, FlaskConical, FolderGit2, ListTodo, MessageSquarePlus, Plus, Trash2 } from 'lucide-react'
+import { Boxes, ChartNoAxesColumn, ChevronDown, Files, FolderGit2, ListTodo, MessageSquarePlus, Plus, Trash2 } from 'lucide-react'
 import { useStore } from '../../store'
 import type { Project, Task, TaskStatus } from '../../types'
 import FileTree from '../FileTree'
@@ -204,7 +204,6 @@ export default function TaskSidebar({
       )}
       <nav className="task-sidebar-nav" aria-label="기본 탐색">
         <button onClick={() => onNavigate?.('agents')}><Boxes size={14} /> 에이전트</button>
-        <button onClick={() => onNavigate?.('evals')}><FlaskConical size={14} /> 평가</button>
         <button onClick={() => onNavigate?.('monitor')}><ChartNoAxesColumn size={14} /> 모니터</button>
       </nav>
     </aside>
