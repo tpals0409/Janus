@@ -371,7 +371,7 @@ class TaskRuntimeTests(unittest.TestCase):
         decision = dispatch["adaptive_decision"]
         self.assertEqual("investigation", decision["task_class"])
         self.assertEqual("fixed_one", decision["effective"]["worker_policy"])
-        self.assertEqual(["researcher"], decision["effective"]["worker_roles"])
+        self.assertEqual(["scout"], decision["effective"]["worker_roles"])
         self.assertEqual(decision["effective"]["budget"], dispatch["budget"])
 
         spec = server._task_runtime_spec(
@@ -379,8 +379,8 @@ class TaskRuntimeTests(unittest.TestCase):
             adaptive_decision=decision,
         )
         self.assertEqual("fixed_one", spec["worker_policy"])
-        self.assertEqual(["researcher"], spec["worker_roles"])
-        self.assertEqual(["researcher"], spec["worker_role_sequence"])
+        self.assertEqual(["scout"], spec["worker_roles"])
+        self.assertEqual(["scout"], spec["worker_role_sequence"])
 
     def test_project_promoted_profile_is_used_when_session_omits_profile(self):
         task = self.create_ready_task("Project default profile")

@@ -1864,7 +1864,7 @@ def _operations_lane(task: dict, dispatch: dict | None) -> str:
     if task["status"] == "review":
         return "review"
     if task["status"] == "needs_you":
-        return "working" if task.get("attention_reason") == "conversation_idle" else "needs_you"
+        return "idle" if task.get("attention_reason") == "conversation_idle" else "needs_you"
     if task["status"] == "failed" or (dispatch and dispatch["status"] == "failed"):
         return "failed"
     if dispatch and dispatch["status"] in {"running", "needs_you"}:
@@ -1937,12 +1937,15 @@ def operations_dashboard(project_id: str | None = None):
             "timeline": _operations_timeline(store, task["id"], session),
             "attention": lane in {"needs_you", "review", "failed"},
         })
-    lane_order = {"needs_you": 0, "failed": 1, "review": 2, "working": 3, "queue": 4}
+    lane_order = {
+        "needs_you": 0, "failed": 1, "review": 2,
+        "working": 3, "idle": 4, "queue": 5,
+    }
     rows.sort(key=lambda item: (lane_order[item["lane"]], item["updated_at"]), reverse=False)
     scheduler = scheduler_mod.default_scheduler().snapshot()
     lane_counts = {
         lane: sum(row["lane"] == lane for row in rows)
-        for lane in ("queue", "working", "needs_you", "review", "failed")
+        for lane in ("queue", "working", "idle", "needs_you", "review", "failed")
     }
     return {
         "generated_at": datetime.now().astimezone().isoformat(),
@@ -2469,7 +2472,7 @@ def _task_runtime_spec(
         "tools": profile["tools"],
         "approval": profile["approval"],
         "worker_policy": effective.get("worker_policy", profile["worker_policy"]),
-        "worker_roles": effective.get("worker_roles", ["implementer", "researcher", "verifier"]),
+        "worker_roles": effective.get("worker_roles", ["scout", "implementer", "verifier"]),
         "worker_role_sequence": effective.get("worker_role_sequence", []),
         "allow_autonomous_workers": bool(effective.get("allow_autonomous_workers", False)),
         "max_steps": profile["max_steps"],

@@ -30,9 +30,9 @@ class AdaptiveDecisionTests(unittest.TestCase):
     def test_task_classes_choose_distinct_worker_topologies(self):
         cases = (
             ("Fix a bug in one file", "single_file_bug", "none", []),
-            ("Investigate the cache invalidation cause", "investigation", "fixed_one", ["researcher"]),
-            ("Refactor architecture across multiple files", "multi_file_refactor", "autonomous", ["researcher", "implementer", "verifier"]),
-            ("Build a full web service with backend and browser UI", "multi_component_build", "autonomous", ["researcher", "implementer", "verifier"]),
+            ("Investigate the cache invalidation cause", "investigation", "fixed_one", ["scout"]),
+            ("Refactor architecture across multiple files", "multi_file_refactor", "autonomous", ["scout", "implementer", "verifier"]),
+            ("Build a full web service with backend and browser UI", "multi_component_build", "autonomous", ["scout", "implementer", "verifier"]),
             ("Add pytest regression coverage", "test_heavy", "autonomous", ["implementer", "verifier"]),
         )
         for objective, task_class, policy, roles in cases:
@@ -68,7 +68,7 @@ class AdaptiveDecisionTests(unittest.TestCase):
         effective = decision["effective"]
         self.assertEqual("investigation", decision["task_class"])
         self.assertEqual("autonomous", effective["worker_policy"])
-        self.assertEqual(["researcher", "researcher"], effective["worker_role_sequence"])
+        self.assertEqual(["scout", "scout"], effective["worker_role_sequence"])
         self.assertEqual(2, effective["budget"]["workers"]["total_limit"])
         self.assertEqual(2, effective["budget"]["workers"]["concurrent_limit"])
         self.assertTrue(effective["allow_autonomous_workers"])

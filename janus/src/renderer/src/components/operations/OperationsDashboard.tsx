@@ -10,6 +10,7 @@ import { Button, EmptyState, Status } from '../ui'
 const LANES: Array<{ id: OperationsLane; label: string; tone: 'muted' | 'success' | 'warning' | 'danger'; color: string; note: string }> = [
   { id: 'queue', label: '대기', tone: 'muted', color: 'var(--text-muted)', note: '소유권 대기 중' },
   { id: 'working', label: '작업 중', tone: 'success', color: 'var(--accent)', note: '에이전트 또는 도구 실행 중' },
+  { id: 'idle', label: '대화 가능', tone: 'muted', color: 'var(--text-secondary)', note: '후속 지시를 받을 수 있음' },
   { id: 'needs_you', label: '확인 필요', tone: 'warning', color: 'var(--warning)', note: '결정 또는 승인 필요' },
   { id: 'review', label: '검토', tone: 'success', color: 'var(--success)', note: '변경 검토 준비됨' },
   { id: 'failed', label: '실패', tone: 'danger', color: 'var(--danger)', note: '복구 필요' }
@@ -144,7 +145,7 @@ export default function OperationsDashboard({ onOpenTask }: { onOpenTask: () => 
             </div>
             <h1 className="task-title mt-1 text-[20px] font-semibold">처리량보다 먼저 확인할 일.</h1>
             <p className="mt-1 max-w-[680px] text-[10.5px] text-faint">
-              대기·실행·확인·검토·복구 중인 모든 작업을 한 보드에서 보여줍니다.
+              대기·실행·대화 가능·확인·검토·복구 중인 모든 작업을 한 보드에서 보여줍니다.
             </p>
           </div>
           <Button onClick={() => void load()} variant="secondary" compact><RefreshCw size={11} /> 새로고침</Button>
@@ -186,7 +187,7 @@ export default function OperationsDashboard({ onOpenTask }: { onOpenTask: () => 
       {!snapshot ? (
         <div className="grid h-[420px] place-items-center font-mono text-[10px] text-faint">운영 현황 로딩 중…</div>
       ) : (
-        <section className="grid min-w-[1180px] grid-cols-5 gap-3 p-4">
+        <section className="grid min-w-[1380px] grid-cols-6 gap-3 p-4">
           {LANES.map((lane) => {
             const tasks = snapshot.tasks.filter((task) => task.lane === lane.id)
             return (

@@ -176,9 +176,9 @@ def decide(
         reasons.append("direct_owner_for_narrow_change")
     elif task_class == "investigation":
         worker_policy = "autonomous" if explicit_workers and explicit_workers > 1 else "fixed_one"
-        roles = ["researcher"]
+        roles = ["scout"]
         worker_count = max(1, explicit_workers or 1)
-        role_sequence = ["researcher"] * worker_count
+        role_sequence = ["scout"] * worker_count
         allow_autonomous = bool(explicit_workers and explicit_workers > 1)
         budget_override = {
             "worker": {
@@ -210,8 +210,8 @@ def decide(
         reasons.append("separate_implementation_and_verification")
     elif task_class in {"multi_file_refactor", "multi_component_build"}:
         worker_policy = "autonomous"
-        roles = ["researcher", "implementer", "verifier"]
-        role_sequence = ["researcher", "implementer", "verifier"]
+        roles = ["scout", "implementer", "verifier"]
+        role_sequence = ["scout", "implementer", "verifier"]
         # A one-slot local model still benefits from sequentially owned workers;
         # model generation concurrency and worker delegation are separate limits.
         allow_autonomous = task_class == "multi_component_build" or cap > 1
@@ -298,8 +298,8 @@ def decide(
         reasons.append("retry:tool_boundary_verification")
     elif failure_type == "runtime_failure":
         worker_policy = "fixed_one"
-        roles = ["researcher"]
-        role_sequence = ["researcher"]
+        roles = ["scout"]
+        role_sequence = ["scout"]
         retry_strategy = "reconnaissance_then_parent"
         reasons.append("retry:runtime_reconnaissance")
     elif failure_type == "cancelled":

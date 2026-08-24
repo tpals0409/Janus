@@ -228,7 +228,7 @@ def effective_worker_role(
         and int(model.get("cap", 1)) == 1
         and int(dispatch_step_limit) <= TIGHT_DISPATCH_STEP_LIMIT
     ):
-        return "researcher", "single_slot_tight_dispatch_scout"
+        return "scout", "single_slot_tight_dispatch_scout"
     return requested_role, None
 
 

@@ -829,11 +829,11 @@ class SessionContextTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            ("researcher", "single_slot_tight_dispatch_scout"),
+            ("scout", "single_slot_tight_dispatch_scout"),
             runtime.effective_worker_role("fixed_one", "implementer", 10, one_slot),
         )
         self.assertEqual(
-            ("researcher", "single_slot_tight_dispatch_scout"),
+            ("scout", "single_slot_tight_dispatch_scout"),
             runtime.effective_worker_role("fixed_one", "implementer", 15, one_slot),
         )
         self.assertEqual(

@@ -67,10 +67,15 @@ class OperationsDashboardTests(unittest.TestCase):
     def test_ten_tasks_attention_queue_budget_resources_and_timeline_are_visible(self):
         created = [self.create_execution(index) for index in range(10)]
 
-        # Four remain queued; three own running attempts.
-        for _task, execution in created[4:7]:
+        # Four remain queued; two own running attempts; one is open for conversation.
+        for _task, execution in created[4:6]:
             self.store.transition_dispatch(execution["dispatch"]["id"], "running")
             self.store.transition_session(execution["session"]["id"], "running")
+
+        idle_task, idle = created[6]
+        self.store.transition_dispatch(idle["dispatch"]["id"], "running")
+        self.store.transition_session(idle["session"]["id"], "running")
+        self.store.settle_session_turn(idle["session"]["id"], outcome="partial")
 
         needs_task, needs = created[7]
         self.store.transition_dispatch(needs["dispatch"]["id"], "running")
@@ -121,12 +126,16 @@ class OperationsDashboardTests(unittest.TestCase):
         snapshot = response.json()
         self.assertEqual(10, snapshot["summary"]["total"])
         self.assertEqual(
-            {"queue": 4, "working": 3, "needs_you": 1, "review": 1, "failed": 1},
+            {"queue": 4, "working": 2, "idle": 1, "needs_you": 1, "review": 1, "failed": 1},
             snapshot["summary"]["lanes"],
         )
         self.assertEqual(3, snapshot["summary"]["attention"])
         self.assertIn("model_generation", snapshot["scheduler"]["resources"])
         self.assertGreater(snapshot["memory"]["janus_process_peak_rss_bytes"], 0)
+
+        idle_row = next(item for item in snapshot["tasks"] if item["id"] == idle_task["id"])
+        self.assertEqual("idle", idle_row["lane"])
+        self.assertFalse(idle_row["attention"])
 
         running_row = next(item for item in snapshot["tasks"] if item["id"] == running_task["id"])
         self.assertEqual(100.0, running_row["budget_progress"]["steps"])

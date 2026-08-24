@@ -96,8 +96,8 @@ export interface AdaptiveDecision {
   }
   effective?: {
     worker_policy: 'none' | 'fixed_one' | 'autonomous'
-    worker_roles: Array<'implementer' | 'researcher' | 'verifier'>
-    worker_role_sequence: Array<'implementer' | 'researcher' | 'verifier'>
+    worker_roles: Array<'scout' | 'planner' | 'prototyper' | 'implementer' | 'verifier' | 'operator'>
+    worker_role_sequence: Array<'scout' | 'planner' | 'prototyper' | 'implementer' | 'verifier' | 'operator'>
     allow_autonomous_workers: boolean
     budget: ExecutionBudget
   }
@@ -500,7 +500,7 @@ export interface EvaluationComparison {
   created_at: string
 }
 
-export type OperationsLane = 'queue' | 'working' | 'needs_you' | 'review' | 'failed'
+export type OperationsLane = 'queue' | 'working' | 'idle' | 'needs_you' | 'review' | 'failed'
 
 export interface OperationsTimelineItem {
   category: 'generation' | 'tool' | 'verification' | 'queue' | 'worker'
