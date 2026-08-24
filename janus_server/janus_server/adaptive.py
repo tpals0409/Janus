@@ -16,7 +16,8 @@ from .budget import merge_budget, normalize_budget
 
 TASK_CLASSES = {
     "single_file_bug", "multi_file_refactor", "multi_component_build",
-    "investigation", "test_heavy", "general",
+    "investigation", "planning", "visual_prototype", "operations",
+    "test_heavy", "general",
 }
 
 
@@ -58,6 +59,9 @@ def classify_task(task: dict) -> tuple[str, list[str]]:
     ).lower()
     signals: list[str] = []
 
+    if str(task.get("workflow_stage") or "") == "mockup":
+        return "visual_prototype", ["explicit_mockup_workflow"]
+
     investigation_words = (
         "investigate", "diagnose", "analyze", "audit", "research", "explain",
         "inspect", "explore",
@@ -80,6 +84,31 @@ def classify_task(task: dict) -> tuple[str, list[str]]:
     bug_words = ("bug", "fix", "regression", "오류", "버그", "수정")
     single_words = ("single file", "one file", "한 파일", "단일 파일")
 
+    planning_words = (
+        "implementation plan", "technical plan", "project plan", "task breakdown",
+        "roadmap", "milestone plan", "구현 계획", "기술 계획", "작업 계획",
+        "단계별 계획", "작업 분해", "로드맵",
+    )
+    prototype_words = (
+        "prototype", "mockup", "wireframe", "visual draft", "ui draft",
+        "프로토타입", "목업", "와이어프레임", "시안",
+    )
+    operations_words = (
+        "package mac", "package:mac", "deployment pipeline", "release pipeline",
+        "runtime process", "service process", "model server", "health check",
+        "mac 패키징", "앱 패키징", "배포 파이프라인", "릴리스 파이프라인",
+        "런타임 프로세스", "서비스 프로세스", "모델 서버", "헬스 체크",
+    )
+
+    if any(word in text for word in planning_words):
+        signals.append("explicit_planning_language")
+        return "planning", signals
+    if any(word in text for word in prototype_words):
+        signals.append("visual_prototype_language")
+        return "visual_prototype", signals
+    if any(word in text for word in operations_words):
+        signals.append("runtime_operations_language")
+        return "operations", signals
     if any(word in text for word in investigation_words):
         signals.append("investigation_language")
         return "investigation", signals
@@ -174,6 +203,31 @@ def decide(
             "workers": {"total_limit": 1, "concurrent_limit": 1},
         }
         reasons.append("direct_owner_for_narrow_change")
+    elif task_class == "planning":
+        worker_policy = "fixed_one"
+        roles = ["planner"]
+        role_sequence = ["planner"]
+        budget_override = {
+            "worker": {"step_limit": min(base_budget["worker"]["step_limit"], 8)},
+            "workers": {"total_limit": 1, "concurrent_limit": 1},
+        }
+        reasons.append("single_read_only_planner")
+    elif task_class == "visual_prototype":
+        worker_policy = "fixed_one"
+        roles = ["prototyper"]
+        role_sequence = ["prototyper"]
+        budget_override = {
+            "workers": {"total_limit": 1, "concurrent_limit": 1},
+        }
+        reasons.append("single_visual_prototyper")
+    elif task_class == "operations":
+        worker_policy = "fixed_one"
+        roles = ["operator"]
+        role_sequence = ["operator"]
+        budget_override = {
+            "workers": {"total_limit": 1, "concurrent_limit": 1},
+        }
+        reasons.append("single_runtime_operator")
     elif task_class == "investigation":
         worker_policy = "autonomous" if explicit_workers and explicit_workers > 1 else "fixed_one"
         roles = ["scout"]

@@ -34,6 +34,9 @@ class AdaptiveDecisionTests(unittest.TestCase):
             ("Refactor architecture across multiple files", "multi_file_refactor", "autonomous", ["scout", "implementer", "verifier"]),
             ("Build a full web service with backend and browser UI", "multi_component_build", "autonomous", ["scout", "implementer", "verifier"]),
             ("Add pytest regression coverage", "test_heavy", "autonomous", ["implementer", "verifier"]),
+            ("Create an implementation plan and task breakdown", "planning", "fixed_one", ["planner"]),
+            ("Create a UI wireframe", "visual_prototype", "fixed_one", ["prototyper"]),
+            ("Repair the model server health check", "operations", "fixed_one", ["operator"]),
         )
         for objective, task_class, policy, roles in cases:
             with self.subTest(task_class=task_class):
@@ -44,6 +47,18 @@ class AdaptiveDecisionTests(unittest.TestCase):
                 self.assertEqual(task_class, decision["task_class"])
                 self.assertEqual(policy, decision["effective"]["worker_policy"])
                 self.assertEqual(roles, decision["effective"]["worker_roles"])
+
+    def test_mockup_workflow_routes_to_one_prototyper_without_keyword_guessing(self):
+        decision = adaptive.decide(
+            task={
+                "title": "첫 화면을 만들어줘", "objective": "사용자가 확인할 화면",
+                "acceptance_command": "true", "workflow_stage": "mockup",
+            },
+            base_profile=profile(), scheduler_snapshot=scheduler(cap=3),
+        )
+        self.assertEqual("visual_prototype", decision["task_class"])
+        self.assertEqual(["prototyper"], decision["effective"]["worker_role_sequence"])
+        self.assertEqual(1, decision["effective"]["budget"]["workers"]["total_limit"])
 
     def test_queue_pressure_suppresses_fanout_and_is_snapshotted(self):
         decision = adaptive.decide(

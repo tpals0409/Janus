@@ -88,7 +88,7 @@ export interface Dispatch {
 
 export interface AdaptiveDecision {
   version?: number
-  task_class?: 'single_file_bug' | 'multi_file_refactor' | 'investigation' | 'test_heavy' | 'general'
+  task_class?: 'single_file_bug' | 'multi_file_refactor' | 'multi_component_build' | 'investigation' | 'planning' | 'visual_prototype' | 'operations' | 'test_heavy' | 'general'
   task_signals?: string[]
   scheduler?: {
     closed: boolean
