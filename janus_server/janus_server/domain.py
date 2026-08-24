@@ -2033,6 +2033,21 @@ class DomainStore:
                 "ORDER BY workspace_id,scope", (session_id,),
             )]
 
+    def revoke_session_approval_scope(
+        self, session_id: str, workspace_id: str, scope: str,
+    ) -> bool:
+        with self.transaction(immediate=True) as connection:
+            self._one(
+                connection, "SELECT * FROM agent_sessions WHERE id=?",
+                (session_id,), "AgentSession",
+            )
+            removed = connection.execute(
+                "DELETE FROM session_approval_scopes "
+                "WHERE session_id=? AND workspace_id=? AND scope=?",
+                (session_id, workspace_id, scope),
+            ).rowcount
+        return bool(removed)
+
     def list_sessions(self, task_id: str) -> list[dict]:
         with self._connect() as connection:
             return [dict(row) for row in connection.execute(

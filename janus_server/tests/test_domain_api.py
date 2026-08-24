@@ -236,18 +236,49 @@ class DomainApiTests(unittest.TestCase):
             self.assertEqual(200, mockup.status_code, mockup.text)
             task = mockup.json()
             self.assertEqual("mockup", task["workflow_stage"])
-            for target, expected in (("working", "todo"), ("needs_you", "working")):
-                transitioned = client.post(
-                    f"/tasks/{task['id']}/transition", headers=HEADERS,
-                    json={"status": target, "expected": expected},
-                )
-                self.assertEqual(200, transitioned.status_code, transitioned.text)
+            premature = client.post(
+                f"/tasks/{task['id']}/mockup/reject", headers=HEADERS,
+                json={"feedback": "아직 검토 요청 전"},
+            )
+            self.assertEqual(409, premature.status_code, premature.text)
+
+            store = domain.DomainStore(path)
+            workspace = store.create_workspace(
+                task_id=task["id"], repo_path=str(repo), base_ref="develop",
+            )
+            store.transition_workspace(
+                workspace["id"], "ready", root_path=str(repo), branch_name="develop",
+            )
+            execution = store.create_execution(
+                task_id=task["id"], workspace_id=workspace["id"],
+                agent_profile_id="agent_default",
+            )
+            store.transition_dispatch(execution["dispatch"]["id"], "running")
+            store.transition_session(execution["session"]["id"], "running")
+            store.settle_session_turn(execution["session"]["id"], outcome="mockup_review")
             rejected = client.post(
                 f"/tasks/{task['id']}/mockup/reject", headers=HEADERS,
                 json={"feedback": "버튼 대비를 높여주세요"},
             )
             self.assertEqual(200, rejected.status_code, rejected.text)
             self.assertEqual("버튼 대비를 높여주세요", rejected.json()["mockup_feedback"])
+            detail = client.get(
+                f"/sessions/{execution['session']['id']}", headers=HEADERS,
+            )
+            self.assertEqual([], detail.json()["approval_scopes"])
+            store.grant_session_approval_scope(
+                execution["session"]["id"], workspace["id"], "workspace_write",
+            )
+            revoked = client.delete(
+                f"/sessions/{execution['session']['id']}/approvals/workspace_write",
+                headers=HEADERS, params={"workspace_id": workspace["id"]},
+            )
+            self.assertEqual(200, revoked.status_code, revoked.text)
+            self.assertEqual(
+                [], client.get(
+                    f"/sessions/{execution['session']['id']}", headers=HEADERS,
+                ).json()["approval_scopes"],
+            )
             approved = client.post(
                 f"/tasks/{task['id']}/mockup/approve", headers=HEADERS,
             )

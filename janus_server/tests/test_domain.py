@@ -112,6 +112,13 @@ class DomainStoreTests(unittest.TestCase):
             ["workspace_write"],
             [item["scope"] for item in self.store.list_session_approval_scopes(session["id"])],
         )
+        self.assertTrue(self.store.revoke_session_approval_scope(
+            session["id"], self.workspace["id"], "workspace_write",
+        ))
+        self.assertEqual([], self.store.list_session_approval_scopes(session["id"]))
+        self.assertFalse(self.store.revoke_session_approval_scope(
+            session["id"], self.workspace["id"], "workspace_write",
+        ))
         snapshot = self.store.snapshot_session_skills(session["id"])
         self.assertEqual([second["id"]], [item["skill_version_id"] for item in snapshot])
 

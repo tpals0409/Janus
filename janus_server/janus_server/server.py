@@ -785,14 +785,34 @@ def transition_task(task_id: str, body: dict):
 
 @app.post("/tasks/{task_id}/mockup/approve")
 def approve_task_mockup(task_id: str):
-    return get_domain_store().approve_task_mockup(task_id)
+    store = get_domain_store()
+    _require_mockup_review_boundary(store, task_id)
+    return store.approve_task_mockup(task_id)
 
 
 @app.post("/tasks/{task_id}/mockup/reject")
 def reject_task_mockup(task_id: str, body: dict):
-    return get_domain_store().reject_task_mockup(
+    store = get_domain_store()
+    _require_mockup_review_boundary(store, task_id)
+    return store.reject_task_mockup(
         task_id, str(body.get("feedback") or ""),
     )
+
+
+def _require_mockup_review_boundary(store: D.DomainStore, task_id: str) -> None:
+    task = store.get_task(task_id)
+    if task["workflow_stage"] != "mockup" or task["status"] != "needs_you":
+        raise D.Conflict("목업 검토 대기 상태에서만 승인하거나 거절할 수 있습니다")
+    dispatch = store.latest_dispatch(task_id)
+    if dispatch is None or dispatch["status"] != "needs_you":
+        raise D.Conflict("목업 검토를 요청한 최신 Dispatch가 없습니다")
+    sessions = store.list_sessions(task_id)
+    if (
+        not sessions
+        or sessions[0]["dispatch_id"] != dispatch["id"]
+        or sessions[0]["status"] != "idle"
+    ):
+        raise D.Conflict("목업 검토를 요청한 AgentSession이 대기 중이 아닙니다")
 
 
 @app.delete("/tasks/{task_id}")
@@ -2619,6 +2639,7 @@ def _task_session_detail(store: D.DomainStore, session_id: str) -> dict:
         "workspace_id": workspace["id"],
         "workspace_root": workspace["root_path"],
         "skills": [_skill_summary(item) for item in skills],
+        "approval_scopes": store.list_session_approval_scopes(session_id),
         "context": context,
         "events": events,
     }
@@ -2728,6 +2749,17 @@ def stop_agent_session(session_id: str):
         get_domain_store(),
         get_domain_store().stop_execution(session_id)["id"],
     )
+
+
+@app.delete("/sessions/{session_id}/approvals/{scope}")
+def revoke_agent_session_approval(session_id: str, scope: str, workspace_id: str):
+    store = get_domain_store()
+    session = store.get_session(session_id)
+    dispatch = store.get_dispatch(session["dispatch_id"])
+    if dispatch["workspace_id"] != workspace_id:
+        raise D.Conflict("AgentSession과 작업 공간이 일치하지 않습니다")
+    store.revoke_session_approval_scope(session_id, workspace_id, scope)
+    return {"session_id": session_id, "workspace_id": workspace_id, "scope": scope}
 
 
 @app.get("/agents")
@@ -3292,6 +3324,7 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
                     continue
                 turn_task = asyncio.create_task(do_turn(text))
             elif kind == "approval_response":
+                granted_scope = None
                 with pending_lock:
                     slot = pending.get(message.get("id"))
                     approved = bool(message.get("approved"))
@@ -3305,6 +3338,7 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
                             approved = False
                         if approved:
                             approved_scopes.add(slot[2])
+                            granted_scope = slot[2]
                             matching = [
                                 item for item in pending.values() if item[2] == slot[2]
                             ]
@@ -3315,6 +3349,22 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
                     for item in matching:
                         item[1] = approved
                         item[0].set()
+                if granted_scope is not None:
+                    await _safe_send(_payload_with_ids({
+                        "type": "approval_scope_granted",
+                        "scope": granted_scope[0],
+                        "workspace_id": granted_scope[1],
+                    }))
+            elif kind == "approval_scope_revoke":
+                scope = str(message.get("scope") or "")
+                scope_key = (scope, workspace["id"])
+                store.revoke_session_approval_scope(session_id, workspace["id"], scope)
+                approved_scopes.discard(scope_key)
+                await _safe_send(_payload_with_ids({
+                    "type": "approval_scope_revoked",
+                    "scope": scope,
+                    "workspace_id": workspace["id"],
+                }))
             elif kind == "cancel":
                 if orch is not None:
                     orch.cancel_all()

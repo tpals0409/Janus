@@ -154,8 +154,16 @@ export interface AgentSessionDetail {
   workspace_id: string
   workspace_root: string
   skills?: AgentProfileSkill[]
+  approval_scopes?: SessionApprovalScope[]
   context?: ContextSnapshot
   events: SessionEvent[]
+}
+
+export interface SessionApprovalScope {
+  session_id: string
+  workspace_id: string
+  scope: string
+  created_at: string
 }
 
 export interface ContextPolicy {

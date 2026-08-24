@@ -335,6 +335,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
   const cancelTurn = useStore((state) => state.cancelTaskTurn)
   const stopSession = useStore((state) => state.stopTaskSession)
   const respondApproval = useStore((state) => state.respondTaskApproval)
+  const revokeApprovalScope = useStore((state) => state.revokeTaskApprovalScope)
   const approveMockup = useStore((state) => state.approveTaskMockup)
   const rejectMockup = useStore((state) => state.rejectTaskMockup)
   const [message, setMessage] = useState('')
@@ -687,6 +688,20 @@ function TaskRuntimeCard({ task }: { task: Task }) {
           </div>
         </div>
       ))}
+
+      {session?.approval_scopes?.some((item) => item.scope === 'workspace_write') && (
+        <div className="mt-3 flex items-center justify-between gap-4 border border-line bg-panel px-3 py-2">
+          <span className="text-[10.5px] text-muted">이 세션에서 작업 공간 파일 수정을 허용했습니다.</span>
+          <button
+            type="button"
+            onClick={() => void revokeApprovalScope('workspace_write')}
+            disabled={busy}
+            className="task-quiet-action"
+          >
+            파일 수정 권한 취소
+          </button>
+        </div>
+      )}
 
       {task.workflow_stage === 'mockup' && task.status === 'needs_you' && session?.status === 'idle' && !active && (
         <div className="mt-3 flex items-center justify-between gap-4 border border-warning bg-panel px-3 py-2">

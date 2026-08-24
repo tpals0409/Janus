@@ -202,6 +202,7 @@ interface State {
   cancelTaskTurn(): void
   stopTaskSession(): Promise<void>
   respondTaskApproval(id: string, approved: boolean, scope?: ApprovalResponseScope): void
+  revokeTaskApprovalScope(scope: string): Promise<void>
   pickWorkspace(): Promise<void>
   setWorkspaceTo(path: string): Promise<void>
   setSidebarTab(t: 'tasks' | 'files'): void
@@ -1353,6 +1354,29 @@ export const useStore = create<State>((set, get) => ({
         if (!get().taskApprovals.some((item) => item.id === request.id)) {
           set({ taskApprovals: [...get().taskApprovals, request] })
         }
+      } else if (payload.type === 'approval_scope_granted') {
+        const activeSession = get().taskSession
+        if (activeSession && !activeSession.approval_scopes?.some((item) => item.scope === payload.scope)) {
+          set({ taskSession: {
+            ...activeSession,
+            approval_scopes: [...(activeSession.approval_scopes ?? []), {
+              session_id: activeSession.id,
+              workspace_id: activeSession.workspace_id,
+              scope: String(payload.scope),
+              created_at: new Date().toISOString()
+            }]
+          } })
+        }
+      } else if (payload.type === 'approval_scope_revoked') {
+        const activeSession = get().taskSession
+        if (activeSession) {
+          set({ taskSession: {
+            ...activeSession,
+            approval_scopes: (activeSession.approval_scopes ?? []).filter(
+              (item) => item.scope !== payload.scope
+            )
+          } })
+        }
       } else if (payload.type === 'stale_dispatch') {
         set({
           taskRuntimeError: String(payload.error ?? '이 디스패치는 이미 만료됐습니다'),
@@ -1412,6 +1436,31 @@ export const useStore = create<State>((set, get) => ({
     if (!socket || socket.readyState !== WebSocket.OPEN) return
     socket.send(JSON.stringify({ type: 'approval_response', id, approved, scope }))
     set({ taskApprovals: get().taskApprovals.filter((item) => item.id !== id) })
+  },
+
+  async revokeTaskApprovalScope(scope) {
+    const session = get().taskSession
+    if (!session) return
+    set({ taskBusy: true, taskRuntimeError: null })
+    try {
+      const socket = get().taskWs
+      if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'approval_scope_revoke', scope }))
+      } else {
+        await apiJson(
+          `${BASE}/sessions/${session.id}/approvals/${encodeURIComponent(scope)}?workspace_id=${encodeURIComponent(session.workspace_id)}`,
+          { method: 'DELETE' }
+        )
+        set({ taskSession: {
+          ...session,
+          approval_scopes: (session.approval_scopes ?? []).filter((item) => item.scope !== scope)
+        } })
+      }
+    } catch (error) {
+      set({ taskRuntimeError: errorMessage(error) })
+    } finally {
+      set({ taskBusy: false })
+    }
   },
 
   async stopTaskSession() {
