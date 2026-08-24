@@ -16,10 +16,18 @@ describe('Janus renderer fixture', () => {
     seedTaskRuntimeVisualFixture()
     const session = useStore.getState().taskSession!
     const fixtureEvent = useStore.getState().taskSessionEvents.at(-1)!
+    const revokeTaskApprovalScope = vi.fn().mockResolvedValue(undefined)
     useStore.setState({
       taskConnected: true,
+      revokeTaskApprovalScope,
       taskSession: {
         ...session,
+        approval_scopes: [{
+          session_id: session.id,
+          workspace_id: session.workspace_id,
+          scope: 'workspace_write',
+          created_at: new Date().toISOString()
+        }],
         skills: [{
           skill_version_id: 'skill-version-review',
           name: 'review',
@@ -53,6 +61,8 @@ describe('Janus renderer fixture', () => {
     expect(screen.getByText('최근 턴 · partial')).toBeVisible()
     expect(screen.getByText('구현은 끝났고 패키징 검증이 남았습니다.')).toBeVisible()
     expect(screen.getByText('pnpm test: 11 passed')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '파일 수정 권한 취소' }))
+    expect(revokeTaskApprovalScope).toHaveBeenCalledWith('workspace_write')
     const composer = screen.getByRole('textbox', { name: '작업 지시' })
     await user.type(composer, '/rev')
     await user.click(screen.getByRole('option', { name: '/review · 수동' }))
