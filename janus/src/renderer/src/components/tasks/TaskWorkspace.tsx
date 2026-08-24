@@ -454,6 +454,18 @@ function TaskRuntimeCard({ task }: { task: Task }) {
       tokensPerSecond: Number(payload.predicted_tokens_per_second ?? 0)
     }
   }, [events])
+  const executionSummary = useMemo(() => {
+    const agentEvents = events.filter((event) => event.kind === 'agent_event')
+    const toolRuns = agentEvents.filter((event) => String(event.payload.kind ?? '').startsWith('tool_')).length
+    const reasoningChars = transcript
+      .filter((item) => item.role === 'reasoning')
+      .reduce((total, item) => total + item.content.length, 0)
+    return {
+      toolRuns,
+      reasoningChars,
+      elapsedSeconds: Math.round((usage?.active_time_ms ?? 0) / 1000)
+    }
+  }, [events, transcript, usage?.active_time_ms])
   const skillSuggestions = useMemo(() => {
     if (!message.startsWith('/') || message.slice(1).includes(' ')) return []
     const needle = message.slice(1).toLowerCase()
@@ -673,21 +685,6 @@ function TaskRuntimeCard({ task }: { task: Task }) {
         </div>
       </details>
 
-      {lastTurnOutcome && !active && (
-        <div className="mt-3 border border-border bg-panel px-3 py-2.5 text-[10.5px]">
-          <div className="flex items-center justify-between gap-3">
-            <strong className="text-secondary">최근 턴 · {lastTurnOutcome.status.replaceAll('_', ' ')}</strong>
-            <span className="font-mono text-[10px] text-faint">finish_turn 기록</span>
-          </div>
-          {lastTurnOutcome.summary && <p className="mt-1 text-muted">{lastTurnOutcome.summary}</p>}
-          {lastTurnOutcome.evidence.length > 0 && (
-            <ul className="mt-2 list-disc space-y-1 pl-4 font-mono text-[10px] text-faint">
-              {lastTurnOutcome.evidence.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}
-            </ul>
-          )}
-        </div>
-      )}
-
       <div className="task-session-console">
         <div ref={transcriptRef} className="task-transcript">
           {transcript.length === 0 ? (
@@ -732,28 +729,57 @@ function TaskRuntimeCard({ task }: { task: Task }) {
         </div>
       </div>
 
-      {approvals.map((approval) => (
-        <div key={approval.id} className="mt-3 flex items-center justify-between gap-4 border border-warn bg-panel px-3 py-2">
-          <div className="min-w-0 text-[10.5px] text-warn">
-            이 작업 공간에서 <code className="font-mono">{approval.tool}</code> 도구를 승인할까요?
-          </div>
-          <div className="flex shrink-0 gap-2">
-            <button onClick={() => respondApproval(approval.id, false)} className="task-quiet-action">거부</button>
-            <button onClick={() => respondApproval(approval.id, true, 'once')} className="task-quiet-action">이번만</button>
-            {approval.rememberable && (
-              <button
-                onClick={() => respondApproval(approval.id, true, 'session_workspace')}
-                className="task-primary-action"
-              >
-                이 세션에서 파일 수정 허용
-              </button>
-            )}
-          </div>
-        </div>
-      ))}
+      <div className="task-action-stack">
+        {(active || lastTurnOutcome || executionSummary.toolRuns > 0 || executionSummary.reasoningChars > 0) && (
+          <details className="task-execution-rail" open={active || undefined}>
+            <summary>
+              <span className="task-execution-rail__identity">
+                <span className="task-thinking__mark" aria-hidden="true" />
+                <strong>{active ? phase : '최근 실행'}</strong>
+              </span>
+              <span className="task-execution-rail__metrics">
+                {executionSummary.reasoningChars > 0 && <span>사고 {executionSummary.reasoningChars.toLocaleString()}자</span>}
+                {executionSummary.toolRuns > 0 && <span>도구 {executionSummary.toolRuns}회</span>}
+                {executionSummary.elapsedSeconds > 0 && <span>{executionSummary.elapsedSeconds}초</span>}
+              </span>
+            </summary>
+            <div className="task-execution-rail__body">
+              {active && <p>Janus가 현재 <strong>{phase}</strong>입니다. 실행 내역은 우측 환경 패널과 대화 기록에 동시에 보존됩니다.</p>}
+              {lastTurnOutcome && !active && (
+                <>
+                  <p><strong>{lastTurnOutcome.status.replaceAll('_', ' ')}</strong>{lastTurnOutcome.summary ? ` · ${lastTurnOutcome.summary}` : ''}</p>
+                  {lastTurnOutcome.evidence.length > 0 && (
+                    <ul>{lastTurnOutcome.evidence.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul>
+                  )}
+                </>
+              )}
+              {latestMtpMetrics && (
+                <p className="font-mono">MTP 승인 {(latestMtpMetrics.acceptance * 100).toFixed(1)}% · {latestMtpMetrics.accepted}/{latestMtpMetrics.drafted} · {latestMtpMetrics.tokensPerSecond.toFixed(1)} tok/s</p>
+              )}
+            </div>
+          </details>
+        )}
 
-      {session?.approval_scopes?.some((item) => item.scope === 'workspace_write') && (
-        <div className="mt-3 flex items-center justify-between gap-4 border border-line bg-panel px-3 py-2">
+        {approvals.map((approval) => (
+          <div key={approval.id} className="task-decision-card">
+            <div className="task-decision-card__copy">
+              <strong><code>{approval.tool}</code> 실행 권한이 필요합니다</strong>
+              <span>이 작업 공간에서 도구를 실행합니다.</span>
+            </div>
+            <div className="task-decision-card__actions">
+              <button onClick={() => respondApproval(approval.id, false)} className="task-quiet-action">거부</button>
+              <button onClick={() => respondApproval(approval.id, true, 'once')} className="task-primary-action">이번만 허용</button>
+              {approval.rememberable && (
+                <button onClick={() => respondApproval(approval.id, true, 'session_workspace')} className="task-quiet-action">
+                  이 세션에서 허용
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+
+        {session?.approval_scopes?.some((item) => item.scope === 'workspace_write') && (
+        <div className="task-session-notice">
           <span className="text-[10.5px] text-muted">이 세션에서 작업 공간 파일 수정을 허용했습니다.</span>
           <button
             type="button"
@@ -767,12 +793,12 @@ function TaskRuntimeCard({ task }: { task: Task }) {
       )}
 
       {task.workflow_stage === 'mockup' && task.status === 'needs_you' && session?.status === 'idle' && !active && (
-        <div className="mt-3 flex items-center justify-between gap-4 border border-warn bg-panel px-3 py-2">
-          <div className="min-w-0 text-[10.5px] text-warn">
+        <div className="task-decision-card">
+          <div className="task-decision-card__copy">
             <strong className="block text-secondary">프론트 목업 승인 대기</strong>
-            화면과 주요 상호작용을 확인하세요. 수정이 필요하면 아래에 피드백을 보내고, 괜찮으면 실제 구현을 시작합니다.
+            <span>화면과 주요 상호작용을 확인한 뒤 구현 진행 여부를 선택하세요.</span>
           </div>
-          <div className="flex shrink-0 gap-2">
+          <div className="task-decision-card__actions">
             <button
               type="button"
               onClick={() => {
@@ -795,6 +821,37 @@ function TaskRuntimeCard({ task }: { task: Task }) {
           </div>
         </div>
       )}
+
+        {session && (!connected || restartable || ['created', 'running', 'idle'].includes(session.status)) && (
+          <div className="task-session-actions">
+            <span>
+              <CircleDot size={10} className={connected ? 'text-ok' : 'text-faint'} />
+              {stateLabel(session.status)} · {connected ? '연결됨' : '연결 끊김'}
+            </span>
+            <div>
+              {!connected && resumable && (
+                <button type="button" onClick={() => void resumeSession()} disabled={busy} className="task-primary-action">
+                  <Play size={11} /> 재개
+                </button>
+              )}
+              {restartable && (
+                <button
+                  type="button"
+                  onClick={() => void startSession({ priority, queue_timeout_ms: queueTimeout * 1000 })}
+                  disabled={!ready || busy || active}
+                  className="task-primary-action"
+                  title={ready ? '새 디스패치로 작업을 다시 시작' : '먼저 작업 공간을 준비하세요'}
+                >
+                  <Play size={11} /> 다시 시작
+                </button>
+              )}
+              {['created', 'running', 'idle'].includes(session.status) && (
+                <button type="button" onClick={() => void stopSession()} disabled={busy} className="task-quiet-action">세션 중단</button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
       <form onSubmit={submit} className="janus-composer janus-composer--session">
         {skillSuggestions.length > 0 && (
@@ -845,25 +902,6 @@ function TaskRuntimeCard({ task }: { task: Task }) {
             >
               <Plus size={20} />
             </button>
-            {!connected && resumable && (
-              <button type="button" onClick={() => void resumeSession()} disabled={busy} className="task-quiet-action">
-                <Play size={11} /> 재개
-              </button>
-            )}
-            {restartable && (
-              <button
-                type="button"
-                onClick={() => void startSession({ priority, queue_timeout_ms: queueTimeout * 1000 })}
-                disabled={!ready || busy || active}
-                className="task-primary-action"
-                title={ready ? '새 디스패치로 작업을 다시 시작' : '먼저 작업 공간을 준비하세요'}
-              >
-                <Play size={11} /> 다시 시작
-              </button>
-            )}
-            {session && ['created', 'running', 'idle'].includes(session.status) && (
-              <button type="button" onClick={() => void stopSession()} className="text-[10px] text-faint hover:text-secondary">세션 중단</button>
-            )}
           </div>
           <div className="janus-composer__meta">
             <span><Zap size={13} /> {selectedProfile?.name ?? '로컬 에이전트'}</span>
@@ -1685,11 +1723,11 @@ function TaskContextPanel({ task, view, onView }: { task: Task; view: TaskView; 
         </Status>
       </div>
       <section className="task-context-panel__environment">
-        {row('changes', <GitCompareArrows size={16} />, '변경 사항', changedFiles ? `${changedFiles}개` : '—')}
+        {changedFiles > 0 && row('changes', <GitCompareArrows size={16} />, '변경 사항', `${changedFiles}개`)}
         {row('workspace', <Laptop size={16} />, '로컬', task.workspace?.state ? stateLabel(task.workspace.state) : '미생성')}
         {row('workspace', <GitBranch size={14} />, task.workspace?.branch_name ?? task.base_ref)}
-        {row('verification', <ShieldCheck size={16} />, '검증', latestVerification ? stateLabel(latestVerification.status) : '—')}
-        {row('ship', <GitPullRequest size={16} />, '커밋 또는 푸시', shipments.length ? `${shipments.length}` : '—')}
+        {latestVerification && row('verification', <ShieldCheck size={16} />, '검증', stateLabel(latestVerification.status))}
+        {shipments.length > 0 && row('ship', <GitPullRequest size={16} />, '커밋 또는 푸시', `${shipments.length}`)}
       </section>
       <section>
         <div className="task-context-panel__section-label">하위 에이전트</div>
@@ -1697,9 +1735,9 @@ function TaskContextPanel({ task, view, onView }: { task: Task; view: TaskView; 
       </section>
       <section>
         <div className="task-context-panel__section-label">출처</div>
-        {row('context', <CircleDot size={16} />, '컨텍스트 출처', includedSources ? `${includedSources}개` : '—')}
-        {row('context', <Settings2 size={16} />, '활성 스킬', activeSkills ? `${activeSkills}개` : '—')}
-        {row('review', <MessageSquare size={16} />, '검토 의견', review?.comments.length ? `${review.comments.length}` : '—')}
+        {includedSources > 0 && row('context', <CircleDot size={16} />, '컨텍스트 출처', `${includedSources}개`)}
+        {activeSkills > 0 && row('context', <Settings2 size={16} />, '활성 스킬', `${activeSkills}개`)}
+        {(review?.comments.length ?? 0) > 0 && row('review', <MessageSquare size={16} />, '검토 의견', `${review?.comments.length}`)}
         {row('development', <Settings2 size={16} />, '개발 도구')}
       </section>
       <div className="task-context-panel__meta">

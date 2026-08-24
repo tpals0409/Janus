@@ -84,9 +84,11 @@ describe('Janus renderer fixture', () => {
 
     render(<App />)
 
-    expect(screen.getByText('최근 턴 · partial')).toBeVisible()
+    const executionRail = screen.getByText('최근 실행')
+    expect(executionRail).toBeVisible()
     expect(screen.getByText('모델 :8080 · MTP 활성')).toBeVisible()
-    expect(screen.getByText('구현은 끝났고 패키징 검증이 남았습니다.')).toBeVisible()
+    await user.click(executionRail)
+    expect(screen.getByText(/구현은 끝났고 패키징 검증이 남았습니다/)).toBeVisible()
     expect(screen.getByText('pnpm test: 11 passed')).toBeVisible()
     await user.click(screen.getByText('실행 설정'))
     expect(screen.getByText(/MTP · 승인 75.0%.*9\/12.*31.5 tok\/s/)).toBeVisible()
