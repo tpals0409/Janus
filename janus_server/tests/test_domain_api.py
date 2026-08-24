@@ -227,6 +227,14 @@ class DomainApiTests(unittest.TestCase):
             self.assertEqual("develop", task["base_ref"])
             self.assertEqual("pnpm test", task["acceptance_command"])
             self.assertEqual("todo", task["status"])
+            self.assertEqual("direct", task["workflow_stage"])
+
+            mockup = client.post(
+                f"/projects/{project['id']}/delegations", headers=HEADERS,
+                json={"objective": "프론트 화면을 만들어줘", "workflow_stage": "mockup"},
+            )
+            self.assertEqual(200, mockup.status_code, mockup.text)
+            task = mockup.json()
             self.assertEqual("mockup", task["workflow_stage"])
             approved = client.post(
                 f"/tasks/{task['id']}/mockup/approve", headers=HEADERS,

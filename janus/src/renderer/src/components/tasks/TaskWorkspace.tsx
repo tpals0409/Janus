@@ -64,11 +64,12 @@ function DelegationBar({ project }: { project: Project }) {
   const delegateTask = useStore((state) => state.delegateTask)
   const busy = useStore((state) => state.taskBusy)
   const [objective, setObjective] = useState('')
+  const [mockupFirst, setMockupFirst] = useState(false)
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!objective.trim() || busy) return
-    await delegateTask(objective)
+    await delegateTask(objective, mockupFirst ? 'mockup' : 'direct')
     if (!useStore.getState().taskActionError) setObjective('')
   }
 
@@ -94,6 +95,15 @@ function DelegationBar({ project }: { project: Project }) {
           aria-label="Janus에게 위임할 목표"
         />
         <div className="janus-composer__footer">
+          <label className="flex items-center gap-1.5 text-[9px] text-faint">
+            <input
+              type="checkbox"
+              checked={mockupFirst}
+              onChange={(event) => setMockupFirst(event.target.checked)}
+              className="ui-checkbox"
+            />
+            프론트 목업부터 시작
+          </label>
           <span className="font-mono text-[9px] text-faint">{project.name} · 로컬 실행</span>
           <Button type="submit" disabled={busy || !objective.trim()} compact>
             {busy ? <Loader2 size={11} className="animate-spin" /> : <Send size={12} />}
@@ -320,6 +330,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
   const approveMockup = useStore((state) => state.approveTaskMockup)
   const [message, setMessage] = useState('')
   const [confirmNewAttempt, setConfirmNewAttempt] = useState(false)
+  const messageRef = useRef<HTMLTextAreaElement>(null)
   const ready = task.workspace?.state === 'ready'
   const resumable = session?.status === 'created' || session?.status === 'idle'
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId)
@@ -670,19 +681,33 @@ function TaskRuntimeCard({ task }: { task: Task }) {
             <strong className="block text-secondary">프론트 목업 승인 대기</strong>
             화면과 주요 상호작용을 확인하세요. 수정이 필요하면 아래에 피드백을 보내고, 괜찮으면 실제 구현을 시작합니다.
           </div>
-          <button
-            type="button"
-            onClick={() => void approveMockup()}
-            disabled={busy}
-            className="task-primary-action shrink-0"
-          >
-            목업 승인 · 구현 진행
-          </button>
+          <div className="flex shrink-0 gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setMessage((current) => current.trim() ? current : '목업 수정 요청: ')
+                requestAnimationFrame(() => messageRef.current?.focus())
+              }}
+              disabled={busy || !connected}
+              className="task-quiet-action"
+            >
+              거절 · 수정 요청
+            </button>
+            <button
+              type="button"
+              onClick={() => void approveMockup()}
+              disabled={busy}
+              className="task-primary-action"
+            >
+              목업 승인 · 구현 진행
+            </button>
+          </div>
         </div>
       )}
 
       <form onSubmit={submit} className="janus-composer janus-composer--session">
         <textarea
+          ref={messageRef}
           rows={3}
           aria-label="작업 지시"
           value={message}

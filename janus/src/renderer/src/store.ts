@@ -132,8 +132,9 @@ interface State {
     objective: string
     acceptance_command: string
     base_ref: string
+    workflow_stage?: 'direct' | 'mockup'
   }): Promise<void>
-  delegateTask(objective: string): Promise<void>
+  delegateTask(objective: string, workflowStage?: 'direct' | 'mockup'): Promise<void>
   updateTask(patch: Partial<Pick<Task, 'title' | 'objective' | 'acceptance_command' | 'base_ref'>>): Promise<void>
   prepareWorkspace(): Promise<void>
   retryWorkspace(): Promise<void>
@@ -567,7 +568,7 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  async delegateTask(objective) {
+  async delegateTask(objective, workflowStage = 'direct') {
     const projectId = get().projectId
     const trimmed = objective.trim()
     if (!projectId || !trimmed) return
@@ -576,7 +577,7 @@ export const useStore = create<State>((set, get) => ({
       const task = (await apiJson(`${BASE}/projects/${projectId}/delegations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ objective: trimmed })
+        body: JSON.stringify({ objective: trimmed, workflow_stage: workflowStage })
       })) as Task
       const tasks = (await apiJson(`${BASE}/projects/${projectId}/tasks`)) as Task[]
       set({ tasks, pendingDelegation: { taskId: task.id, objective: trimmed } })

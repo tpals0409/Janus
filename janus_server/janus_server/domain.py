@@ -17,7 +17,7 @@ from typing import Any
 
 from .budget import empty_usage, merge_budget, normalize_budget
 
-CURRENT_SCHEMA_VERSION = 16
+CURRENT_SCHEMA_VERSION = 17
 
 DEFAULT_CONTEXT_POLICY = {
     "max_chars": 24_000,
@@ -548,11 +548,18 @@ ALTER TABLE tasks ADD COLUMN workflow_stage TEXT NOT NULL DEFAULT 'direct'
 CHECK(workflow_stage IN ('direct','mockup','implementation'));
 """
 
+# v16 accidentally made every newly created task mockup-first. No UI existed to
+# opt into that behavior, so unapproved mockup rows are safe to restore to direct.
+MIGRATION_17 = """
+UPDATE tasks SET workflow_stage='direct' WHERE workflow_stage='mockup';
+"""
+
 MIGRATIONS = {
     1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3, 4: MIGRATION_4,
     5: MIGRATION_5, 6: MIGRATION_6, 7: MIGRATION_7, 8: MIGRATION_8,
     9: MIGRATION_9, 10: MIGRATION_10, 11: MIGRATION_11, 12: MIGRATION_12,
     13: MIGRATION_13, 14: MIGRATION_14, 15: MIGRATION_15, 16: MIGRATION_16,
+    17: MIGRATION_17,
 }
 
 
@@ -1213,8 +1220,11 @@ class DomainStore:
 
     def create_task(
         self, *, project_id: str, title: str, objective: str,
-        acceptance_command: str, base_ref: str, task_id: str | None = None,
+        acceptance_command: str, base_ref: str, workflow_stage: str = "direct",
+        task_id: str | None = None,
     ) -> dict:
+        if workflow_stage not in {"direct", "mockup"}:
+            raise Conflict("Task 생성 workflow_stage는 direct 또는 mockup이어야 합니다")
         now = _now()
         task_id = task_id or _id("task")
         try:
@@ -1224,7 +1234,8 @@ class DomainStore:
                     "status,created_at,updated_at,workflow_stage) VALUES (?,?,?,?,?,?,?,?,?,?)",
                     (
                         task_id, project_id, title.strip(), objective.strip(),
-                        acceptance_command.strip(), base_ref.strip(), "todo", now, now, "mockup",
+                        acceptance_command.strip(), base_ref.strip(), "todo", now, now,
+                        workflow_stage,
                     ),
                 )
         except sqlite3.IntegrityError as error:

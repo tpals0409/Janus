@@ -28,6 +28,9 @@ describe('Janus renderer fixture', () => {
     render(<App />)
 
     expect(screen.getByText('프론트 목업 승인 대기')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '거절 · 수정 요청' }))
+    expect(screen.getByRole('textbox', { name: '작업 지시' })).toHaveValue('목업 수정 요청: ')
+    expect(approveTaskMockup).not.toHaveBeenCalled()
     await user.click(screen.getByRole('button', { name: '목업 승인 · 구현 진행' }))
     expect(approveTaskMockup).toHaveBeenCalledOnce()
   })
@@ -121,7 +124,7 @@ describe('Janus renderer fixture', () => {
     expect(screen.getByRole('textbox', { name: 'Janus에게 위임할 목표' })).toBeVisible()
     await user.type(screen.getByRole('textbox', { name: 'Janus에게 위임할 목표' }), '인증 흐름을 검증해줘')
     await user.keyboard('{Enter}')
-    expect(delegateTask).toHaveBeenCalledWith('인증 흐름을 검증해줘')
+    expect(delegateTask).toHaveBeenCalledWith('인증 흐름을 검증해줘', 'direct')
     expect(screen.queryByRole('button', { name: '새 작업' })).not.toBeInTheDocument()
 
     useStore.setState({

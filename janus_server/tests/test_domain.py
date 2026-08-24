@@ -49,12 +49,16 @@ class DomainStoreTests(unittest.TestCase):
         self.assertEqual("4-bit MLX", models[0]["quantization"])
         self.assertIn("run_bash", json.loads(agents[0]["tools_json"]))
 
-    def test_new_task_requires_mockup_approval_before_implementation(self):
-        self.assertEqual("mockup", self.task["workflow_stage"])
-        approved = self.store.approve_task_mockup(self.task["id"])
+    def test_new_task_is_direct_unless_mockup_is_explicit(self):
+        self.assertEqual("direct", self.task["workflow_stage"])
+        mockup = self.store.create_task(
+            project_id=self.project["id"], title="Mockup", objective="Preview UI",
+            acceptance_command="pnpm test", base_ref="main", workflow_stage="mockup",
+        )
+        approved = self.store.approve_task_mockup(mockup["id"])
         self.assertEqual("implementation", approved["workflow_stage"])
         with self.assertRaises(Conflict):
-            self.store.approve_task_mockup(self.task["id"])
+            self.store.approve_task_mockup(mockup["id"])
 
     def test_skill_versions_activation_and_session_snapshot_are_durable(self):
         artifact = {

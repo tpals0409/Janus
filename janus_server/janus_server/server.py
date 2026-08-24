@@ -681,6 +681,7 @@ def create_task(project_id: str, body: dict):
         objective=str(body.get("objective") or ""),
         acceptance_command=str(body.get("acceptance_command") or ""),
         base_ref=str(body.get("base_ref") or "main"),
+        workflow_stage=str(body.get("workflow_stage") or "direct"),
     )
 
 
@@ -750,6 +751,7 @@ def delegate_project_work(project_id: str, body: dict):
         objective=objective,
         acceptance_command=_delegation_acceptance(project, repo),
         base_ref=_delegation_base_ref(repo),
+        workflow_stage=str(body.get("workflow_stage") or "direct"),
     )
 
 
