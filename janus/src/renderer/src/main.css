@@ -3,17 +3,17 @@
 
 /* Janus graphite system. Legacy color names remain as migration aliases. */
 @theme {
-  --color-bg: #0c0d0e;
-  --color-canvas: #101112;
-  --color-panel: #131516;
-  --color-panel-2: #101112;
-  --color-surface: #17191b;
-  --color-raised: #17191b;
-  --color-hover: #1c1f21;
-  --color-active: #202326;
-  --color-border: #1d2022;
-  --color-border-strong: #282c2f;
-  --color-border-emphasis: #383d41;
+  --color-bg: #0e0f10;
+  --color-canvas: #171819;
+  --color-panel: #131415;
+  --color-panel-2: #151617;
+  --color-surface: #202223;
+  --color-raised: #1d1f20;
+  --color-hover: #252728;
+  --color-active: #2b2d2e;
+  --color-border: #242627;
+  --color-border-strong: #303334;
+  --color-border-emphasis: #414445;
 
   --color-fg: #f0f1f1;
   --color-muted: #a3a7aa;
@@ -37,15 +37,15 @@
 }
 
 :root {
-  --bg-base: #0c0d0e;
-  --bg-canvas: #101112;
-  --bg-panel: #131516;
-  --bg-surface: #17191b;
-  --bg-hover: #1c1f21;
-  --bg-active: #202326;
-  --border-subtle: #1d2022;
-  --border-default: #282c2f;
-  --border-strong: #383d41;
+  --bg-base: #0e0f10;
+  --bg-canvas: #171819;
+  --bg-panel: #131415;
+  --bg-surface: #202223;
+  --bg-hover: #252728;
+  --bg-active: #2b2d2e;
+  --border-subtle: #242627;
+  --border-default: #303334;
+  --border-strong: #414445;
   --focus-border: #526b5e;
   --text-primary: #f0f1f1;
   --text-secondary: #a3a7aa;
@@ -386,7 +386,7 @@ button {
   grid-template-columns: 180px minmax(0, 1fr) auto;
   align-items: center;
   border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-panel);
+  background: var(--bg-base);
   padding: 0 var(--space-3) 0 76px;
   -webkit-app-region: drag;
 }
@@ -419,7 +419,7 @@ button {
   flex: none;
   flex-direction: column;
   border-right: 1px solid var(--border-subtle);
-  background: var(--bg-panel);
+  background: var(--bg-base);
   padding: var(--space-2) 6px;
 }
 
@@ -448,7 +448,7 @@ button {
   flex: none;
   flex-direction: column;
   border-right: 1px solid var(--border-subtle);
-  background: var(--bg-panel);
+  background: #151617;
 }
 
 .task-sidebar-actions {
@@ -641,7 +641,7 @@ button {
   align-items: center;
   gap: var(--space-4);
   border-top: 1px solid var(--border-subtle);
-  background: var(--bg-panel);
+  background: var(--bg-base);
   padding: 0 var(--space-3);
   color: var(--text-muted);
   font-size: 11px;
@@ -665,13 +665,13 @@ button {
 
 .task-context-panel {
   display: flex;
-  width: 292px;
+  width: 276px;
   min-width: 260px;
   flex: none;
   flex-direction: column;
   border-left: 1px solid var(--border-subtle);
-  background: var(--bg-panel);
-  padding: 14px 12px 10px;
+  background: #141516;
+  padding: 12px 10px 10px;
 }
 
 .task-context-panel__title {
@@ -923,16 +923,17 @@ button {
 }
 
 .janus-composer {
-  width: min(100%, 760px);
+  width: min(100%, 780px);
   overflow: hidden;
   border: 1px solid var(--border-default);
-  border-radius: 18px;
+  border-radius: 22px;
   background: var(--bg-surface);
-  box-shadow: 0 12px 30px rgb(0 0 0 / 18%);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 22%);
 }
 
 .janus-composer:focus-within {
-  border-color: var(--border-strong);
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border-default));
+  box-shadow: 0 12px 34px rgb(0 0 0 / 26%);
 }
 
 .janus-composer textarea {
@@ -941,9 +942,9 @@ button {
   min-height: 72px;
   resize: none;
   background: transparent;
-  padding: 14px 16px 4px;
+  padding: 15px 17px 4px;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.6;
   outline: none;
 }
@@ -986,7 +987,7 @@ button {
   gap: var(--space-4);
   border-bottom: 1px solid var(--border-subtle);
   padding: 8px var(--space-4);
-  background: var(--bg-panel);
+  background: var(--bg-canvas);
 }
 
 .task-chat-tabs {
@@ -1654,7 +1655,7 @@ button {
 }
 
 .task-session-settings {
-  width: min(calc(100% - 32px), 760px);
+  width: min(calc(100% - 40px), 780px);
   flex: none;
   margin: 10px auto 0;
   border-bottom: 1px solid var(--border-subtle);
@@ -1694,15 +1695,15 @@ button {
 .task-transcript {
   min-height: 0;
   overflow-y: auto;
-  padding: 22px max(20px, calc((100% - 760px) / 2));
+  padding: 28px max(24px, calc((100% - 780px) / 2)) 20px;
 }
 
 .task-message {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  gap: 9px;
-  padding: 7px 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 65%, transparent);
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px 0 20px;
+  border-bottom: 0;
 }
 
 .task-message[data-role='user'] {
@@ -1717,11 +1718,13 @@ button {
 
 .task-message[data-role='user'] > p {
   width: fit-content;
-  max-width: 74%;
-  border-radius: 16px;
+  max-width: 72%;
+  border-radius: 18px;
   background: var(--bg-surface);
-  padding: 9px 13px;
+  padding: 10px 14px;
   color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .task-message:last-child {
@@ -1729,12 +1732,12 @@ button {
 }
 
 .task-message > span {
-  padding-top: 2px;
+  padding-top: 3px;
   color: var(--color-faint);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
 }
 
 .task-message[data-role='assistant'] > span {
@@ -1744,24 +1747,23 @@ button {
 .task-message > p {
   white-space: pre-wrap;
   color: var(--color-muted);
-  font-size: 11px;
-  line-height: 1.65;
+  font-size: 13px;
+  line-height: 1.7;
 }
 
-/* assistant 답변도 말풍선으로 — 사용자 쪽과 좌우로 나뉜다. */
+/* Assistant output reads as a document; only user input keeps a speech surface. */
 .task-message[data-role='assistant'] > .task-markdown {
-  width: fit-content;
-  max-width: 88%;
-  border: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--bg-surface) 55%, transparent);
-  padding: 9px 13px;
+  width: 100%;
+  max-width: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
 }
 
 .task-markdown {
-  color: var(--color-muted);
-  font-size: 11px;
-  line-height: 1.65;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.7;
 }
 
 .task-markdown > :first-child { margin-top: 0; }
@@ -1779,8 +1781,8 @@ button {
 .task-markdown h4 {
   margin: 12px 0 6px;
   color: var(--text-primary);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 600;
   line-height: 1.4;
 }
 
@@ -1834,7 +1836,7 @@ button {
 
 .janus-composer--session {
   flex: none;
-  margin: 10px auto 6px;
+  margin: 10px auto 18px;
 }
 
 @media (max-width: 1080px) {

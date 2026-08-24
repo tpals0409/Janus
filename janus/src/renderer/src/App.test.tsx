@@ -154,7 +154,8 @@ describe('Janus renderer fixture', () => {
     expect(screen.getByRole('heading', { name: 'Make Task runtime restart-safe' })).toBeVisible()
     expect(screen.getByRole('navigation', { name: '기본 탐색' })).toBeVisible()
     expect(screen.getByText('janus-server :8765')).toBeVisible()
-    expect(screen.getByRole('complementary', { name: '실행 컨텍스트' })).toBeVisible()
+    expect(screen.queryByRole('complementary', { name: '실행 컨텍스트' })).toBeNull()
+    expect(screen.getByRole('button', { name: '실행 정보' })).toHaveAttribute('aria-expanded', 'false')
     expect(screen.getByRole('textbox', { name: '작업 지시' })).toBeVisible()
     expect(screen.getAllByText('중복 테스트')).toHaveLength(1)
     // worker 지시가 대화에 섞이면 사용자가 두 번 입력한 것처럼 보인다
@@ -203,6 +204,7 @@ describe('Janus renderer fixture', () => {
     await user.click(screen.getByRole('button', { name: '작업 제거' }))
     expect(archiveTask).toHaveBeenCalledWith(useStore.getState().tasks[0].id)
 
+    await user.click(screen.getByRole('button', { name: '실행 정보' }))
     const runtimeGraph = screen.getByLabelText('Janus 실행 흐름')
     expect(within(runtimeGraph).getByText('요청')).toBeVisible()
     expect(within(runtimeGraph).getByText('JANUS')).toBeVisible()

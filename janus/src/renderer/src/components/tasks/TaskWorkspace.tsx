@@ -12,6 +12,8 @@ import {
   Laptop,
   Loader2,
   MessageSquare,
+  PanelRightClose,
+  PanelRightOpen,
   Play,
   RefreshCw,
   RotateCcw,
@@ -1644,7 +1646,7 @@ function TaskContextPanel({ task, view, onView }: { task: Task; view: TaskView; 
   )
 
   return (
-    <aside className="task-context-panel" aria-label="실행 컨텍스트">
+    <aside id="task-context-panel" className="task-context-panel" aria-label="실행 컨텍스트">
       <div className="task-context-panel__title">
         <span>환경</span>
         <Status tone={task.workspace?.state === 'ready' ? 'success' : 'muted'}>
@@ -1683,9 +1685,13 @@ function TaskDetail({ task }: { task: Task }) {
   const events = useStore((state) => state.taskSessionEvents)
   const canArchiveTask = !task.workspace || task.workspace.state === 'archived'
   const [confirmArchive, setConfirmArchive] = useState(false)
+  const [inspectorOpen, setInspectorOpen] = useState(false)
   const [view, setView] = useState<TaskView>('conversation')
 
-  useEffect(() => setView('conversation'), [task.id])
+  useEffect(() => {
+    setView('conversation')
+    setInspectorOpen(false)
+  }, [task.id])
 
   const workspaceReady = task.workspace?.state === 'ready'
   const unavailable = (title: string) => (
@@ -1713,6 +1719,16 @@ function TaskDetail({ task }: { task: Task }) {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          <Button
+            onClick={() => setInspectorOpen((open) => !open)}
+            variant="ghost"
+            compact
+            aria-expanded={inspectorOpen}
+            aria-controls="task-context-panel"
+          >
+            {inspectorOpen ? <PanelRightClose size={12} /> : <PanelRightOpen size={12} />}
+            {inspectorOpen ? '정보 닫기' : '실행 정보'}
+          </Button>
           {view !== 'conversation' && (
             <Button onClick={() => setView('conversation')} variant="ghost" compact>
               <MessageSquare size={12} /> 대화로 돌아가기
@@ -1775,7 +1791,7 @@ function TaskDetail({ task }: { task: Task }) {
         onConfirm={() => { setConfirmArchive(false); void archiveTask() }}
       />
     </main>
-    <TaskContextPanel task={task} view={view} onView={setView} />
+    {inspectorOpen && <TaskContextPanel task={task} view={view} onView={setView} />}
     </>
   )
 }
