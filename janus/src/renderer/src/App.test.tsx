@@ -203,9 +203,12 @@ describe('Janus renderer fixture', () => {
     await user.click(screen.getByRole('button', { name: '작업 제거' }))
     expect(archiveTask).toHaveBeenCalledWith(useStore.getState().tasks[0].id)
 
-    const runtimeGraph = screen.getByLabelText('런타임 워커 그래프')
+    const runtimeGraph = screen.getByLabelText('Janus 실행 흐름')
+    expect(within(runtimeGraph).getByText('요청')).toBeVisible()
+    expect(within(runtimeGraph).getByText('JANUS')).toBeVisible()
     expect(within(runtimeGraph).getByText('test_worker')).toBeVisible()
     expect(within(runtimeGraph).getByText('억제')).toBeVisible()
+    expect(within(runtimeGraph).getByText(/검증/)).toBeVisible()
     expect(within(runtimeGraph).getByText('queue_worker')).toBeVisible()
     expect(within(runtimeGraph).getByText('모델 대기')).toBeVisible()
     await user.click(screen.getByRole('button', { name: '새 대화' }))

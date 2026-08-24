@@ -100,7 +100,7 @@ export function StatusBar({ mode }: { mode: string }) {
         ? '모델 :8080 · MTP 활성'
         : '모델 :8080 · MTP 비활성'
     : mlxPhase === 'failed'
-      ? `모델 재시작 실패 (${backendStatus?.mlx.attempts}회) · ${acceleration?.lastError ?? '로그 확인 필요'}`
+      ? `모델 시작 실패 · ${backendStatus?.mlx.attempts ?? 0}회`
       : mlxPhase === 'restarting'
         ? '모델 재시작 중…'
         : acceleration?.policy === 'required'
@@ -115,7 +115,9 @@ export function StatusBar({ mode }: { mode: string }) {
       <Status
         tone={mlxPhase === 'failed' ? 'danger' : mlxUp ? 'success' : 'warning'}
         pulse={!mlxUp && mlxPhase !== 'failed'}
-        title={acceleration?.draftModelPath ?? acceleration?.lastError ?? undefined}
+        title={mlxPhase === 'failed'
+          ? acceleration?.lastError ?? '모델 로그를 확인하세요'
+          : acceleration?.draftModelPath ?? undefined}
       >
         {mlxText}
       </Status>

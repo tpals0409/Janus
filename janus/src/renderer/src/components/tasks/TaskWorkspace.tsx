@@ -1499,7 +1499,13 @@ type RuntimeWorkerState =
   | 'error'
   | 'suppressed'
 
-function RuntimeWorkerGraph() {
+function RuntimeWorkerGraph({
+  task,
+  verificationStatus
+}: {
+  task: Task
+  verificationStatus?: string
+}) {
   const session = useStore((state) => state.taskSession)
   const connected = useStore((state) => state.taskConnected)
   const events = useStore((state) => state.taskSessionEvents)
@@ -1574,10 +1580,20 @@ function RuntimeWorkerGraph() {
   }
 
   return (
-    <div className="runtime-graph" aria-label="런타임 워커 그래프">
+    <div className="runtime-graph" aria-label="Janus 실행 흐름">
+      <div className="runtime-graph__request" title={task.objective}>
+        <span>01</span>
+        <div>
+          <small>요청</small>
+          <strong>{task.title}</strong>
+        </div>
+      </div>
       <div className="runtime-graph__root">
         <span className={connected ? 'text-ok' : 'text-muted'}>{connected ? '●' : '○'}</span>
-        <strong>Assistant</strong>
+        <div>
+          <small>오케스트레이터</small>
+          <strong>JANUS</strong>
+        </div>
         <em>{session ? stateLabel(session.status) : '세션 전'}</em>
       </div>
       {workers.length ? (
@@ -1599,6 +1615,13 @@ function RuntimeWorkerGraph() {
       ) : (
         <div className="runtime-graph__empty">워커가 시작되면 이 축에 표시됩니다.</div>
       )}
+      <div className="runtime-graph__outcome" data-ready={Boolean(verificationStatus)}>
+        <span>{verificationStatus ? '✓' : '○'}</span>
+        <div>
+          <small>결과</small>
+          <strong>{verificationStatus ? `검증 ${stateLabel(verificationStatus)}` : '검증 대기'}</strong>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1629,8 +1652,8 @@ function TaskContextPanel({ task, view, onView }: { task: Task; view: TaskView; 
         </Status>
       </div>
       <section>
-        <div className="task-context-panel__section-label">실행 그래프</div>
-        <RuntimeWorkerGraph />
+        <div className="task-context-panel__section-label">실행 흐름</div>
+        <RuntimeWorkerGraph task={task} verificationStatus={latestVerification?.status} />
       </section>
       <section>
         {row('changes', <GitCompareArrows size={14} />, '변경 사항', changedFiles ? `${changedFiles}` : '—')}
