@@ -27,7 +27,9 @@ describe('Janus renderer fixture', () => {
         { ...fixtureEvent, seq: 12, kind: 'agent_event', payload: { type: 'agent_event', kind: 'text_delta', text: '## 결과\n\n`build` 를 ' } },
         { ...fixtureEvent, seq: 13, kind: 'agent_event', payload: { type: 'agent_event', kind: 'text_delta', text: '**고쳤습' } },
         { ...fixtureEvent, seq: 14, kind: 'agent_event', payload: { type: 'agent_event', kind: 'assistant', content: '## 결과\n\n`build` 를 **고쳤습니다**.\n\n| 항목 | 상태 |\n| --- | --- |\n| 번들 | 통과 |' } },
-        { ...fixtureEvent, seq: 15, kind: 'agent_event', payload: { type: 'agent_event', kind: 'assistant', content: '\n\n' } }
+        { ...fixtureEvent, seq: 15, kind: 'agent_event', payload: { type: 'agent_event', kind: 'assistant', content: '\n\n' } },
+        { ...fixtureEvent, seq: 16, kind: 'span_start', payload: { type: 'span_start', span: { id: 'span-worker-queued', node_id: 'w1-queued', worker_id: 'w1-queued', label: 'queue_worker', status: 'running', input: { role: 'implementer', task: '구현', tools: ['run_bash'] } } } },
+        { ...fixtureEvent, seq: 17, kind: 'agent_event', payload: { type: 'agent_event', kind: 'worker_state', worker_id: 'w1-queued', status: 'queued' } }
       ]
     })
     const delegateTask = vi.fn().mockResolvedValue(undefined)
@@ -91,6 +93,8 @@ describe('Janus renderer fixture', () => {
     const runtimeGraph = screen.getByLabelText('런타임 워커 그래프')
     expect(within(runtimeGraph).getByText('test_worker')).toBeVisible()
     expect(within(runtimeGraph).getByText('억제')).toBeVisible()
+    expect(within(runtimeGraph).getByText('queue_worker')).toBeVisible()
+    expect(within(runtimeGraph).getByText('모델 대기')).toBeVisible()
     await user.click(screen.getByRole('button', { name: '새 대화' }))
     expect(screen.getByRole('textbox', { name: 'Janus에게 위임할 목표' })).toBeVisible()
     await user.type(screen.getByRole('textbox', { name: 'Janus에게 위임할 목표' }), '인증 흐름을 검증해줘')

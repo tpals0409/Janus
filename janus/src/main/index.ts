@@ -68,8 +68,11 @@ const serviceSpecs: Record<ServiceLabel, {
   mlx: {
     port: 8080,
     command:
+      'DRAFT="$(ls -d ~/.cache/huggingface/hub/' +
+      'models--mlx-community--Qwen3.8-27B-MTP-4bit/snapshots/*/ 2>/dev/null | head -1)"; ' +
+      'set --; [ -n "$DRAFT" ] && set -- --draft-model "$DRAFT" --draft-kind mtp; ' +
       'uv run --frozen mlx_vlm.server --model "$(ls -d ~/.cache/huggingface/hub/' +
-      'models--orcarouter--Qwen3.8-27B-Uncensored-MLX/snapshots/*/4-bit)" --port 8080',
+      'models--orcarouter--Qwen3.8-27B-Uncensored-MLX/snapshots/*/4-bit)" --port 8080 "$@"',
     cwd: runtimePaths.modelRuntimeRoot,
     environment: runtimePaths.modelEnvironment,
     logPath: join(runtimePaths.logRoot, 'janus-mlx.log')

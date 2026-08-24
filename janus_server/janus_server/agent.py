@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import threading
 import uuid
 from typing import Callable
@@ -25,11 +26,29 @@ from .workspace import WorkspaceContext
 
 DEFAULT_MAX_STEPS = 15
 DEFAULT_MAX_OUTPUT_TOKENS = 12_288
+DEFAULT_REASONING_BUDGET_TOKENS = int(
+    os.environ.get("JANUS_REASONING_BUDGET_TOKENS", "6144")
+)
+REASONING_BUDGET_MESSAGE = (
+    "You have enough information. Stop deliberating now and either call the single "
+    "best tool for the next concrete action or give the final answer."
+)
+DEFAULT_REASONING_EFFORT = "low"
 CIRCUIT_BREAK = 3  # 같은 도구가 연속 N회 실패하면 중단
 EMPTY_RESPONSE_RETRIES = 2
 DEFAULT_CONTEXT_MAX_CHARS = 24_000
 DEFAULT_CONTEXT_RECENT_BLOCKS = 8
 MAX_PROJECT_SUMMARY_CHARS = 4_000
+
+PONYTAIL_RULES = """Minimal implementation policy:
+Before writing code, use the first option that solves the task: skip unnecessary
+work; otherwise reuse existing code, then the standard library, then a native
+platform feature, then an installed dependency, and only then write the minimum
+new code that works. Read and trace the affected flow before choosing.
+Do not add unrequested abstractions, dependencies, boilerplate, or files. Never
+simplify away validation, data-loss prevention, security, accessibility, or an
+explicit request. Plan at most once in no more than 10 short lines, then act.
+Do not repeatedly reconsider a sound choice without new contrary evidence."""
 
 
 class Session:
@@ -207,10 +226,11 @@ def build_system_prompt(base: str, tool_names: list[str],
     language = (
         "Write your final answer in the same language as the request you were given."
     )
+    policy = f"{base}\n\n{PONYTAIL_RULES}"
     if not tool_names:
-        return f"{base}\n\nYou have no tools. Answer directly.\n\n{language}"
+        return f"{policy}\n\nYou have no tools. Answer directly.\n\n{language}"
     return (
-        f"{base}\n\n"
+        f"{policy}\n\n"
         "Work by calling tools. When the task is done, reply with plain text and no "
         "tool call — that is how you finish.\n\n"
         "Execution priority: follow the user's explicit tool or delegation instruction "
@@ -287,6 +307,8 @@ def run(
     priority: int = 0,
     queue_timeout: float | None = scheduler_mod.DEFAULT_QUEUE_TIMEOUT,
     budget_trackers: list[budget_mod.BudgetTracker] | None = None,
+    thinking: bool = True,
+    reasoning_budget_tokens: int = DEFAULT_REASONING_BUDGET_TOKENS,
 ) -> tuple[str, list[dict]]:
     """에이전트를 한 턴 돌린다.
 
@@ -311,6 +333,7 @@ def run(
     schemas = T.schemas_for(tool_names, registry=reg)
     fail_streak: dict[str, int] = {}
     empty_response_streak = 0
+    force_direct_next = False
     last_text = ""
     tok_prompt = tok_completion = 0
     scheduler = scheduler or scheduler_mod.default_scheduler()
@@ -355,13 +378,21 @@ def run(
         # 첫 step만 전체, 이후엔 직전 assistant/tool 응답 이후의 증분(마지막 2개)만.
         emit("llm_call", messages=msgs if step == 0 else msgs[-2:],
              total_messages=len(msgs))
+        thinking_for_call = bool(
+            thinking and not force_direct_next and reasoning_budget_tokens != 0
+        )
+        generation_max_tokens = (
+            reasoning_budget_tokens
+            if thinking_for_call and reasoning_budget_tokens > 0
+            else DEFAULT_MAX_OUTPUT_TOKENS
+        )
         kwargs = {"model": model, "messages": msgs, "stream": True,
-                  "max_tokens": DEFAULT_MAX_OUTPUT_TOKENS,
+                  "max_tokens": generation_max_tokens,
                   "stream_options": {"include_usage": True},
-                  # Qwen's thinking mode can finish with reasoning_content only,
-                  # losing the structured tool call it planned. Coding agents
-                  # need reliable actions more than hidden chain-of-thought.
-                  "extra_body": {"enable_thinking": False}}
+                  "extra_body": {
+                      "enable_thinking": thinking_for_call,
+                      "reasoning_effort": DEFAULT_REASONING_EFFORT,
+                  }}
         if schemas:
             kwargs["tools"] = schemas
         generation_id = uuid.uuid4().hex[:16]
@@ -453,10 +484,11 @@ def run(
             # Qwen-compatible servers can end after private reasoning without
             # materializing the intended action.  Give the next generation an
             # actual user query and do not persist an invalid empty assistant.
+            force_direct_next = True
             session.append(
                 "user",
-                content=(
-                    "Your previous generation hit the output limit before producing an "
+                content=(REASONING_BUDGET_MESSAGE + " " +
+                    "Your previous generation ended before producing an "
                     "action. Do not write a placeholder, stub, partial file, or falsely "
                     "claim completion. Call an available tool only if it can make a complete "
                     "useful change. If the implementation is too large for one call, split "
@@ -467,6 +499,7 @@ def run(
             continue
 
         empty_response_streak = 0
+        force_direct_next = False
         session.append("assistant", content=text, tool_calls=calls or None)
         # 개행뿐인 답은 답이 아니다 — 화면에 빈 말풍선만 남는다.
         if text.strip():

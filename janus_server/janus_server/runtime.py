@@ -282,6 +282,7 @@ class Orchestration:
         self.worker_seq = 0
         self.active_workers = 0
         self.worker_requests: dict[str, dict] = {}
+        self.worker_records: dict[str, dict] = {}
         telemetry_kwargs = {
             "task_id": workspace_context.task_id,
             "workspace_id": workspace_context.workspace_id,
@@ -318,14 +319,17 @@ class Orchestration:
             self._approve_for = lambda nid, context: (lambda name, args: False)
 
         self.create_worker = self._make_create_worker()
+        self.worker_control_tools = self._make_worker_control_tools()
         registry = dict(T.REGISTRY)
         if self.worker_enabled:
             registry[self.create_worker["name"]] = self.create_worker
+            registry.update({tool["name"]: tool for tool in self.worker_control_tools})
         self.skill_tools = self._make_skill_tools()
         registry.update({tool["name"]: tool for tool in self.skill_tools})
         runtime_tools = (
             self.tools
-            + (["create_worker"] if self.worker_enabled else [])
+            + (["create_worker"] + [tool["name"] for tool in self.worker_control_tools]
+               if self.worker_enabled else [])
             + [tool["name"] for tool in self.skill_tools]
         )
         base_prompt = spec.get("system_prompt") or "You are an orchestrator."
@@ -506,10 +510,12 @@ class Orchestration:
             return configured
         return max(configured, min(requested, int(self.budget["workers"]["total_limit"])))
 
-    def _sink(self, node_id: str, kind: str, data: dict) -> None:
+    def _sink(self, node_id: str, kind: str, data: dict, *,
+              dispatch_id: str | None = None) -> None:
         clipped = {k: _clip(v) for k, v in data.items()}
         measured = self.telemetry.record_event(
-            kind, node_id=node_id, dispatch_id=self.current_dispatch_id,
+            kind, node_id=node_id,
+            dispatch_id=(self.current_dispatch_id if dispatch_id is None else dispatch_id),
             worker_id=None if node_id == ORCH_ID else node_id, **clipped,
         )
         ev = {"type": "agent_event", **measured}
@@ -578,12 +584,9 @@ class Orchestration:
             model_state = scheduler_state["resources"][
                 scheduler_mod.ResourceClass.MODEL_GENERATION.value
             ]
-            role, role_adaptation = effective_worker_role(
-                self.worker_policy,
-                requested_role,
-                int(self.budget["dispatch"]["step_limit"]),
-                scheduler_state,
-            )
+            # 역할은 권한 프로필이다. 명시한 implementer를 최적화 명목으로
+            # read-only researcher로 바꾸면 필요한 편집/셸 도구가 사라진다.
+            role, role_adaptation = requested_role, None
             # The role sequence describes useful topology to the orchestrator;
             # it must not silently replace an explicit, policy-allowed role.
             # Doing so turned implementation workers into one-step read-only
@@ -591,7 +594,8 @@ class Orchestration:
             # 부분집합 규칙: 워커 도구 ⊆ 오케스트레이터의 spec.tools.
             # researcher/verifier는 결과를 수정하지 못하도록 읽기 전용 교집합만 받는다.
             requested_tools = list(dict.fromkeys(str(t) for t in (tools or [])))
-            allowed = [tool for tool in requested_tools if tool in self.tools]
+            candidates = requested_tools or list(self.tools)
+            allowed = [tool for tool in candidates if tool in self.tools]
             if role in {"researcher", "verifier"}:
                 allowed = [tool for tool in allowed if tool in T.READ_ONLY]
 
@@ -654,7 +658,9 @@ class Orchestration:
                     rejection = "worker_total_budget"
                 elif self.active_workers >= self._concurrent_worker_limit():
                     rejection = "worker_concurrent_budget"
-                elif existing is not None and existing["status"] == "running":
+                elif existing is not None and existing["status"] in {
+                    "queued", "running", "waiting_approval", "stopping"
+                }:
                     rejection = "duplicate_worker_running"
                 elif (fit := worker_spawn_fit(
                     self.worker_policy, self.current_user_text,
@@ -741,7 +747,6 @@ class Orchestration:
             worker_limits = dict(self.budget["worker"])
             worker_limits["step_limit"] = steps
             worker_budget = budget_mod.BudgetTracker(f"worker:{wid}", worker_limits)
-            worker_budget.begin_active()
             self.worker_cancels[wid] = cancel
             # span_start를 본 UI/headless harness가 즉시 stop을 보내도 놓치지 않도록
             # cancel handle을 공개한 뒤 span 이벤트를 보낸다.
@@ -779,129 +784,45 @@ class Orchestration:
                     or len(raw_context) > WORKER_CONTEXT_MAX_CHARS
                 ),
             })
-            write_calls: dict[str, str] = {}
-            changed_paths: set[str] = set()
-            worker_trace_lock = threading.Lock()
-
-            def emit_worker(kind: str, **data) -> None:
-                call_id = str(data.get("call_id") or "")
-                if kind == "tool_start" and data.get("name") in {"write_file", "edit_file"}:
-                    path = str((data.get("args") or {}).get("path") or "").strip()
-                    if call_id and path:
-                        with worker_trace_lock:
-                            write_calls[call_id] = path
-                elif kind == "tool_run_end" and data.get("status") == "success":
-                    with worker_trace_lock:
-                        if path := write_calls.get(call_id):
-                            changed_paths.add(path)
-                self._sink(wid, kind, data)
-
-            try:
-                text, _ = agent_mod.run(
-                    client=self.client, model=self.model,
-                    system_prompt=prepared_system,
-                    task=prepared_task,
-                    tool_names=allowed,
-                    workspace_context=workspace_context,
-                    approve=self._approve_for(wid, workspace_context),
-                    emit=emit_worker,
-                    max_steps=steps,
-                    cancel=cancel,
-                    scheduler=self.scheduler,
-                    priority=self.priority,
-                    queue_timeout=self.queue_timeout,
-                    budget_trackers=[worker_budget, self.dispatch_budget],
-                )
-            except Exception as e:
-                with self.lock:
-                    self.worker_requests[fingerprint]["status"] = "failed"
-                self._close_span(span, "error", {"error": f"{type(e).__name__}: {e}"})
-                return {"error": f"worker {wid} failed: {type(e).__name__}: {e}"}
-            finally:
-                worker_budget.end_active()
-                with self.lock:
-                    self.active_workers -= 1
-                self.worker_cancels.pop(wid, None)
-
-            if self.dispatch_budget.exhausted_reason:
-                self.budget_exhausted_reason = self.dispatch_budget.exhausted_reason
-            if worker_budget.exhausted_reason:
-                budget_snapshot = worker_budget.snapshot()
-                partial_result = str(text or "").strip()
-                touched = ", ".join(sorted(changed_paths)) or "none recorded"
-                if role_adaptation is not None:
-                    integration = (
-                        f"Worker role adapted from {requested_role} to read-only {role} "
-                        f"({role_adaptation}) and reached its focused local budget at "
-                        f"{worker_budget.exhausted_reason}. Do not spawn another worker. "
-                        "Use any evidence above and complete the original implementation directly "
-                        "without broadening its contract. Do not repeat broad discovery already "
-                        "performed by the scout. If run_bash is unavailable, do not inspect an "
-                        "unrelated test harness as a substitute; the outer runner verifies it."
-                    )
-                else:
-                    integration = (
-                        f"Worker reached its focused local budget at "
-                        f"{worker_budget.exhausted_reason}. Successful write targets: {touched}. "
-                        "Do not spawn another worker. Validate these changes strictly against the "
-                        "original request or project contract; do not invent undocumented behavior "
-                        "or speculative tests. If the requested files and behavior are already "
-                        "covered, finish directly. Otherwise make only the necessary correction."
-                    )
-                rendered_result = (
-                    partial_result + "\n\n" + integration if partial_result else integration
-                )
-                with self.lock:
-                    self.worker_requests[fingerprint].update(
-                        status="completed_partial", result=rendered_result,
-                        partial=True, warning=worker_budget.exhausted_reason,
-                    )
-                self._close_span(span, "error", {
-                    "error": worker_budget.exhausted_reason,
-                    "partial_result": text,
-                    "budget": budget_snapshot,
-                })
-                return {
-                    "worker": wid, "role": role, "result": rendered_result,
-                    "requested_role": requested_role,
-                    "role_adaptation": role_adaptation,
-                    "partial": True, "warning": worker_budget.exhausted_reason,
-                    "budget": budget_snapshot,
-                }
-
-            if cancel.is_set():
-                with self.lock:
-                    self.worker_requests[fingerprint]["status"] = "failed"
-                self._close_span(span, "error", {"error": "사용자가 워커를 중단함"})
-                return {"worker": wid, "role": role, "result": text,
-                        "cancelled": "worker was stopped by the user before finishing"}
+            record = {
+                "worker": wid, "name": str(name) or wid,
+                "role": role, "requested_role": requested_role,
+                "role_adaptation": role_adaptation, "status": "queued",
+                "result": "", "error": None, "tools": list(allowed),
+                "task": prepared_task, "system_prompt": prepared_system,
+                "workspace_context": workspace_context, "max_steps": steps,
+                "cancel": cancel, "idle": threading.Event(),
+                "launched": threading.Event(), "session": agent_mod.Session(
+                    agent_mod.build_system_prompt(prepared_system, allowed),
+                    registry=T.REGISTRY,
+                ),
+                "worker_budget": worker_budget, "fingerprint": fingerprint,
+                "span": span, "followups": [], "changed_paths": set(),
+                "dispatch_id": self.current_dispatch_id,
+            }
             with self.lock:
-                self.worker_requests[fingerprint].update(
-                    status="completed", result=text
-                )
-            self._close_span(span, "success", {"result": text, "role": role})
-            rendered_text = str(text or "")
-            if role_adaptation is not None:
-                rendered_text = (
-                    f"Worker role adapted from {requested_role} to {role} "
-                    f"({role_adaptation}) for single-slot efficiency. "
-                    "Use this as read-only evidence and complete the implementation directly. "
-                    "Do not repeat broad glob/grep/read discovery already covered by the scout. "
-                    "Respect the original allowed and forbidden paths exactly. If run_bash is "
-                    "unavailable, leave verification to the outer runner and finish after the "
-                    "required edits.\n\n"
-                    + rendered_text
-                )
-                with self.lock:
-                    self.worker_requests[fingerprint]["result"] = rendered_text
+                self.worker_records[wid] = record
+            threading.Thread(
+                target=lambda: self._run_worker_record(record),
+                name=f"janus-{wid}", daemon=True,
+            ).start()
+            # 완료가 아니라 모델 큐 등록까지만 기다린다. 이 배리어가 없으면 부모가
+            # 다음 생성 슬롯을 먼저 잡아 워커가 시작도 못 한 채 뒤로 밀린다.
+            record["launched"].wait(1.0)
             return {
                 "worker": wid, "role": role, "requested_role": requested_role,
-                "role_adaptation": role_adaptation, "result": rendered_text,
+                "role_adaptation": role_adaptation, "status": record["status"],
+                "created": True, "tools": allowed,
+                "message": (
+                    f"Worker {wid} was spawned in the background. Use wait_worker or "
+                    "worker_status before integrating its result."
+                ),
             }
 
         return T._t(
             "create_worker", handler,
-            lambda v: str(v.get("result") or v.get("warning") or v.get("error") or ""),
+            lambda v: str(v.get("result") or v.get("message")
+                          or v.get("warning") or v.get("error") or ""),
             T._obj(["name", "system_prompt", "task"],
                    name={"type": "string", "maxLength": 40,
                          "description": "Short worker name."},
@@ -923,15 +844,223 @@ class Orchestration:
                    context={"type": "string", "maxLength": 500,
                             "description": "Only the minimal context needed by this subtask."},
                    tools={"type": "array", "items": {"type": "string"},
-                          "description": "Tool names for the worker — subset of your own."},
+                          "description": (
+                              "Optional restrictive subset. Omit or pass [] to inherit "
+                              "role-appropriate tools from the parent."
+                          )},
                    max_steps={"type": "number", "description": "Step budget (default 8)."}),
-            "Spawn a worker agent for a separable subtask and get its result. Keep the "
-            "entire call concise; do not copy the Task specification into its arguments.",
+            "Spawn a background worker for a separable subtask and return its id immediately.",
             "Spawn only for a separable subtask. Pass minimal context and the smallest "
-            "tool subset. Use role=verifier for read-only result checks. Duplicate work "
-            "and excess model queue pressure are suppressed.",
+            "tool restriction only when needed. After spawning, use wait_worker before "
+            "integrating its result. Duplicate work and queue pressure are suppressed.",
             resource_class="cpu_tool",
         )
+
+    def _set_worker_status(self, record: dict, status: str, **extra) -> None:
+        with self.lock:
+            record["status"] = status
+            record.update(extra)
+            if request := self.worker_requests.get(record["fingerprint"]):
+                request.update(status=status, **extra)
+        self._sink(
+            record["worker"], "worker_state", {"status": status, **extra},
+            dispatch_id=record.get("dispatch_id"),
+        )
+
+    @staticmethod
+    def _worker_view(record: dict) -> dict:
+        return {
+            "worker": record["worker"], "name": record["name"],
+            "role": record["role"], "requested_role": record["requested_role"],
+            "status": record["status"], "result": record.get("result") or "",
+            "error": record.get("error"), "tools": list(record.get("tools") or []),
+            "queued_followups": len(record.get("followups") or []),
+        }
+
+    def _run_worker_record(self, record: dict) -> None:
+        wid = record["worker"]
+        budget = record["worker_budget"]
+        budget.begin_active()
+        current_task = record["task"]
+        text = ""
+        write_calls: dict[str, str] = {}
+
+        def emit(kind: str, **data) -> None:
+            if kind == "resource_queue_wait" and data.get("resource") == "model_generation":
+                record["launched"].set()
+                self._set_worker_status(record, "queued")
+            elif kind in {"resource_lease_acquired", "model_generation_start"}:
+                if data.get("resource", "model_generation") == "model_generation":
+                    record["launched"].set()
+                    self._set_worker_status(record, "running")
+            call_id = str(data.get("call_id") or "")
+            if kind == "tool_start" and data.get("name") in {"write_file", "edit_file"}:
+                path = str((data.get("args") or {}).get("path") or "").strip()
+                if call_id and path:
+                    write_calls[call_id] = path
+            elif kind == "tool_run_end" and data.get("status") == "success":
+                if path := write_calls.get(call_id):
+                    record["changed_paths"].add(path)
+            self._sink(wid, kind, data, dispatch_id=record.get("dispatch_id"))
+
+        def approve(name: str, args: dict) -> bool:
+            self._set_worker_status(record, "waiting_approval", tool=name)
+            try:
+                return self._approve_for(wid, record["workspace_context"])(name, args)
+            finally:
+                if not record["cancel"].is_set():
+                    self._set_worker_status(record, "running")
+
+        try:
+            while True:
+                self._set_worker_status(record, "queued")
+                text, _ = agent_mod.run(
+                    client=self.client, model=self.model,
+                    system_prompt=record["system_prompt"], task=current_task,
+                    tool_names=record["tools"],
+                    workspace_context=record["workspace_context"],
+                    approve=approve, emit=emit, max_steps=record["max_steps"],
+                    cancel=record["cancel"], scheduler=self.scheduler,
+                    priority=self.priority, queue_timeout=self.queue_timeout,
+                    budget_trackers=[budget, self.dispatch_budget],
+                    thinking=False, session=record["session"],
+                )
+                with self.lock:
+                    current_task = record["followups"].pop(0) if record["followups"] else None
+                if current_task is None or record["cancel"].is_set():
+                    break
+
+            if budget.exhausted_reason:
+                touched = ", ".join(sorted(record["changed_paths"])) or "none recorded"
+                note = (
+                    f"Worker reached its focused local budget at {budget.exhausted_reason}. "
+                    f"Successful write targets: {touched}. Do not spawn another worker; "
+                    "validate the existing changes and make only the necessary correction."
+                )
+                result = (str(text).strip() + "\n\n" + note).strip()
+                self._set_worker_status(
+                    record, "completed_partial", result=result,
+                    warning=budget.exhausted_reason,
+                )
+                self._close_span(record["span"], "error", {
+                    "error": budget.exhausted_reason, "partial_result": text,
+                    "budget": budget.snapshot(),
+                })
+            elif record["cancel"].is_set():
+                self._set_worker_status(
+                    record, "cancelled", result=text, error="사용자가 워커를 중단함",
+                )
+                self._close_span(record["span"], "error", {
+                    "error": "사용자가 워커를 중단함",
+                })
+            else:
+                result = str(text or "")
+                self._set_worker_status(record, "completed", result=result)
+                self._close_span(record["span"], "success", {
+                    "result": result, "role": record["role"],
+                })
+        except Exception as error:
+            record["launched"].set()
+            message = f"{type(error).__name__}: {error}"
+            self._set_worker_status(record, "failed", error=message)
+            self._close_span(record["span"], "error", {"error": message})
+        finally:
+            budget.end_active()
+            record["idle"].set()
+            with self.lock:
+                self.active_workers = max(0, self.active_workers - 1)
+            self.worker_cancels.pop(wid, None)
+
+    def _make_worker_control_tools(self) -> list[dict]:
+        def lookup(worker: str) -> tuple[dict | None, dict | None]:
+            record = self.worker_records.get(str(worker))
+            return (record, None) if record else (None, {"error": f"알 수 없는 worker: {worker}"})
+
+        def status(worker: str = "") -> dict:
+            if worker:
+                record, error = lookup(worker)
+                return error or self._worker_view(record)
+            return {"workers": [self._worker_view(r) for r in self.worker_records.values()]}
+
+        def wait(worker: str, timeout_seconds: float = 30) -> dict:
+            record, error = lookup(worker)
+            if error:
+                return error
+            finished = record["idle"].wait(max(0.0, min(float(timeout_seconds), 60.0)))
+            view = self._worker_view(record)
+            view["finished"] = finished
+            if not finished:
+                view["message"] = "Worker is still active; call wait_worker again."
+            return view
+
+        def send(worker: str, message: str) -> dict:
+            record, error = lookup(worker)
+            if error:
+                return error
+            followup = str(message).strip()
+            if not followup:
+                return {"error": "message가 비어 있습니다"}
+            with self.lock:
+                if record["status"] in {"queued", "running", "waiting_approval"}:
+                    record["followups"].append(followup)
+                    record["idle"].clear()
+                    return {"worker": worker, "status": record["status"], "queued": True}
+                if record["status"] not in {"completed", "completed_partial"}:
+                    return {"error": f"worker가 후속 작업을 받을 수 없습니다: {record['status']}"}
+                record.update(
+                    task=followup, cancel=threading.Event(), error=None,
+                    dispatch_id=self.current_dispatch_id, idle=threading.Event(),
+                    launched=threading.Event(), worker_budget=budget_mod.BudgetTracker(
+                        f"worker:{worker}:followup", dict(self.budget["worker"]),
+                    ),
+                )
+                self.worker_cancels[worker] = record["cancel"]
+                self.active_workers += 1
+                parent_id = self.spans[0]["id"] if self.spans else None
+            record["span"] = self._open_span(
+                worker, label=record["name"], parent_id=parent_id,
+                input={"task": followup, "tools": record["tools"],
+                       "role": record["role"], "followup": True},
+            )
+            self._set_worker_status(record, "queued")
+            threading.Thread(
+                target=lambda: self._run_worker_record(record),
+                name=f"janus-{worker}-followup", daemon=True,
+            ).start()
+            record["launched"].wait(1.0)
+            return {"worker": worker, "status": record["status"], "queued": True}
+
+        def stop(worker: str) -> dict:
+            record, error = lookup(worker)
+            if error:
+                return error
+            if record["status"] in {"completed", "completed_partial", "failed", "cancelled"}:
+                return {"worker": worker, "status": record["status"], "stopped": False}
+            record["cancel"].set()
+            self._set_worker_status(record, "stopping")
+            return {"worker": worker, "status": "stopping", "stopped": True}
+
+        render = lambda value: json.dumps(value, ensure_ascii=False)
+        return [
+            T._t("worker_status", status, render,
+                 T._obj([], worker={"type": "string", "description": "Worker id; omit for all."}),
+                 "Get background worker state and result without blocking.",
+                 "Use for a quick progress check.", resource_class="cpu_tool"),
+            T._t("wait_worker", wait, render,
+                 T._obj(["worker"], worker={"type": "string"},
+                        timeout_seconds={"type": "number", "description": "0-60 seconds."}),
+                 "Wait briefly for a background worker and return its state or result.",
+                 "Wait for spawned workers before integrating results.", resource_class="cpu_tool"),
+            T._t("send_worker", send, render,
+                 T._obj(["worker", "message"], worker={"type": "string"},
+                        message={"type": "string", "maxLength": 1000}),
+                 "Send a focused follow-up to an existing worker session.",
+                 "Use for correction or clarification, not unrelated work.", resource_class="cpu_tool"),
+            T._t("stop_worker", stop, render,
+                 T._obj(["worker"], worker={"type": "string"}),
+                 "Stop a queued or running background worker.",
+                 "Stop only when its work is no longer needed.", resource_class="cpu_tool"),
+        ]
 
     # ── 턴 실행 ──
 
@@ -966,7 +1095,8 @@ class Orchestration:
                 task=text,
                 tool_names=(
                     turn_tools
-                    + (["create_worker"] if self.worker_enabled else [])
+                    + (["create_worker"] + [tool["name"] for tool in self.worker_control_tools]
+                       if self.worker_enabled else [])
                     + [tool["name"] for tool in self.skill_tools]
                 ),
                 workspace_context=context,
@@ -974,7 +1104,10 @@ class Orchestration:
                 emit=lambda kind, **d: self._sink(ORCH_ID, kind, d),
                 max_steps=self.max_steps,
                 cancel=self.cancel,
-                extra_tools=([self.create_worker] if self.worker_enabled else []) + self.skill_tools,
+                extra_tools=(
+                    ([self.create_worker] + self.worker_control_tools
+                     if self.worker_enabled else []) + self.skill_tools
+                ),
                 session=self.session,
                 scheduler=self.scheduler,
                 priority=self.priority,
@@ -1011,6 +1144,8 @@ class Orchestration:
         ev = self.worker_cancels.get(node_id)
         if ev is not None:
             ev.set()
+            if record := self.worker_records.get(node_id):
+                self._set_worker_status(record, "stopping")
 
     # ── 저장 스냅샷 ──
 

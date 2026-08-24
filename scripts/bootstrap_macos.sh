@@ -42,6 +42,11 @@ fi
 if (( WITH_MODEL )); then
   (cd "$ROOT/qwen3.8mlx" && uv run --frozen hf download \
     orcarouter/Qwen3.8-27B-Uncensored-MLX --include '4-bit/*')
+  # Optional MTP drafter. Janus falls back to base-only generation if this
+  # small download fails or is removed.
+  (cd "$ROOT/qwen3.8mlx" && uv run --frozen hf download \
+    mlx-community/Qwen3.8-27B-MTP-4bit) || \
+    print "MTP draft download failed; Janus will run the base 27B model."
 else
   print "model download skipped; rerun with --with-model when ready (~16 GB plus working memory)."
 fi

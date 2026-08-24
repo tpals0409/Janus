@@ -264,10 +264,11 @@ class RuntimeTests(unittest.TestCase):
                              if m["type"] == "span_start" and m["span"]["node_id"] == "orchestrator")
             self.assertEqual(orch_span["id"], worker["parent_id"])
 
-            # 워커 결과가 다음 오케스트레이터 호출의 tool 메시지로 렌더됐다 (registry 인지 렌더)
+            # spawn은 즉시 id를 반환한다. 결과 수집은 wait_worker의 별도 계약이다.
             final_call = fake.captured[2]["messages"]
             tool_msgs = [m for m in final_call if m["role"] == "tool"]
-            self.assertEqual(["worker done"], [m["content"] for m in tool_msgs])
+            self.assertEqual(1, len(tool_msgs))
+            self.assertIn("spawned in the background", tool_msgs[0]["content"])
 
     def test_duplicate_worker_request_is_suppressed(self):
         duplicate = worker_args("same", task="same isolated task")
@@ -556,7 +557,7 @@ class RuntimeTests(unittest.TestCase):
         ]
         self.assertEqual("implementer", starts[0]["span"]["input"]["role"])
 
-    def test_tight_fixed_one_implementer_is_adapted_to_read_only_scout(self):
+    def test_tight_fixed_one_keeps_explicit_implementer_role(self):
         args = json.dumps({
             "name": "scout", "role": "implementer", "system_prompt": "work",
             "task": "inspect before editing", "tools": ["echo"],
@@ -572,20 +573,16 @@ class RuntimeTests(unittest.TestCase):
             seen = self.drain_turn(ws)
 
         worker_call = fake.captured[1]
-        self.assertIn("You are a read-only scout", worker_call["messages"][0]["content"])
-        self.assertNotIn("You are an implementer", worker_call["messages"][0]["content"])
-        adapted = next(
-            message for message in seen
-            if message["type"] == "agent_event"
+        self.assertNotIn("You are a read-only scout", worker_call["messages"][0]["content"])
+        starts = [message["span"] for message in seen
+                  if message["type"] == "span_start"
+                  and message["span"]["node_id"] != "orchestrator"]
+        self.assertEqual("implementer", starts[0]["input"]["role"])
+        self.assertFalse(any(
+            message["type"] == "agent_event"
             and message["kind"] == "worker_role_adapted"
-        )
-        self.assertEqual("implementer", adapted["requested_role"])
-        self.assertEqual("researcher", adapted["effective_role"])
-        tool_message = next(
-            message for message in fake.captured[2]["messages"]
-            if message["role"] == "tool"
-        )
-        self.assertIn("single_slot_tight_dispatch_scout", tool_message["content"])
+            for message in seen
+        ))
 
     def test_worker_cannot_call_tool_outside_its_enforced_subset(self):
         args = json.dumps({
@@ -641,8 +638,10 @@ class SessionContextTests(unittest.TestCase):
         self.assertIn("Do not write a placeholder", second_messages[-1]["content"])
         self.assertIn("return an explicit failure", second_messages[-1]["content"])
         self.assertEqual(
-            agent.DEFAULT_MAX_OUTPUT_TOKENS, fake.captured[0]["max_tokens"]
+            agent.DEFAULT_REASONING_BUDGET_TOKENS, fake.captured[0]["max_tokens"]
         )
+        self.assertIs(False, fake.captured[1]["extra_body"]["enable_thinking"])
+        self.assertIn(agent.REASONING_BUDGET_MESSAGE, second_messages[-1]["content"])
 
     def test_compaction_preserves_recent_objective_and_tool_pairs(self):
         session = agent.Session(

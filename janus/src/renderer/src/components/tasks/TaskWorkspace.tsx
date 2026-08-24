@@ -1334,7 +1334,14 @@ function TaskShippingCard() {
 
 type TaskView = 'conversation' | 'workspace' | 'changes' | 'verification' | 'review' | 'ship' | 'development' | 'context'
 
-type RuntimeWorkerState = 'running' | 'success' | 'error' | 'suppressed'
+type RuntimeWorkerState =
+  | 'queued'
+  | 'running'
+  | 'waiting_approval'
+  | 'stopping'
+  | 'success'
+  | 'error'
+  | 'suppressed'
 
 function RuntimeWorkerGraph() {
   const session = useStore((state) => state.taskSession)
@@ -1365,11 +1372,32 @@ function RuntimeWorkerGraph() {
           reason: String(event.payload.reason ?? '정책 억제')
         })
       }
+      if (event.kind === 'agent_event' && event.payload.kind === 'worker_state') {
+        const workerId = String(event.payload.worker_id ?? '')
+        const previous = spans.get(workerId)
+        if (!workerId || !previous) continue
+        const rawStatus = String(event.payload.status ?? '')
+        const state: RuntimeWorkerState =
+          rawStatus === 'queued' ? 'queued'
+            : rawStatus === 'waiting_approval' ? 'waiting_approval'
+              : rawStatus === 'stopping' ? 'stopping'
+                : rawStatus === 'completed' || rawStatus === 'completed_partial' ? 'success'
+                  : rawStatus === 'failed' || rawStatus === 'cancelled' ? 'error'
+                    : 'running'
+        spans.set(workerId, {
+          ...previous,
+          state,
+          error: typeof event.payload.error === 'string' ? event.payload.error : previous.error
+        })
+      }
     }
     return [...spans.values(), ...suppressed].slice(-6)
   }, [events])
   const stateMeta: Record<RuntimeWorkerState, { glyph: string; label: string; tone: string }> = {
+    queued: { glyph: '◷', label: '모델 대기', tone: 'var(--warning)' },
     running: { glyph: '●', label: '실행 중', tone: 'var(--accent)' },
+    waiting_approval: { glyph: '!', label: '승인 대기', tone: 'var(--warning)' },
+    stopping: { glyph: '◌', label: '중지 중', tone: 'var(--warning)' },
     success: { glyph: '✓', label: '완료', tone: 'var(--success)' },
     error: { glyph: '×', label: '실패', tone: 'var(--danger)' },
     suppressed: { glyph: '—', label: '억제', tone: 'var(--warning)' }

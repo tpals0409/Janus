@@ -182,11 +182,15 @@ class BudgetTests(unittest.TestCase):
             self.assertIn("concurrent budget", concurrent["error"])
             release.set()
             first.join(2)
+            waiter = next(tool for tool in orch.worker_control_tools
+                          if tool["name"] == "wait_worker")["handler"]
+            first_done = waiter(first_result[0]["worker"], 2)
             second = handler(name="two", task="go", tools=[], max_steps=2)
+            second_done = waiter(second["worker"], 2)
             total = handler(name="three", task="go", tools=[], max_steps=2)
 
-        self.assertEqual("done", first_result[0]["result"])
-        self.assertEqual("done", second["result"])
+        self.assertEqual("done", first_done["result"])
+        self.assertEqual("done", second_done["result"])
         self.assertIn("total budget", total["error"])
         usage = orch.snapshot_budget()["usage"]
         self.assertEqual(2, usage["workers_started"])
@@ -216,14 +220,15 @@ class BudgetTests(unittest.TestCase):
             result = orch.create_worker["handler"](
                 name="limited", task="go", tools=[], max_steps=2
             )
+            waiter = next(tool for tool in orch.worker_control_tools
+                          if tool["name"] == "wait_worker")["handler"]
+            result = waiter(result["worker"], 2)
             reused = orch.create_worker["handler"](
                 name="limited", task="go", tools=[], max_steps=2
             )
 
-        self.assertTrue(result["partial"])
-        self.assertIn("token_limit", result["warning"])
+        self.assertEqual("completed_partial", result["status"])
         self.assertIn("Do not spawn another worker", result["result"])
-        self.assertIn("do not invent undocumented behavior", result["result"])
         self.assertTrue(reused["reused"])
         self.assertEqual(result["result"], reused["result"])
         self.assertEqual(1, orch.worker_seq)

@@ -14,6 +14,8 @@ os.environ.setdefault("JANUS_AUTH_TOKEN", "test-token")
 from fastapi.testclient import TestClient
 
 from janus_server import agent, server
+from janus_server.workspace import WorkspaceContext
+from tests.fakes import FakeClient
 
 
 class AgentLoadTests(unittest.TestCase):
@@ -102,6 +104,12 @@ class SystemPromptLanguageTests(unittest.TestCase):
         self.assertIn("first tool call MUST be create_worker", prompt)
         self.assertIn("Do not read, search, or inspect files first", prompt)
 
+    def test_minimal_implementation_policy_is_always_present(self):
+        for tools in ([], ["read_file", "write_file"]):
+            prompt = agent.build_system_prompt("You are an orchestrator.", tools)
+            self.assertIn("Minimal implementation policy", prompt)
+            self.assertIn("Plan at most once", prompt)
+
 
 class ReasoningStreamTests(unittest.TestCase):
     """사고 토큰은 화면에만 흘리고 대화 기록에는 섞이면 안 된다."""
@@ -134,6 +142,21 @@ class ReasoningStreamTests(unittest.TestCase):
         )
         self.assertEqual("답만", text)
         self.assertNotIn("reasoning_delta", events)
+
+    def test_reasoning_generation_uses_configured_budget_and_low_effort(self):
+        fake = FakeClient([{"text": "done"}])
+        with tempfile.TemporaryDirectory() as tmp:
+            agent.run(
+                client=fake, model="fake", system_prompt="system", task="work",
+                tool_names=[], reasoning_budget_tokens=6_000,
+                workspace_context=WorkspaceContext(
+                    Path(tmp), "task-cap", "workspace-cap", "dispatch-cap",
+                ),
+                approve=lambda *_args: True, emit=lambda *_args, **_kwargs: None,
+            )
+        self.assertEqual(6_000, fake.captured[0]["max_tokens"])
+        self.assertIs(True, fake.captured[0]["extra_body"]["enable_thinking"])
+        self.assertEqual("low", fake.captured[0]["extra_body"]["reasoning_effort"])
 
 
 if __name__ == "__main__":

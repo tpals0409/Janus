@@ -17,7 +17,7 @@ from typing import Any
 
 from .budget import empty_usage, merge_budget, normalize_budget
 
-CURRENT_SCHEMA_VERSION = 14
+CURRENT_SCHEMA_VERSION = 15
 
 DEFAULT_CONTEXT_POLICY = {
     "max_chars": 24_000,
@@ -527,11 +527,25 @@ WHERE json_extract(budget_json, '$.dispatch.token_limit') = 32768
   AND json_extract(budget_json, '$.worker.token_limit') = 8192;
 """
 
+# Worker roles inherit the parent profile's tools. Keep the shipped default profile
+# capable of executing ordinary coding commands, including on databases upgraded
+# before the seed repair below runs.
+MIGRATION_15 = """
+UPDATE agent_profiles
+SET tools_json = json_insert(tools_json, '$[#]', 'run_bash'),
+    updated_at = updated_at
+WHERE id = 'agent_default'
+  AND NOT EXISTS (
+      SELECT 1 FROM json_each(agent_profiles.tools_json)
+      WHERE value = 'run_bash'
+  );
+"""
+
 MIGRATIONS = {
     1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3, 4: MIGRATION_4,
     5: MIGRATION_5, 6: MIGRATION_6, 7: MIGRATION_7, 8: MIGRATION_8,
     9: MIGRATION_9, 10: MIGRATION_10, 11: MIGRATION_11, 12: MIGRATION_12,
-    13: MIGRATION_13, 14: MIGRATION_14,
+    13: MIGRATION_13, 14: MIGRATION_14, 15: MIGRATION_15,
 }
 
 
@@ -623,11 +637,22 @@ class DomainStore:
                 (
                     "agent_default", "Janus Local", "Default local coding agent",
                     "You are a local coding agent. Make verified changes in the assigned workspace.",
-                    _json(["read_file", "glob", "grep", "write_file", "edit_file"]),
+                    _json(["read_file", "glob", "grep", "write_file", "edit_file", "run_bash"]),
                     "ask", "autonomous", 15, "model_qwen38_27b_4bit",
                     _json(normalize_budget(None)), now, now,
                 ),
             )
+            default_tools = connection.execute(
+                "SELECT tools_json FROM agent_profiles WHERE id='agent_default'"
+            ).fetchone()
+            if default_tools is not None:
+                tools = list(json.loads(default_tools[0] or "[]"))
+                if "run_bash" not in tools:
+                    tools.append("run_bash")
+                    connection.execute(
+                        "UPDATE agent_profiles SET tools_json=?,updated_at=? WHERE id='agent_default'",
+                        (_json(tools), now),
+                    )
             connection.execute("COMMIT")
         except Exception:
             connection.execute("ROLLBACK")

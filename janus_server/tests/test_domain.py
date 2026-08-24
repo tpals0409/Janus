@@ -47,6 +47,7 @@ class DomainStoreTests(unittest.TestCase):
         self.assertEqual(["model_qwen38_27b_4bit"], [item["id"] for item in models])
         self.assertEqual(["agent_default"], [item["id"] for item in agents])
         self.assertEqual("4-bit MLX", models[0]["quantization"])
+        self.assertIn("run_bash", json.loads(agents[0]["tools_json"]))
 
     def test_skill_versions_activation_and_session_snapshot_are_durable(self):
         artifact = {
