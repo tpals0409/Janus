@@ -103,7 +103,7 @@ function DelegationBar({ project }: { project: Project }) {
           aria-label="Janus에게 위임할 목표"
         />
         <div className="janus-composer__footer">
-          <label className="flex items-center gap-1.5 text-[9px] text-faint">
+          <label className="flex items-center gap-1.5 text-[10px] text-faint">
             <input
               type="checkbox"
               checked={mockupFirst}
@@ -112,7 +112,7 @@ function DelegationBar({ project }: { project: Project }) {
             />
             프론트 목업부터 시작
           </label>
-          <span className="font-mono text-[9px] text-faint">{project.name} · 로컬 실행</span>
+          <span className="font-mono text-[10px] text-faint">{project.name} · 로컬 실행</span>
           <Button type="submit" disabled={busy || !objective.trim()} compact>
             {busy ? <Loader2 size={11} className="animate-spin" /> : <Send size={12} />}
             <span className="sr-only">{busy ? '준비 중' : '위임'}</span>
@@ -499,9 +499,9 @@ function TaskRuntimeCard({ task }: { task: Task }) {
           <span className="flex min-w-0 items-center gap-2">
             <CircleDot size={12} className={connected ? 'text-ok' : 'text-faint'} />
             <strong>{session ? `시도 ${session.dispatch.attempt}` : '에이전트 세션 준비'}</strong>
-            <span className="font-mono text-[9px] text-faint">{session ? stateLabel(session.status) : '실행 전'}</span>
+            <span className="font-mono text-[10px] text-faint">{session ? stateLabel(session.status) : '실행 전'}</span>
           </span>
-          <span className="flex items-center gap-1.5 text-[9px] text-faint"><Settings2 size={11} /> 실행 설정</span>
+          <span className="flex items-center gap-1.5 text-[10px] text-faint"><Settings2 size={11} /> 실행 설정</span>
         </summary>
         <div className="task-session-settings__body">
       <div className="flex items-start justify-between gap-4">
@@ -513,11 +513,11 @@ function TaskRuntimeCard({ task }: { task: Task }) {
               {session ? `시도 ${session.dispatch.attempt}` : '실행 시도 없음'}
             </h3>
             {session && (
-              <span className="rounded-full border border-border-strong px-2 py-0.5 font-mono text-[9px] uppercase text-muted">
+              <span className="rounded-full border border-border-strong px-2 py-0.5 font-mono text-[10px] uppercase text-muted">
                 {stateLabel(session.status)}
               </span>
             )}
-            <span className={`flex items-center gap-1 text-[9.5px] ${connected ? 'text-ok' : 'text-faint'}`}>
+            <span className={`flex items-center gap-1 text-[10px] ${connected ? 'text-ok' : 'text-faint'}`}>
               {connected ? <Wifi size={10} /> : <WifiOff size={10} />}
               {connected ? '연결됨' : '오프라인'}
             </span>
@@ -573,7 +573,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
       </div>
 
       {session && (
-        <div className="mt-3 border-t border-border pt-3 font-mono text-[9px] text-faint">
+        <div className="mt-3 border-t border-border pt-3 font-mono text-[10px] text-faint">
           <div className="grid grid-cols-3 gap-2">
             <span className="truncate" title={session.id}>세션 · {session.id}</span>
             <span className="truncate" title={session.dispatch_id}>디스패치 · {session.dispatch_id}</span>
@@ -597,7 +597,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
       )}
 
       {budget && (
-        <div className="mt-3 grid grid-cols-4 gap-2 border border-border bg-base px-3 py-2 font-mono text-[9px] text-faint">
+        <div className="mt-3 grid grid-cols-4 gap-2 border border-border bg-base px-3 py-2 font-mono text-[10px] text-faint">
           <span>토큰 · {usage ? usage.prompt_tokens + usage.completion_tokens : 0}/{budget.dispatch.token_limit}</span>
           <span>단계 · {usage?.steps ?? 0}/{budget.dispatch.step_limit}</span>
           <span>시간 · {Math.round((usage?.active_time_ms ?? 0) / 1000)}초/{Math.round(budget.dispatch.time_limit_ms / 1000)}초</span>
@@ -619,7 +619,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
 
       {adaptive?.effective && (
         <div className="mt-3 border border-border bg-panel px-3 py-2.5">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[9px] uppercase tracking-[0.08em]">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[10px] uppercase tracking-[0.08em]">
             <span className="text-secondary">적응형 · {adaptive.task_class?.replaceAll('_', ' ')}</span>
             <span className="text-muted">정책 {adaptive.effective.worker_policy}</span>
             <span className="text-muted">
@@ -637,7 +637,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
               <span className="text-warn">
                 재시도 · {adaptive.retry.failure_type.replaceAll('_', ' ')} → {adaptive.retry.strategy.replaceAll('_', ' ')}
               </span>
-              <span className="font-mono text-[9px] text-faint">
+              <span className="font-mono text-[10px] text-faint">
                 {adaptive.retry.allowed ? '제한된 재시도' : '수동 전용'}
               </span>
             </div>
@@ -659,7 +659,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
               ? '로컬 용량 사용 중'
               : '우선순위가 높은 작업이 앞에 있음'}
           </span>
-          <span className="shrink-0 font-mono text-[9.5px]">
+          <span className="shrink-0 font-mono text-[10px]">
             대기 {String(queueWait.position)} · 실행 {String(queueWait.active)}/{String(queueWait.cap)}
           </span>
         </div>
@@ -672,11 +672,11 @@ function TaskRuntimeCard({ task }: { task: Task }) {
         <div className="mt-3 border border-border bg-panel px-3 py-2.5 text-[10.5px]">
           <div className="flex items-center justify-between gap-3">
             <strong className="text-secondary">최근 턴 · {lastTurnOutcome.status.replaceAll('_', ' ')}</strong>
-            <span className="font-mono text-[9px] text-faint">finish_turn 기록</span>
+            <span className="font-mono text-[10px] text-faint">finish_turn 기록</span>
           </div>
           {lastTurnOutcome.summary && <p className="mt-1 text-muted">{lastTurnOutcome.summary}</p>}
           {lastTurnOutcome.evidence.length > 0 && (
-            <ul className="mt-2 list-disc space-y-1 pl-4 font-mono text-[9px] text-faint">
+            <ul className="mt-2 list-disc space-y-1 pl-4 font-mono text-[10px] text-faint">
               {lastTurnOutcome.evidence.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}
             </ul>
           )}
@@ -832,9 +832,9 @@ function TaskRuntimeCard({ task }: { task: Task }) {
                 <Play size={11} /> 재개
               </button>
             )}
-            <span className="font-mono text-[9px] text-faint">{selectedProfile?.name ?? '로컬 에이전트'}</span>
+            <span className="font-mono text-[10px] text-faint">{selectedProfile?.name ?? '로컬 에이전트'}</span>
             {session && ['created', 'running', 'idle'].includes(session.status) && (
-              <button type="button" onClick={() => void stopSession()} className="text-[9px] text-faint hover:text-secondary">세션 중단</button>
+              <button type="button" onClick={() => void stopSession()} className="text-[10px] text-faint hover:text-secondary">세션 중단</button>
             )}
           </div>
           {active ? (
@@ -962,8 +962,8 @@ function ChangeSetCard() {
               className="mb-1 flex w-full items-start gap-2 rounded px-2 py-1.5 text-left hover:bg-panel"
               style={{ background: selected?.path === file.path ? 'var(--color-accent-soft)' : undefined }}
             >
-              <span className="w-7 shrink-0 font-mono text-[9.5px] text-secondary">{file.status}</span>
-              <span className="min-w-0 truncate font-mono text-[9.5px] text-muted" title={file.path}>
+              <span className="w-7 shrink-0 font-mono text-[10px] text-secondary">{file.status}</span>
+              <span className="min-w-0 truncate font-mono text-[10px] text-muted" title={file.path}>
                 {file.old_path ? `${file.old_path} → ${file.path}` : file.path}
               </span>
             </button>
@@ -985,14 +985,14 @@ function ChangeSetCard() {
                       <button
                         key={item.index}
                         onClick={() => document.getElementById(`diff-${layer}-${item.index}`)?.scrollIntoView({ block: 'nearest' })}
-                        className="rounded border border-border px-1.5 py-0.5 font-mono text-[8.5px] text-faint hover:text-fg"
+                        className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-faint hover:text-fg"
                       >
                         변경 구간 {index + 1}
                       </button>
                     ))}
                   </div>
                 )}
-                <div className="min-w-max font-mono text-[9.5px] leading-4 text-muted">
+                <div className="min-w-max font-mono text-[10px] leading-4 text-muted">
                   {lines.map((item) => (
                     <button
                       id={`diff-${layer}-${item.index}`}
@@ -1041,7 +1041,7 @@ function ChangeSetCard() {
                 {comments.length > 0 && (
                   <div className="mt-3 space-y-1 border-t border-border pt-2">
                     {comments.map((comment) => (
-                      <div key={comment.id} className="flex items-center gap-2 rounded bg-panel px-2 py-1.5 text-[9.5px]">
+                      <div key={comment.id} className="flex items-center gap-2 rounded bg-panel px-2 py-1.5 text-[10px]">
                         <span className="font-mono text-faint">L{comment.new_line ?? comment.old_line}</span>
                         <span className={comment.resolved_at ? 'flex-1 line-through text-faint' : 'flex-1 text-fg'}>
                           {comment.body}
@@ -1125,13 +1125,13 @@ function VerificationCard({ task }: { task: Task }) {
               value={commands[kind]}
               onChange={(event) => setCommands({ ...commands, [kind]: event.target.value })}
               placeholder={`${{ test: '테스트', lint: '린트', typecheck: '타입 검사' }[kind]} 명령`}
-              className="task-input mt-1 font-mono text-[9.5px]"
+              className="task-input mt-1 font-mono text-[10px]"
             />
           </label>
         ))}
       </div>
       <div className="mt-2 flex items-center justify-between">
-        <code className="truncate text-[9.5px] text-faint">수용 검증 · {task.acceptance_command}</code>
+        <code className="truncate text-[10px] text-faint">수용 검증 · {task.acceptance_command}</code>
         <button onClick={() => void save()} disabled={busy} className="task-quiet-action">
           <Check size={11} /> 프로젝트 명령 저장
         </button>
@@ -1147,9 +1147,9 @@ function VerificationCard({ task }: { task: Task }) {
               <div className="flex items-center gap-2 text-[10.5px]">
                 {running && <Loader2 size={11} className="animate-spin" style={{ color }} />}
                 <span className="font-semibold" style={{ color }}>{stateLabel(run.status)}</span>
-                <span className="rounded bg-panel px-1.5 py-0.5 font-mono text-[9px] text-muted">{({ test: '테스트', lint: '린트', typecheck: '타입 검사', acceptance: '수용 검증' } as Record<string, string>)[run.kind] ?? run.kind}</span>
-                <span className="min-w-0 flex-1 truncate font-mono text-[9.5px] text-faint">{run.command}</span>
-                <span className="font-mono text-[9px] text-faint">
+                <span className="rounded bg-panel px-1.5 py-0.5 font-mono text-[10px] text-muted">{({ test: '테스트', lint: '린트', typecheck: '타입 검사', acceptance: '수용 검증' } as Record<string, string>)[run.kind] ?? run.kind}</span>
+                <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-faint">{run.command}</span>
+                <span className="font-mono text-[10px] text-faint">
                   {run.duration_ms == null ? '—' : `${Math.round(run.duration_ms)}ms`} · 종료 {run.exit_code ?? '—'}
                 </span>
                 {!running && (
@@ -1158,12 +1158,12 @@ function VerificationCard({ task }: { task: Task }) {
                   </button>
                 )}
               </div>
-              <div className="mt-1 flex gap-4 text-[9.5px] text-faint">
+              <div className="mt-1 flex gap-4 text-[10px] text-faint">
                 <span>에이전트 주장: {run.agent_claim ?? '기록 없음'}</span>
                 <span>Janus 결과: <b style={{ color }}>{stateLabel(run.status)}</b></span>
               </div>
               {(run.stdout || run.stderr || run.error) && (
-                <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap bg-base p-2 font-mono text-[9px] leading-4 text-muted">
+                <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap bg-base p-2 font-mono text-[10px] leading-4 text-muted">
                   {[run.stdout, run.stderr, run.error].filter(Boolean).join('\n')}
                 </pre>
               )}
@@ -1198,7 +1198,7 @@ function ReviewDecisionCard({ task }: { task: Task }) {
             수용은 현재 리비전의 독립 검증을 통과해야 합니다.
           </p>
         </div>
-        <span className="font-mono text-[9px] text-faint">{review?.revision.slice(0, 10) ?? '로딩 중'}</span>
+        <span className="font-mono text-[10px] text-faint">{review?.revision.slice(0, 10) ?? '로딩 중'}</span>
       </div>
       <textarea
         value={message}
@@ -1239,7 +1239,7 @@ function ReviewDecisionCard({ task }: { task: Task }) {
         </button>
       </div>
       {review?.decisions.length ? (
-        <div className="mt-3 border-t border-border pt-2 text-[9.5px] text-faint">
+        <div className="mt-3 border-t border-border pt-2 text-[10px] text-faint">
           최신: {{ accept: '수용', request_changes: '변경 요청', discard: '폐기' }[review.decisions[review.decisions.length - 1].decision] ?? review.decisions[review.decisions.length - 1].decision}
         </div>
       ) : null}
@@ -1304,8 +1304,8 @@ function TaskShippingCard() {
       <div className="mt-2 grid grid-cols-5 gap-1.5" aria-label="배포 진행률">
         {releaseStages.map(([label, reached], index) => (
           <div key={label} className="relative">
-            <div className="mb-1 flex items-center gap-1.5 font-mono text-[8px] uppercase tracking-[0.1em] text-faint">
-              <span className="grid h-3.5 w-3.5 place-items-center rounded-full border text-[7px]" style={{
+            <div className="mb-1 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.1em] text-faint">
+              <span className="grid h-4 w-4 place-items-center rounded-full border text-[10px]" style={{
                 borderColor: reached ? 'var(--color-ok)' : 'var(--color-border-strong)',
                 color: reached ? 'var(--color-ok)' : 'var(--color-faint)'
               }}>{reached ? '✓' : index + 1}</span>
@@ -1337,16 +1337,16 @@ function TaskShippingCard() {
           <Send size={11} /> {pushed ? '푸시됨' : '브랜치 푸시'}
         </button>
       </div>
-      <p className="mt-2 text-[9.5px] text-faint">
+      <p className="mt-2 text-[10px] text-faint">
         Janus는 작업 워크트리 안에서만 커밋하며 main 체크아웃을 전환하거나 수정하지 않습니다.
       </p>
       {failedCommit && !commit && (
-        <div className="error-strip mt-2 text-[9.5px]">
+        <div className="error-strip mt-2 text-[10px]">
           커밋 실패 · {failedCommit.error}. 작업 공간의 변경은 그대로입니다. Git 신원 또는 디스크 접근 문제를 해결한 뒤 재시도하세요.
         </div>
       )}
       {failedPush && !pushed && (
-        <div className="error-strip mt-2 text-[9.5px]">
+        <div className="error-strip mt-2 text-[10px]">
           푸시 실패 · {failedPush.error}. 커밋과 작업 브랜치는 유지됩니다. 원격 접근 문제를 해결한 뒤 재시도하세요.
         </div>
       )}
@@ -1359,7 +1359,7 @@ function TaskShippingCard() {
           </div>
           {handoff && (
             <div className="mt-2 flex items-center gap-2">
-              <code className="min-w-0 flex-1 truncate bg-base px-2 py-1.5 text-[9px] text-faint">
+              <code className="min-w-0 flex-1 truncate bg-base px-2 py-1.5 text-[10px] text-faint">
                 {handoff.local_apply_command}
               </code>
               <button
@@ -1381,7 +1381,7 @@ function TaskShippingCard() {
             </button>
           ) : (
             <div className="border border-border-strong bg-panel p-3">
-              <div className="mb-2 font-mono text-[9px] uppercase tracking-[0.14em] text-secondary">
+              <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.14em] text-secondary">
                 검토 경계 게시
               </div>
               <div className="grid grid-cols-[1fr_110px] gap-2">
@@ -1410,14 +1410,14 @@ function TaskShippingCard() {
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <GitPullRequest size={12} className="text-secondary" />
-                <span className="font-mono text-[9px] text-faint">PR #{pullRequest.number ?? '—'}</span>
-                <span className="rounded-full border px-1.5 py-0.5 font-mono text-[8px] uppercase" style={{
+                <span className="font-mono text-[10px] text-faint">PR #{pullRequest.number ?? '—'}</span>
+                <span className="rounded-full border px-1.5 py-0.5 font-mono text-[10px] uppercase" style={{
                   color: pullRequest.state === 'merged' ? 'var(--color-ok)' : pullRequest.state === 'error' ? 'var(--color-danger)' : 'var(--color-accent-fg)',
                   borderColor: pullRequest.state === 'merged' ? 'var(--success)' : pullRequest.state === 'error' ? 'var(--danger)' : 'var(--border-strong)'
                 }}>{stateLabel(pullRequest.state)}</span>
               </div>
               <div className="mt-1 truncate text-[11px] font-medium">{pullRequest.title}</div>
-              <div className="mt-1 font-mono text-[8px] text-faint">
+              <div className="mt-1 font-mono text-[10px] text-faint">
                 {pullRequest.head_branch} → {pullRequest.base_branch} · {pullRequest.merge_state ? stateLabel(pullRequest.merge_state) : '원격 대기 중'} · {pullRequest.review_decision ?? '검토 결정 없음'}
               </div>
             </div>
@@ -1434,7 +1434,7 @@ function TaskShippingCard() {
           </div>
 
           {pullRequest.error && (
-            <div className="border-b border-danger bg-panel px-3 py-2 text-[9.5px] text-danger">
+            <div className="border-b border-danger bg-panel px-3 py-2 text-[10px] text-danger">
               동기화 실패 · {pullRequest.error}. 저장된 PR과 CI 데이터는 유지됩니다.
             </div>
           )}
@@ -1445,7 +1445,7 @@ function TaskShippingCard() {
                 {pullRequest.checks.map((check) => {
                   const passed = ['SUCCESS', 'NEUTRAL', 'SKIPPED', 'PASS'].includes(String(check.state ?? check.bucket).toUpperCase())
                   return (
-                    <div key={`${check.workflow}-${check.name}`} className="flex items-center justify-between gap-2 text-[9.5px]">
+                    <div key={`${check.workflow}-${check.name}`} className="flex items-center justify-between gap-2 text-[10px]">
                       <span className="truncate text-muted">{check.workflow ? `${check.workflow} / ` : ''}{check.name}</span>
                       <span className={passed ? 'text-ok' : String(check.bucket).toLowerCase() === 'pending' ? 'text-warn' : 'text-danger'}>
                         {stateLabel(String(check.state ?? check.bucket ?? 'unknown'))}
@@ -1453,7 +1453,7 @@ function TaskShippingCard() {
                     </div>
                   )
                 })}
-                {pullRequest.checks.length === 0 && <div className="text-[9px] text-faint">보고된 검사가 없습니다.</div>}
+                {pullRequest.checks.length === 0 && <div className="text-[10px] text-faint">보고된 검사가 없습니다.</div>}
               </div>
             </div>
             <div className="bg-panel p-3">
@@ -1461,17 +1461,17 @@ function TaskShippingCard() {
               <div className="mt-2 space-y-1.5">
                 {pullRequest.failed_logs.map((failure) => (
                   <details key={failure.run_id} className="border border-danger bg-base px-2 py-1.5">
-                    <summary className="cursor-pointer truncate text-[9px] text-danger">{failure.name} · {failure.conclusion}</summary>
-                    <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[8px] leading-relaxed text-muted">{failure.log || '실패 로그 출력이 없습니다.'}</pre>
-                    {failure.truncated && <div className="mt-1 text-[8px] text-warn">영속화 안전 한도에서 로그가 잘렸습니다.</div>}
+                    <summary className="cursor-pointer truncate text-[10px] text-danger">{failure.name} · {failure.conclusion}</summary>
+                    <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[10px] leading-relaxed text-muted">{failure.log || '실패 로그 출력이 없습니다.'}</pre>
+                    {failure.truncated && <div className="mt-1 text-[10px] text-warn">영속화 안전 한도에서 로그가 잘렸습니다.</div>}
                   </details>
                 ))}
-                {pullRequest.failed_logs.length === 0 && <div className="text-[9px] text-faint">실패한 워크플로 로그가 없습니다.</div>}
+                {pullRequest.failed_logs.length === 0 && <div className="text-[10px] text-faint">실패한 워크플로 로그가 없습니다.</div>}
               </div>
             </div>
           </div>
           {pullRequestSnapshot?.archive_reason && (
-            <div className="flex items-center justify-between gap-3 border-t border-border px-3 py-2.5 text-[9.5px]">
+            <div className="flex items-center justify-between gap-3 border-t border-border px-3 py-2.5 text-[10px]">
               <span className={pullRequestSnapshot.archive_recommended ? 'text-ok' : 'text-faint'}>
                 {pullRequestSnapshot.archive_reason}. 로컬 브랜치는 보존됩니다.
               </span>
@@ -1706,7 +1706,7 @@ function TaskDetail({ task }: { task: Task }) {
             <StatusBadge task={task} />
             <h1 className="truncate text-[13px] font-medium text-fg">{task.title}</h1>
           </div>
-          <div className="mt-1 flex min-w-0 items-center gap-2 font-mono text-[9px] text-faint">
+          <div className="mt-1 flex min-w-0 items-center gap-2 font-mono text-[10px] text-faint">
             <span className="truncate">{task.workspace?.branch_name ?? task.base_ref}</span>
             <span>·</span>
             <span className="truncate">{task.workspace?.root_path ?? task.id}</span>
@@ -1760,7 +1760,7 @@ function TaskDetail({ task }: { task: Task }) {
         {view === 'ship' && (workspaceReady ? <div className="task-secondary-view"><TaskShippingCard /></div> : unavailable('출하'))}
         {view === 'context' && (session ? <ContextInspector session={session} events={events} /> : unavailable('컨텍스트'))}
         {view === 'development' && (workspaceReady ? (
-          <Suspense fallback={<section className="task-card text-[9px] text-faint">작업 개발 화면 로딩 중…</section>}>
+          <Suspense fallback={<section className="task-card text-[10px] text-faint">작업 개발 화면 로딩 중…</section>}>
             <TaskDevelopmentSurface task={task} />
           </Suspense>
         ) : unavailable('개발'))}

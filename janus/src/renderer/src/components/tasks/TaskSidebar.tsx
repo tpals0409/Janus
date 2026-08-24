@@ -141,7 +141,7 @@ export default function TaskSidebar({
       <div className="grid h-8 shrink-0 grid-cols-2 border-b border-border p-0.5" role="tablist" aria-label="프로젝트 리소스">
         <button role="tab" aria-selected={sidebarTab === 'tasks'} onClick={() => setSidebarTab('tasks')} className="resource-mode-tab">
           <ListTodo size={11} /> 작업
-          <span className="font-mono text-[9.5px] text-faint">{tasks.length}</span>
+          <span className="font-mono text-[10px] text-faint">{tasks.length}</span>
         </button>
         <button role="tab" aria-selected={sidebarTab === 'files'} onClick={() => setSidebarTab('files')} className="resource-mode-tab">
           <Files size={11} /> 파일
@@ -157,7 +157,7 @@ export default function TaskSidebar({
                   <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: taskStatus(task).color }} />
                   <span className="line-clamp-2 text-[12px] font-medium leading-snug">{task.title}</span>
                 </div>
-                <div className="mt-1.5 flex items-center justify-between pl-3.5 text-[9.5px]">
+                <div className="mt-1.5 flex items-center justify-between pl-3.5 text-[10px]">
                   <span style={{ color: taskStatus(task).color }}>{taskStatus(task).label}</span>
                   <span className="font-mono text-faint">{task.base_ref}</span>
                 </div>

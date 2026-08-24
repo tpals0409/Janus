@@ -139,12 +139,12 @@ export default function SkillLibrary() {
               </div>
               <div className="min-w-0 flex-1">
                 <h3 id="skill-import-title" className="text-[13px] font-medium">가져올 GitHub 스킬 확인</h3>
-                <p className="mt-0.5 truncate font-mono text-[9.5px] text-faint" title={importPreview.source}>{importPreview.source}</p>
+                <p className="mt-0.5 truncate font-mono text-[10px] text-faint" title={importPreview.source}>{importPreview.source}</p>
               </div>
               <IconButton onClick={dismissPreview} disabled={busy} label="미리보기 닫기"><X size={15} strokeWidth={1.5} /></IconButton>
             </header>
 
-            <div className="flex items-center gap-4 border-b border-border bg-bg px-5 py-2.5 text-[9.5px] text-muted">
+            <div className="flex items-center gap-4 border-b border-border bg-bg px-5 py-2.5 text-[10px] text-muted">
               <span className="flex items-center gap-1.5"><GitCommitHorizontal size={11} /> <span className="font-mono">{importPreview.revision.slice(0, 12)}</span>로 고정</span>
               <span className="flex items-center gap-1.5"><LockKeyhole size={11} /> 라이선스 {importPreview.license || '확인되지 않음'}</span>
               <span className="ml-auto">{importPreview.skills.length}개 발견</span>
@@ -170,17 +170,17 @@ export default function SkillLibrary() {
                         <span className="text-[11.5px] font-medium">{skill.name}</span>
                         <Status tone={skill.compatibility === 'native' ? 'success' : 'warning'}>{compatibilityLabel[skill.compatibility]}</Status>
                       </div>
-                      <p className="mt-0.5 truncate font-mono text-[9px] text-faint">{skill.source_subpath || '/'}</p>
+                      <p className="mt-0.5 truncate font-mono text-[10px] text-faint">{skill.source_subpath || '/'}</p>
                       <p className="mt-1 text-[10px] leading-relaxed text-muted">{skill.description || '설명 없음'}</p>
                       {(skill.report.license || skill.report.license_file) && (
-                        <p className="mt-1 text-[9px] text-faint">라이선스 {skill.report.license || `${skill.report.license_file} 포함`}</p>
+                        <p className="mt-1 text-[10px] text-faint">라이선스 {skill.report.license || `${skill.report.license_file} 포함`}</p>
                       )}
                       {(skill.compiled.capabilities?.required ?? []).length > 0 && (
                         <div className="mt-2 flex flex-wrap gap-1">
                           {skill.compiled.capabilities?.required?.map((capability) => <span key={capability} className="technical-tag">{capability}</span>)}
                         </div>
                       )}
-                      {(skill.report.warnings ?? []).length > 0 && <p className="mt-2 text-[9px] text-warn">{skill.report.warnings?.join(' · ')}</p>}
+                      {(skill.report.warnings ?? []).length > 0 && <p className="mt-2 text-[10px] text-warn">{skill.report.warnings?.join(' · ')}</p>}
                     </div>
                   </label>
                 )
@@ -188,7 +188,7 @@ export default function SkillLibrary() {
             </div>
 
             <footer className="flex items-center justify-between gap-3 border-t border-border px-5 py-3">
-              <p className="text-[9.5px] text-faint">설치 후에도 실행 프로필에서 별도로 활성화해야 합니다.</p>
+              <p className="text-[10px] text-faint">설치 후에도 실행 프로필에서 별도로 활성화해야 합니다.</p>
               <div className="flex gap-2">
                 <Button variant="ghost" onClick={dismissPreview} disabled={busy}>취소</Button>
                 <Button
@@ -215,7 +215,7 @@ export default function SkillLibrary() {
                 className="h-8 min-h-8 pl-8"
               />
             </div>
-            <span className="whitespace-nowrap font-mono text-[9.5px] text-faint">
+            <span className="whitespace-nowrap font-mono text-[10px] text-faint">
               {activeCount}개 활성 · 최대 {estimatedTokens.toLocaleString()}토큰
             </span>
           </div>
@@ -281,7 +281,7 @@ export default function SkillLibrary() {
               <Section label="스킬">
                 <div className="mb-2 flex items-center gap-2">
                   <Bot size={14} className="text-muted" strokeWidth={1.5} />
-                  <span className="font-mono text-[9px] text-faint">{selected.namespace}:{selected.name}</span>
+                  <span className="font-mono text-[10px] text-faint">{selected.namespace}:{selected.name}</span>
                 </div>
                 <h3 className="text-[14px] font-medium">{selected.name}</h3>
                 <p className="mt-1 text-[10.5px] leading-relaxed text-muted">{selected.description || '설명이 없습니다.'}</p>
@@ -311,7 +311,7 @@ export default function SkillLibrary() {
               {(selected.report.warnings ?? []).length > 0 && (
                 <Section label="변환 보고서">
                   <div className="mb-2 flex items-center gap-1.5 text-[10px] text-warn"><ShieldAlert size={12} strokeWidth={1.5} /> 확인 필요</div>
-                  <ul className="space-y-1 text-[9.5px] leading-relaxed text-muted">
+                  <ul className="space-y-1 text-[10px] leading-relaxed text-muted">
                     {selected.report.warnings?.map((warning) => <li key={warning}>• {warning}</li>)}
                   </ul>
                 </Section>

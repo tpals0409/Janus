@@ -731,15 +731,15 @@ button {
   position: relative;
   z-index: 1;
   display: grid;
-  width: 12px;
-  height: 12px;
+  width: 16px;
+  height: 16px;
   place-items: center;
   border: 1px solid var(--border-strong);
   border-radius: 50%;
   background: var(--bg-panel);
   color: var(--text-muted);
   font-family: var(--font-mono);
-  font-size: 7px;
+  font-size: 10px;
 }
 
 .runtime-graph__request small,
@@ -749,7 +749,7 @@ button {
   margin-bottom: 1px;
   color: var(--text-muted);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .runtime-graph__request strong,
@@ -793,7 +793,7 @@ button {
 .runtime-graph__root em,
 .runtime-graph__worker em {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 10px;
   font-style: normal;
 }
 
@@ -830,7 +830,7 @@ button {
   margin-top: 1px;
   color: var(--text-disabled);
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -875,7 +875,7 @@ button {
 .context-panel-row > em {
   color: var(--text-muted);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 10px;
   font-style: normal;
 }
 
@@ -886,7 +886,7 @@ button {
   padding: 10px 8px 0;
   color: var(--text-disabled);
   font-family: var(--font-mono);
-  font-size: 8.5px;
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1127,7 +1127,7 @@ button {
   padding: 0 var(--space-3);
   color: var(--text-muted);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 10px;
   letter-spacing: 0.08em;
 }
 
@@ -1356,7 +1356,7 @@ button {
 .command-palette kbd {
   color: var(--text-muted);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .command-palette__list {
@@ -1415,7 +1415,7 @@ button {
   padding: 0 var(--space-3);
   color: var(--text-muted);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .skill-import-bar {
@@ -1496,7 +1496,7 @@ button {
   padding: 1px 6px;
   color: var(--text-muted);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .graph-overlay {
@@ -1596,7 +1596,7 @@ button {
   display: block;
   color: var(--color-faint);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.13em;
   text-transform: uppercase;
@@ -1732,7 +1732,7 @@ button {
   padding-top: 2px;
   color: var(--color-faint);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
-  font-size: 8.5px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
 }
@@ -1920,7 +1920,7 @@ button {
   gap: 6px;
   color: var(--color-faint);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
-  font-size: 9px;
+  font-size: 10px;
   letter-spacing: 0.04em;
 }
 
@@ -1945,7 +1945,7 @@ button {
   border-radius: 50%;
   background: var(--color-panel);
   color: var(--color-faint);
-  font-size: 7.5px;
+  font-size: 10px;
   font-weight: 700;
 }
 
@@ -2022,7 +2022,7 @@ textarea:focus-visible {
 }
 .task-reasoning > summary {
   cursor: pointer;
-  font-size: 9.5px;
+  font-size: 10px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-faint, #6c6c86);
@@ -2073,7 +2073,7 @@ textarea:focus-visible {
   padding: 2px var(--space-2) 0 27px;
   color: var(--color-faint);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

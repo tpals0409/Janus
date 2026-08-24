@@ -106,7 +106,7 @@ export default function ContextPolicyEditor() {
             <div className="context-meter mt-2">
               <span style={{ width: `${Math.min(100, Math.max(8, policy.summary_max_chars / policy.max_chars * 100))}%` }} />
             </div>
-            <p className="mt-2 font-mono text-[9px] text-faint">요약 예산 {Math.round(policy.summary_max_chars / policy.max_chars * 100)}% · 최근 {policy.recent_blocks}블록 보존</p>
+            <p className="mt-2 font-mono text-[10px] text-faint">요약 예산 {Math.round(policy.summary_max_chars / policy.max_chars * 100)}% · 최근 {policy.recent_blocks}블록 보존</p>
             </Section>
             <Section label="압축 동작">
             <p className="text-[10px] leading-relaxed text-muted">

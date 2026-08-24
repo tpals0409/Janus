@@ -44,7 +44,7 @@ function ExperimentLane({ role }: { role: 'baseline' | 'candidate' }) {
     <section className="border border-border-subtle bg-panel p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-faint">{role === 'baseline' ? '기준' : '후보'}</div>
+          <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-faint">{role === 'baseline' ? '기준' : '후보'}</div>
           <h2 className="task-title mt-1 text-[16px] font-semibold">
             {role === 'baseline' ? '대조 프로필' : '후보 프로필'}
           </h2>
@@ -104,7 +104,7 @@ function ExperimentLane({ role }: { role: 'baseline' | 'candidate' }) {
           <Upload size={11} /> 결과 가져오기
           <input type="file" accept="application/json,.json" onChange={importFile} className="hidden" />
         </label>
-        <span className="ml-auto text-[9px] text-faint">Qwen 27B · 로컬 전용</span>
+        <span className="ml-auto text-[10px] text-faint">Qwen 27B · 로컬 전용</span>
       </div>
     </section>
   )
@@ -116,9 +116,9 @@ function ExperimentStatus({ item, onCancel }: { item: EvaluationExperiment; onCa
   return (
     <div className="text-right">
       <Status tone={tone} pulse={active}>{active && <Loader2 size={10} className="animate-spin" />}{STATUS_LABEL[item.status] ?? item.status}</Status>
-      <div className="mt-1 max-w-[170px] truncate font-mono text-[8.5px] text-faint">{item.label}</div>
+      <div className="mt-1 max-w-[170px] truncate font-mono text-[10px] text-faint">{item.label}</div>
       {active && (
-        <button onClick={onCancel} className="mt-1 inline-flex items-center gap-1 text-[9px] text-danger">
+        <button onClick={onCancel} className="mt-1 inline-flex items-center gap-1 text-[10px] text-danger">
           <Square size={8} /> 취소
         </button>
       )}
@@ -163,7 +163,7 @@ function ComparisonLedger() {
           </select>
         </label>
         <div className="text-center">
-          <div className="font-mono text-[9px] text-faint">회귀 판정</div>
+          <div className="font-mono text-[10px] text-faint">회귀 판정</div>
           <Button
             disabled={busy || !baselineId || !candidateId}
             onClick={() => void compare({
@@ -189,7 +189,7 @@ function ComparisonLedger() {
           </select>
         </label>
       </div>
-      <div className="flex items-center gap-4 border-b border-border px-4 py-2 text-[9.5px] text-faint">
+      <div className="flex items-center gap-4 border-b border-border px-4 py-2 text-[10px] text-faint">
         <label>소요 시간 회귀 ≤ <input type="number" value={wallThreshold} onChange={(e) => setWallThreshold(Number(e.target.value))} className="mx-1 w-14 rounded border border-border bg-raised px-1 py-0.5 font-mono" />%</label>
         <label>토큰 회귀 ≤ <input type="number" value={tokenThreshold} onChange={(e) => setTokenThreshold(Number(e.target.value))} className="mx-1 w-14 rounded border border-border bg-raised px-1 py-0.5 font-mono" />%</label>
         <span>수용률 하락: 0%p · 개입 증가: 0</span>
@@ -198,7 +198,7 @@ function ComparisonLedger() {
         <div className="p-4">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="font-mono text-[9px] uppercase tracking-[0.18em] text-faint">최신 판정</div>
+              <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-faint">최신 판정</div>
               <div className="task-title mt-1 text-[20px] font-semibold uppercase" style={{ color: verdictColor }}>
                 {verdict ? VERDICT_LABEL[verdict] ?? verdict : '—'}
               </div>
@@ -229,7 +229,7 @@ function ComparisonLedger() {
             </div>
           )}
           <div className="mt-4 overflow-hidden border border-border">
-            <div className="grid grid-cols-[1.4fr_repeat(4,1fr)] bg-raised px-3 py-2 font-mono text-[8.5px] uppercase tracking-wider text-faint">
+            <div className="grid grid-cols-[1.4fr_repeat(4,1fr)] bg-raised px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-faint">
               <span>작업</span><span>성공</span><span>평균 시간 ± σ</span><span>토큰 Δ</span><span>개입 Δ</span>
             </div>
             {latest.result.rows.map((row) => (
@@ -266,7 +266,7 @@ export default function EvaluationLab() {
       <div className="mx-auto max-w-[1180px] px-5 py-5">
         <div className="mb-4 flex items-end justify-between gap-5">
           <div>
-            <div className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.2em] text-muted">
+            <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-muted">
               <FlaskConical size={12} /> 평가 실험실
             </div>
             <h1 className="task-title mt-2 text-[20px] font-semibold tracking-[-0.01em]">정책 변경을 증명하세요.</h1>
@@ -274,7 +274,7 @@ export default function EvaluationLab() {
               변경할 수 없는 두 프로필 스냅샷으로 같은 고정 작업을 실행합니다. 수용 여부를 먼저 판정하고 시간·토큰·분산·사람의 개입으로 우승 후보를 결정합니다.
             </p>
           </div>
-          <div className="text-right font-mono text-[9px] text-faint">
+          <div className="text-right font-mono text-[10px] text-faint">
             실험 {experiments.length}개<br />{active ? '실행기 작동 중' : '실행기 대기 중'}
           </div>
         </div>

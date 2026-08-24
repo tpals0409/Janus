@@ -90,7 +90,7 @@ export default function FileTree() {
         <FolderGit2 size={13} className="mt-0.5 shrink-0 text-muted" />
         <div className="min-w-0 flex-1">
           <div className="truncate text-[11px] font-medium">{project.name}</div>
-          <div className="truncate font-mono text-[9px] text-faint">{basename(project.repo_path)} · 프로젝트 루트</div>
+          <div className="truncate font-mono text-[10px] text-faint">{basename(project.repo_path)} · 프로젝트 루트</div>
         </div>
         <button onClick={refreshTree} title="파일 트리 새로고침" className="p-1 text-faint hover:text-fg">
           <RefreshCw size={11} />

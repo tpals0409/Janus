@@ -66,7 +66,7 @@ export function AgentProfileList() {
           >
             <div className="truncate text-[12px] font-medium">{profile.name}</div>
             <div className="mt-0.5 line-clamp-1 text-[10px] text-faint">{profile.description || '일반 오케스트레이터'}</div>
-            <div className="mt-1.5 flex items-center gap-2 font-mono text-[9px] text-muted">
+            <div className="mt-1.5 flex items-center gap-2 font-mono text-[10px] text-muted">
               <Status tone="muted">{profile.worker_policy}</Status>
               {selectedId === profile.id && (
                 <span>{assignments.filter((skill) => skill.activation_mode !== 'off').length}개 스킬</span>
@@ -75,7 +75,7 @@ export function AgentProfileList() {
           </button>
         ))}
       </div>
-      <div className="border-t border-border px-4 py-2 text-[9px] text-faint">
+      <div className="border-t border-border px-4 py-2 text-[10px] text-faint">
         변경은 새 Task 시도부터 적용
       </div>
     </aside>

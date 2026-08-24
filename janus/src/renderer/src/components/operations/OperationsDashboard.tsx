@@ -42,7 +42,7 @@ function BudgetBars({ task }: { task: OperationsTask }) {
     <div className="grid grid-cols-4 gap-1.5">
       {values.map(([label, value]) => (
         <div key={label} title={`${label} ${value.toFixed(1)}%`}>
-          <div className="mb-1 flex justify-between font-mono text-[7.5px] uppercase text-faint">
+          <div className="mb-1 flex justify-between font-mono text-[10px] uppercase text-faint">
             <span>{label}</span><span>{Math.round(value)}</span>
           </div>
           <div className="h-1 overflow-hidden bg-active">
@@ -64,7 +64,7 @@ function Timeline({ task }: { task: OperationsTask }) {
   const visible = task.timeline.slice(-14)
   return (
     <div className="mt-3">
-      <div className="mb-1.5 font-mono text-[7.5px] uppercase tracking-[0.12em] text-faint">
+      <div className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-faint">
         생성 / 도구 / 검증
       </div>
       <div className="flex h-3 items-center gap-[3px]" aria-label={`최근 작업 ${visible.length}건`}>
@@ -79,7 +79,7 @@ function Timeline({ task }: { task: OperationsTask }) {
             }}
           />
         )) : (
-          <span className="font-mono text-[8px] text-faint">아직 실행 구간이 없습니다</span>
+          <span className="font-mono text-[10px] text-faint">아직 실행 구간이 없습니다</span>
         )}
       </div>
     </div>
@@ -94,7 +94,7 @@ function TaskStrip({ task, onOpen }: { task: OperationsTask; onOpen: () => void 
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="truncate font-mono text-[8px] uppercase tracking-[0.12em] text-faint">
+          <div className="truncate font-mono text-[10px] uppercase tracking-[0.12em] text-faint">
             {task.project_name} · {task.dispatch ? `시도 ${task.dispatch.attempt}` : '미배정'}
           </div>
           <div className="mt-1 line-clamp-2 text-[11.5px] font-semibold leading-[1.35] text-fg">
@@ -103,7 +103,7 @@ function TaskStrip({ task, onOpen }: { task: OperationsTask; onOpen: () => void 
         </div>
         <ArrowUpRight size={11} className="mt-0.5 shrink-0 text-faint group-hover:text-fg" />
       </div>
-      <div className="mt-2.5 flex items-center justify-between font-mono text-[8px] uppercase text-faint">
+      <div className="mt-2.5 flex items-center justify-between font-mono text-[10px] uppercase text-faint">
         <span>{STATUS_LABEL[task.session?.status ?? task.status] ?? task.session?.status ?? task.status}</span>
         <span className={task.budget_progress.peak >= 90 ? 'text-danger' : ''}>
           최대 {Math.round(task.budget_progress.peak)}%
@@ -140,7 +140,7 @@ export default function OperationsDashboard({ onOpenTask }: { onOpenTask: () => 
       <section className="border-b border-border bg-panel px-5 py-4">
         <div className="flex items-start justify-between gap-6">
           <div>
-            <div className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted">
+            <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted">
               로컬 에이전트 제어실
             </div>
             <h1 className="task-title mt-1 text-[20px] font-semibold">처리량보다 먼저 확인할 일.</h1>
@@ -154,7 +154,7 @@ export default function OperationsDashboard({ onOpenTask }: { onOpenTask: () => 
         {snapshot && (
           <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-4 border-t border-border pt-3">
             <div>
-              <div className="mb-1.5 flex justify-between font-mono text-[8px] uppercase text-faint">
+              <div className="mb-1.5 flex justify-between font-mono text-[10px] uppercase text-faint">
                 <span>확인 현황 · 작업 {snapshot.summary.total}개</span>
                 <span>조치 필요 {snapshot.summary.attention}개</span>
               </div>
@@ -165,13 +165,13 @@ export default function OperationsDashboard({ onOpenTask }: { onOpenTask: () => 
                 })}
               </div>
             </div>
-            <div className="flex items-center gap-2 border-l border-border pl-4 text-[9.5px] text-muted">
+            <div className="flex items-center gap-2 border-l border-border pl-4 text-[10px] text-muted">
               <Cpu size={12} /> 모델 {model?.active ?? 0}/{model?.cap ?? 1} · 대기 {model?.queued ?? 0}
             </div>
-            <div className="flex items-center gap-2 border-l border-border pl-4 text-[9.5px] text-muted">
+            <div className="flex items-center gap-2 border-l border-border pl-4 text-[10px] text-muted">
               <MemoryStick size={12} /> 최대 {bytes(snapshot.memory.janus_process_peak_rss_bytes)}
             </div>
-            <div className="flex items-center gap-2 border-l border-border pl-4 text-[9.5px] text-muted">
+            <div className="flex items-center gap-2 border-l border-border pl-4 text-[10px] text-muted">
               <Gauge size={12} /> 리스 {snapshot.scheduler.active_leases}개
             </div>
           </div>
@@ -195,7 +195,7 @@ export default function OperationsDashboard({ onOpenTask }: { onOpenTask: () => 
                 <div className="mb-2 flex items-end justify-between border-b pb-2" style={{ borderColor: `${lane.color}55` }}>
                   <div>
                     <Status tone={lane.tone}>{lane.label}</Status>
-                    <div className="mt-0.5 text-[8.5px] text-faint">{lane.note}</div>
+                    <div className="mt-0.5 text-[10px] text-faint">{lane.note}</div>
                   </div>
                   <span className="font-mono text-[18px] font-semibold" style={{ color: lane.color }}>{tasks.length}</span>
                 </div>
