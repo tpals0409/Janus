@@ -1864,7 +1864,7 @@ def _operations_lane(task: dict, dispatch: dict | None) -> str:
     if task["status"] == "review":
         return "review"
     if task["status"] == "needs_you":
-        return "needs_you"
+        return "working" if task.get("attention_reason") == "conversation_idle" else "needs_you"
     if task["status"] == "failed" or (dispatch and dispatch["status"] == "failed"):
         return "failed"
     if dispatch and dispatch["status"] in {"running", "needs_you"}:

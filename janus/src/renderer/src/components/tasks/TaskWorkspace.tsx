@@ -54,9 +54,17 @@ const STATE_LABEL: Record<string, string> = {
 }
 const stateLabel = (value: string) => STATE_LABEL[value.toLowerCase()] ?? value
 
-function StatusBadge({ status }: { status: TaskStatus }) {
-  const meta = STATUS[status]
-  const tone = status === 'failed' ? 'danger' : status === 'preparing' || status === 'needs_you' ? 'warning' : status === 'todo' ? 'muted' : 'success'
+function StatusBadge({ task }: { task: Task }) {
+  const status = task.status
+  const meta = status === 'needs_you' && task.attention_reason === 'conversation_idle'
+    ? { ...STATUS.needs_you, label: '대화 가능' }
+    : status === 'needs_you' && task.attention_reason === 'mockup_review'
+      ? { ...STATUS.needs_you, label: '목업 검토 필요' }
+      : STATUS[status]
+  const tone = status === 'failed' ? 'danger'
+    : status === 'needs_you' && task.attention_reason === 'conversation_idle' ? 'success'
+      : status === 'preparing' || status === 'needs_you' ? 'warning'
+        : status === 'todo' ? 'muted' : 'success'
   return <Status tone={tone}>{meta.label}</Status>
 }
 
@@ -1580,7 +1588,7 @@ function TaskDetail({ task }: { task: Task }) {
       <header className="task-chat-header">
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
-            <StatusBadge status={task.status} />
+            <StatusBadge task={task} />
             <h1 className="truncate text-[13px] font-medium text-fg">{task.title}</h1>
           </div>
           <div className="mt-1 flex min-w-0 items-center gap-2 font-mono text-[9px] text-faint">

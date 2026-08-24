@@ -219,6 +219,10 @@ class TaskRuntimeTests(unittest.TestCase):
         ).json()
         self.assertEqual("idle", after_first["status"])
         self.assertEqual("needs_you", after_first["dispatch"]["status"])
+        task_after_first = self.client.get(
+            f"/tasks/{task['id']}", headers=self.headers,
+        ).json()
+        self.assertEqual("conversation_idle", task_after_first["attention_reason"])
         transcript = [
             event["payload"] for event in after_first["events"]
             if event["kind"] == "transcript"

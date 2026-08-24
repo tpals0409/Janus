@@ -57,6 +57,7 @@ class DomainStoreTests(unittest.TestCase):
         )
         self.store.transition_task(mockup["id"], "working", expected="todo")
         self.store.transition_task(mockup["id"], "needs_you", expected="working")
+        self.assertEqual("input_required", self.store.get_task(mockup["id"])["attention_reason"])
         rejected = self.store.reject_task_mockup(mockup["id"], "간격을 줄여주세요")
         self.assertEqual("간격을 줄여주세요", rejected["mockup_feedback"])
         approved = self.store.approve_task_mockup(mockup["id"])

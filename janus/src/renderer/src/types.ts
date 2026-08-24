@@ -64,6 +64,7 @@ export interface Task {
   status: TaskStatus
   workflow_stage?: 'direct' | 'mockup' | 'implementation'
   mockup_feedback?: string | null
+  attention_reason?: 'conversation_idle' | 'mockup_review' | 'input_required' | null
   created_at: string
   updated_at: string
   archived_at: string | null

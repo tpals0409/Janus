@@ -17,7 +17,7 @@ from typing import Any
 
 from .budget import empty_usage, merge_budget, normalize_budget
 
-CURRENT_SCHEMA_VERSION = 18
+CURRENT_SCHEMA_VERSION = 19
 
 DEFAULT_CONTEXT_POLICY = {
     "max_chars": 24_000,
@@ -566,12 +566,24 @@ CREATE TABLE session_approval_scopes (
 );
 """
 
+MIGRATION_19 = """
+ALTER TABLE tasks ADD COLUMN attention_reason TEXT
+CHECK(attention_reason IS NULL OR attention_reason IN (
+    'conversation_idle','mockup_review','input_required'
+));
+UPDATE tasks SET attention_reason = CASE
+    WHEN status='needs_you' AND workflow_stage='mockup' THEN 'mockup_review'
+    WHEN status='needs_you' THEN 'conversation_idle'
+    ELSE NULL
+END;
+"""
+
 MIGRATIONS = {
     1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3, 4: MIGRATION_4,
     5: MIGRATION_5, 6: MIGRATION_6, 7: MIGRATION_7, 8: MIGRATION_8,
     9: MIGRATION_9, 10: MIGRATION_10, 11: MIGRATION_11, 12: MIGRATION_12,
     13: MIGRATION_13, 14: MIGRATION_14, 15: MIGRATION_15, 16: MIGRATION_16,
-    17: MIGRATION_17, 18: MIGRATION_18,
+    17: MIGRATION_17, 18: MIGRATION_18, 19: MIGRATION_19,
 }
 
 
@@ -1331,8 +1343,8 @@ class DomainStore:
             if target not in TASK_TRANSITIONS[source]:
                 raise InvalidTransition(f"Task 상태 전이 불가: {source} -> {target}")
             connection.execute(
-                "UPDATE tasks SET status=?,updated_at=? WHERE id=?",
-                (target, _now(), task_id),
+                "UPDATE tasks SET status=?,attention_reason=?,updated_at=? WHERE id=?",
+                (target, "input_required" if target == "needs_you" else None, _now(), task_id),
             )
         return self.get_task(task_id)
 
@@ -2058,7 +2070,7 @@ class DomainStore:
                 (now, session["dispatch_id"]),
             )
             connection.execute(
-                "UPDATE tasks SET status='working',updated_at=? WHERE id=?",
+                "UPDATE tasks SET status='working',attention_reason=NULL,updated_at=? WHERE id=?",
                 (now, session["task_id"]),
             )
         return self.get_session(session_id)
@@ -2086,6 +2098,14 @@ class DomainStore:
             session_status = "failed" if failed else "idle"
             dispatch_status = "failed" if failed else "needs_you"
             task_status = "failed" if failed else "needs_you"
+            task = self._one(
+                connection, "SELECT workflow_stage FROM tasks WHERE id=?",
+                (session["task_id"],), "Task",
+            )
+            attention_reason = None if failed else (
+                "mockup_review" if task["workflow_stage"] == "mockup"
+                else "conversation_idle"
+            )
             connection.execute(
                 "UPDATE agent_sessions SET status=?,error=?,updated_at=?,"
                 "stopped_at=CASE WHEN ?='failed' THEN ? ELSE NULL END WHERE id=?",
@@ -2097,8 +2117,8 @@ class DomainStore:
                 (dispatch_status, error, dispatch_status, now, session["dispatch_id"]),
             )
             connection.execute(
-                "UPDATE tasks SET status=?,updated_at=? WHERE id=?",
-                (task_status, now, session["task_id"]),
+                "UPDATE tasks SET status=?,attention_reason=?,updated_at=? WHERE id=?",
+                (task_status, attention_reason, now, session["task_id"]),
             )
         return self.get_session(session_id)
 
@@ -2126,7 +2146,7 @@ class DomainStore:
                 (reason, now, session["dispatch_id"]),
             )
             connection.execute(
-                "UPDATE tasks SET status='todo',updated_at=? WHERE id=?",
+                "UPDATE tasks SET status='todo',attention_reason=NULL,updated_at=? WHERE id=?",
                 (now, session["task_id"]),
             )
         return self.get_session(session_id)
