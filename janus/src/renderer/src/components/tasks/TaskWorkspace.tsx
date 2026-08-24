@@ -656,7 +656,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
       )}
 
       {queueWait && (
-        <div className="mt-3 flex items-center justify-between gap-3 border border-warning bg-panel px-3 py-2 text-[10.5px] text-warn">
+        <div className="mt-3 flex items-center justify-between gap-3 border border-warn bg-panel px-3 py-2 text-[10.5px] text-warn">
           <span>
             <strong>{String(queueWait.resource).replaceAll('_', ' ')}</strong> 대기 중
             {' · '}{queueWait.reason === 'capacity_exhausted'
@@ -732,7 +732,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
       </div>
 
       {approvals.map((approval) => (
-        <div key={approval.id} className="mt-3 flex items-center justify-between gap-4 border border-warning bg-panel px-3 py-2">
+        <div key={approval.id} className="mt-3 flex items-center justify-between gap-4 border border-warn bg-panel px-3 py-2">
           <div className="min-w-0 text-[10.5px] text-warn">
             이 작업 공간에서 <code className="font-mono">{approval.tool}</code> 도구를 승인할까요?
           </div>
@@ -766,7 +766,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
       )}
 
       {task.workflow_stage === 'mockup' && task.status === 'needs_you' && session?.status === 'idle' && !active && (
-        <div className="mt-3 flex items-center justify-between gap-4 border border-warning bg-panel px-3 py-2">
+        <div className="mt-3 flex items-center justify-between gap-4 border border-warn bg-panel px-3 py-2">
           <div className="min-w-0 text-[10.5px] text-warn">
             <strong className="block text-secondary">프론트 목업 승인 대기</strong>
             화면과 주요 상호작용을 확인하세요. 수정이 필요하면 아래에 피드백을 보내고, 괜찮으면 실제 구현을 시작합니다.
