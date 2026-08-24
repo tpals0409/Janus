@@ -2,6 +2,7 @@ import { FormEvent, Suspense, lazy, useEffect, useMemo, useRef, useState, type R
 import {
   AlertTriangle,
   Archive,
+  ArrowUp,
   Check,
   CircleDot,
   FolderGit2,
@@ -15,6 +16,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Play,
+  Plus,
   RefreshCw,
   RotateCcw,
   Send,
@@ -23,7 +25,8 @@ import {
   Square,
   Wifi,
   WifiOff,
-  X
+  X,
+  Zap
 } from 'lucide-react'
 import { useStore } from '../../store'
 import { useDomainEvent } from '../../domainEvents'
@@ -114,11 +117,12 @@ function DelegationBar({ project }: { project: Project }) {
             />
             프론트 목업부터 시작
           </label>
-          <span className="font-mono text-[10px] text-faint">{project.name} · 로컬 실행</span>
-          <Button type="submit" disabled={busy || !objective.trim()} compact>
-            {busy ? <Loader2 size={11} className="animate-spin" /> : <Send size={12} />}
-            <span className="sr-only">{busy ? '준비 중' : '위임'}</span>
-          </Button>
+          <div className="janus-composer__meta">
+            <span><Zap size={13} /> {project.name} · 로컬</span>
+            <button type="submit" disabled={busy || !objective.trim()} className="janus-composer__send" aria-label={busy ? '준비 중' : '위임'}>
+              {busy ? <Loader2 size={15} className="animate-spin" /> : <ArrowUp size={17} />}
+            </button>
+          </div>
         </div>
       </form>
     </main>
@@ -829,25 +833,40 @@ function TaskRuntimeCard({ task }: { task: Task }) {
         />
         <div className="janus-composer__footer">
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="janus-composer__tool"
+              aria-label="스킬 호출"
+              title="스킬 호출"
+              onClick={() => {
+                setMessage((current) => current.startsWith('/') ? current : `/${current}`)
+                requestAnimationFrame(() => messageRef.current?.focus())
+              }}
+              disabled={!connected || active || !resumable}
+            >
+              <Plus size={20} />
+            </button>
             {!connected && resumable && (
               <button type="button" onClick={() => void resumeSession()} disabled={busy} className="task-quiet-action">
                 <Play size={11} /> 재개
               </button>
             )}
-            <span className="font-mono text-[10px] text-faint">{selectedProfile?.name ?? '로컬 에이전트'}</span>
             {session && ['created', 'running', 'idle'].includes(session.status) && (
               <button type="button" onClick={() => void stopSession()} className="text-[10px] text-faint hover:text-secondary">세션 중단</button>
             )}
           </div>
-          {active ? (
-            <button type="button" onClick={cancelTurn} className="task-danger-link border border-danger">
-              <Square size={11} /> 턴 취소
-            </button>
-          ) : (
-            <button disabled={!connected || !message.trim() || !resumable} className="janus-composer__send" aria-label="보내기">
-              <Send size={13} />
-            </button>
-          )}
+          <div className="janus-composer__meta">
+            <span><Zap size={13} /> {selectedProfile?.name ?? '로컬 에이전트'}</span>
+            {active ? (
+              <button type="button" onClick={cancelTurn} className="janus-composer__stop" aria-label="턴 취소">
+                <Square size={13} />
+              </button>
+            ) : (
+              <button disabled={!connected || !message.trim() || !resumable} className="janus-composer__send" aria-label="보내기">
+                <ArrowUp size={17} />
+              </button>
+            )}
+          </div>
         </div>
       </form>
       <ConfirmDialog

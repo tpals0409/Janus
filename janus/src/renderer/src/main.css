@@ -923,10 +923,10 @@ button {
 }
 
 .janus-composer {
-  width: min(100%, 780px);
+  width: min(100%, 800px);
   overflow: hidden;
   border: 1px solid var(--border-default);
-  border-radius: 22px;
+  border-radius: 28px;
   background: var(--bg-surface);
   box-shadow: 0 10px 28px rgb(0 0 0 / 22%);
 }
@@ -939,10 +939,10 @@ button {
 .janus-composer textarea {
   display: block;
   width: 100%;
-  min-height: 72px;
+  min-height: 92px;
   resize: none;
   background: transparent;
-  padding: 15px 17px 4px;
+  padding: 20px 22px 6px;
   color: var(--text-primary);
   font-size: 13px;
   line-height: 1.6;
@@ -955,17 +955,56 @@ button {
 
 .janus-composer__footer {
   display: flex;
-  min-height: 40px;
+  min-height: 54px;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 4px 8px 8px 14px;
+  padding: 5px 12px 11px 18px;
 }
 
-.janus-composer__send {
+.janus-composer__meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.janus-composer__meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.janus-composer__meta > span svg {
+  color: var(--accent);
+}
+
+.janus-composer__tool {
   display: grid;
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--text-secondary);
+}
+
+.janus-composer__tool:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.janus-composer__tool:disabled {
+  color: var(--text-disabled);
+}
+
+.janus-composer__send,
+.janus-composer__stop {
+  display: grid;
+  width: 38px;
+  height: 38px;
   flex: none;
   place-items: center;
   border-radius: 50%;
@@ -976,6 +1015,12 @@ button {
 .janus-composer__send:disabled {
   background: var(--bg-active);
   color: var(--text-disabled);
+}
+
+.janus-composer__stop {
+  border: 1px solid color-mix(in srgb, var(--danger) 48%, transparent);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
 }
 
 .task-chat-header {
