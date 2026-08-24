@@ -16,6 +16,7 @@ import json
 import os
 import re
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Callable
@@ -992,10 +993,19 @@ class Orchestration:
 
     @staticmethod
     def _worker_view(record: dict) -> dict:
+        status = record["status"]
+        terminal = status in {"completed", "completed_partial", "failed", "cancelled"}
+        recovery_action = (
+            "integrate_result" if status == "completed"
+            else "validate_partial_changes" if status == "completed_partial"
+            else "continue_in_parent" if status in {"failed", "cancelled"}
+            else "wait_or_stop"
+        )
         return {
             "worker": record["worker"], "name": record["name"],
             "role": record["role"], "requested_role": record["requested_role"],
-            "status": record["status"], "result": record.get("result") or "",
+            "status": status, "terminal": terminal, "recovery_action": recovery_action,
+            "result": record.get("result") or "",
             "error": record.get("error"), "tools": list(record.get("tools") or []),
             "queued_followups": len(record.get("followups") or []),
         }
@@ -1113,7 +1123,10 @@ class Orchestration:
             view = self._worker_view(record)
             view["finished"] = finished
             if not finished:
-                view["message"] = "Worker is still active; call wait_worker again."
+                view["message"] = (
+                    "Worker is still active. Inspect with worker_status, wait once more if "
+                    "there is fresh progress, or stop it and continue in the parent."
+                )
             return view
 
         def send(worker: str, message: str) -> dict:
@@ -1185,6 +1198,39 @@ class Orchestration:
                  "Stop only when its work is no longer needed.", resource_class="cpu_tool"),
         ]
 
+    def _quiesce_turn_workers(self, dispatch_id: str, wait_seconds: float = 2.0) -> list[dict]:
+        """Prevent workers from outliving the parent turn that owns them."""
+        active_statuses = {"queued", "running", "waiting_approval", "stopping"}
+        with self.lock:
+            active = [
+                record for record in self.worker_records.values()
+                if record.get("dispatch_id") == dispatch_id
+                and record.get("status") in active_statuses
+            ]
+        if not active:
+            return []
+        snapshots = [self._worker_view(record) for record in active]
+        for record in active:
+            record["cancel"].set()
+            self._set_worker_status(record, "stopping", recovery="parent_turn_ended")
+        deadline = time.monotonic() + max(0.0, wait_seconds)
+        for record in active:
+            record["idle"].wait(max(0.0, deadline - time.monotonic()))
+        self._sink(ORCH_ID, "worker_turn_quiesced", {
+            "workers": [item["worker"] for item in snapshots],
+            "reason": "parent_turn_ended_before_workers_settled",
+        }, dispatch_id=dispatch_id)
+        if self.turn_outcome is None or self.turn_outcome.get("outcome") == "completed":
+            self.turn_outcome = {
+                "outcome": "partial",
+                "summary": "상위 에이전트가 워커 결과를 수집하기 전에 턴을 종료했습니다.",
+                "evidence": [
+                    f"{item['worker']}: {item['status']} -> stopping"
+                    for item in snapshots
+                ],
+            }
+        return snapshots
+
     # ── 턴 실행 ──
 
     def turn(self, text: str, *, dispatch_id: str | None = None) -> None:
@@ -1241,6 +1287,7 @@ class Orchestration:
             )
             if last:
                 self.last_text = last
+            self._quiesce_turn_workers(dispatch_id)
             if self.cancel.is_set():
                 self.cancelled_turn = True
         except Exception:

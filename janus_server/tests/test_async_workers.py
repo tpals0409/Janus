@@ -108,6 +108,34 @@ def test_spawn_returns_before_worker_finishes_and_wait_collects_result():
         assert result["result"] == "background result"
 
 
+def test_parent_turn_boundary_cancels_uncollected_workers_and_downgrades_completion():
+    entered = threading.Event()
+    release = threading.Event()
+
+    def blocked():
+        entered.set()
+        release.wait(2)
+        return {"text": "late result"}
+
+    with tempfile.TemporaryDirectory() as tmp:
+        orch = make_orchestration(FakeClient([blocked]), Path(tmp), tools=["echo"])
+        created = orch.create_worker["handler"](
+            name="uncollected", task="do it", role="implementer", tools=[], max_steps=2,
+        )
+        assert entered.wait(1)
+        orch.turn_outcome = {
+            "outcome": "completed", "summary": "done too early", "evidence": [],
+        }
+        snapshots = orch._quiesce_turn_workers("dispatch_async", wait_seconds=0.01)
+        assert snapshots[0]["worker"] == created["worker"]
+        view = control(orch, "worker_status")(created["worker"])
+        assert view["status"] == "stopping"
+        assert view["recovery_action"] == "wait_or_stop"
+        assert orch.snapshot_turn_outcome()["outcome"] == "partial"
+        release.set()
+        assert control(orch, "wait_worker")(created["worker"], 2)["finished"]
+
+
 def test_role_defaults_inherit_parent_tools_and_keep_read_only_roles_safe():
     parent_tools = ["read_file", "glob", "grep", "write_file", "edit_file", "run_bash"]
     fake = FakeClient([{"text": "implemented"}, {"text": "researched"}])
