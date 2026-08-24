@@ -227,6 +227,12 @@ class DomainApiTests(unittest.TestCase):
             self.assertEqual("develop", task["base_ref"])
             self.assertEqual("pnpm test", task["acceptance_command"])
             self.assertEqual("todo", task["status"])
+            self.assertEqual("mockup", task["workflow_stage"])
+            approved = client.post(
+                f"/tasks/{task['id']}/mockup/approve", headers=HEADERS,
+            )
+            self.assertEqual(200, approved.status_code, approved.text)
+            self.assertEqual("implementation", approved.json()["workflow_stage"])
 
     def test_project_task_profile_crud_and_transition(self):
         with domain_api() as (client, _path):

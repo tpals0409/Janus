@@ -17,7 +17,7 @@ from typing import Any
 
 from .budget import empty_usage, merge_budget, normalize_budget
 
-CURRENT_SCHEMA_VERSION = 15
+CURRENT_SCHEMA_VERSION = 16
 
 DEFAULT_CONTEXT_POLICY = {
     "max_chars": 24_000,
@@ -541,11 +541,18 @@ WHERE id = 'agent_default'
   );
 """
 
+# Existing tasks keep their established direct workflow. New tasks explicitly opt
+# into the mockup-first gate when they are created below.
+MIGRATION_16 = """
+ALTER TABLE tasks ADD COLUMN workflow_stage TEXT NOT NULL DEFAULT 'direct'
+CHECK(workflow_stage IN ('direct','mockup','implementation'));
+"""
+
 MIGRATIONS = {
     1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3, 4: MIGRATION_4,
     5: MIGRATION_5, 6: MIGRATION_6, 7: MIGRATION_7, 8: MIGRATION_8,
     9: MIGRATION_9, 10: MIGRATION_10, 11: MIGRATION_11, 12: MIGRATION_12,
-    13: MIGRATION_13, 14: MIGRATION_14, 15: MIGRATION_15,
+    13: MIGRATION_13, 14: MIGRATION_14, 15: MIGRATION_15, 16: MIGRATION_16,
 }
 
 
@@ -1214,14 +1221,29 @@ class DomainStore:
             with self.transaction(immediate=True) as connection:
                 connection.execute(
                     "INSERT INTO tasks(id,project_id,title,objective,acceptance_command,base_ref,"
-                    "status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                    "status,created_at,updated_at,workflow_stage) VALUES (?,?,?,?,?,?,?,?,?,?)",
                     (
                         task_id, project_id, title.strip(), objective.strip(),
-                        acceptance_command.strip(), base_ref.strip(), "todo", now, now,
+                        acceptance_command.strip(), base_ref.strip(), "todo", now, now, "mockup",
                     ),
                 )
         except sqlite3.IntegrityError as error:
             raise Conflict(f"Task 생성 충돌: {error}") from error
+        return self.get_task(task_id)
+
+    def approve_task_mockup(self, task_id: str) -> dict:
+        """Open implementation only after the user accepts the visible mockup."""
+        now = _now()
+        with self.transaction(immediate=True) as connection:
+            task = self._one(
+                connection, "SELECT * FROM tasks WHERE id=?", (task_id,), "Task"
+            )
+            if task["workflow_stage"] != "mockup":
+                raise Conflict("목업 승인 대기 상태가 아닙니다")
+            connection.execute(
+                "UPDATE tasks SET workflow_stage='implementation',updated_at=? WHERE id=?",
+                (now, task_id),
+            )
         return self.get_task(task_id)
 
     def get_task(self, task_id: str) -> dict:

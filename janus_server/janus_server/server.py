@@ -771,6 +771,11 @@ def transition_task(task_id: str, body: dict):
     )
 
 
+@app.post("/tasks/{task_id}/mockup/approve")
+def approve_task_mockup(task_id: str):
+    return get_domain_store().approve_task_mockup(task_id)
+
+
 @app.delete("/tasks/{task_id}")
 def archive_task(task_id: str):
     """Task를 목록에서 감춘다. 대화 기록과 Git 브랜치는 남는다.
@@ -2472,7 +2477,7 @@ def _context_item(
 
 def _task_context_snapshot(
     spec: dict, dispatch: dict, workspace: dict, skills: list[dict],
-    events: list[dict] | None = None,
+    events: list[dict] | None = None, task: dict | None = None,
 ) -> dict:
     policy = D.normalize_context_policy(spec.get("context_policy"))
     items = [_context_item(
@@ -2497,6 +2502,31 @@ def _task_context_snapshot(
         ))
         if included:
             preamble.append(f"{prompt_label}:\n{content}")
+
+    workflow_stage = str((task or {}).get("workflow_stage") or "direct")
+    workflow_prompt = ""
+    if workflow_stage == "mockup":
+        workflow_prompt = (
+            "WORKFLOW STAGE: FRONTEND MOCKUP ONLY\n"
+            "Create the smallest usable visual mockup for the requested feature using "
+            "dummy or local fixture data. Reuse the existing UI patterns. Do not modify "
+            "backend code, database schemas, APIs, model runtime, packaging, or infrastructure. "
+            "Do not add speculative abstractions or dependencies. Once the mockup can be "
+            "previewed, stop and ask the user to approve it before implementation."
+        )
+    elif workflow_stage == "implementation":
+        workflow_prompt = (
+            "WORKFLOW STAGE: APPROVED MOCKUP IMPLEMENTATION\n"
+            "The user approved the frontend mockup. Treat its visible states and interactions "
+            "as the scope. Derive only the minimal data/action contract it requires, connect the "
+            "real implementation, verify it, and stop. Do not add features absent from the mockup."
+        )
+    if workflow_prompt:
+        items.append(_context_item(
+            "workflow_stage", "목업 우선 개발 단계", "Task", workflow_prompt,
+            detail={"stage": workflow_stage},
+        ))
+        preamble.append(workflow_prompt)
 
     for skill in skills:
         description = str(skill.get("description") or "")
@@ -2552,7 +2582,8 @@ def _task_session_detail(store: D.DomainStore, session_id: str) -> dict:
         adaptive_decision=dispatch["adaptive_decision"],
         profile_snapshot=dispatch["agent_profile_snapshot"],
     )
-    context = _task_context_snapshot(spec, dispatch, workspace, skills, events)
+    task = store.get_task(session["task_id"])
+    context = _task_context_snapshot(spec, dispatch, workspace, skills, events, task)
     context.pop("preamble", None)
     return {
         **session,
@@ -2941,6 +2972,7 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
         ]
         context_snapshot = _task_context_snapshot(
             spec, dispatch, workspace, spec["skills"], store.list_session_events(session_id),
+            store.get_task(task_id),
         )
         spec["context_preamble"] = context_snapshot["preamble"]
     except D.DomainError:

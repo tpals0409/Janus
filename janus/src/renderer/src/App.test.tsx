@@ -10,6 +10,28 @@ vi.mock('./components/FileView', () => ({
 }))
 
 describe('Janus renderer fixture', () => {
+  it('gates implementation on explicit mockup approval', async () => {
+    window.history.replaceState({}, '', '/?fixture=task-runtime')
+    seedTaskRuntimeVisualFixture()
+    const task = useStore.getState().task!
+    const approveTaskMockup = vi.fn().mockResolvedValue(undefined)
+    useStore.setState({
+      task: { ...task, workflow_stage: 'mockup' },
+      tasks: useStore.getState().tasks.map((item) => (
+        item.id === task.id ? { ...item, workflow_stage: 'mockup' } : item
+      )),
+      taskConnected: true,
+      approveTaskMockup
+    })
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    expect(screen.getByText('프론트 목업 승인 대기')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '목업 승인 · 구현 진행' }))
+    expect(approveTaskMockup).toHaveBeenCalledOnce()
+  })
+
   it('renders the Task-first shell and navigates to AgentProfile configuration', async () => {
     window.history.replaceState({}, '', '/?fixture=task-runtime')
     seedTaskRuntimeVisualFixture()

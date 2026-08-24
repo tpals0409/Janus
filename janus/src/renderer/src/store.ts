@@ -193,7 +193,8 @@ interface State {
     queue_timeout_ms?: number
     initialMessage?: string
   }): Promise<void>
-  resumeTaskSession(): Promise<void>
+  resumeTaskSession(initialMessage?: string): Promise<void>
+  approveTaskMockup(): Promise<void>
   connectTaskSession(session: AgentSessionDetail, initialMessage?: string): void
   sendTaskMessage(text: string): void
   cancelTaskTurn(): void
@@ -1241,7 +1242,7 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  async resumeTaskSession() {
+  async resumeTaskSession(initialMessage) {
     const session = get().taskSession
     if (!session) return
     set({ taskBusy: true, taskRuntimeError: null })
@@ -1250,7 +1251,24 @@ export const useStore = create<State>((set, get) => ({
         method: 'POST'
       })) as AgentSessionDetail
       set({ taskSession: resumed, taskSessionEvents: resumed.events })
-      get().connectTaskSession(resumed)
+      get().connectTaskSession(resumed, initialMessage)
+    } catch (error) {
+      set({ taskRuntimeError: errorMessage(error) })
+    } finally {
+      set({ taskBusy: false })
+    }
+  },
+
+  async approveTaskMockup() {
+    const { task, taskTurnActive } = get()
+    if (!task || task.workflow_stage !== 'mockup' || taskTurnActive) return
+    set({ taskBusy: true, taskRuntimeError: null })
+    try {
+      await apiJson(`${BASE}/tasks/${task.id}/mockup/approve`, { method: 'POST' })
+      await get().refreshSelectedTask()
+      await get().resumeTaskSession(
+        '목업을 승인합니다. 승인된 화면과 상호작용에 필요한 최소 계약만 정의하고 실제 구현과 검증을 진행하세요.'
+      )
     } catch (error) {
       set({ taskRuntimeError: errorMessage(error) })
     } finally {

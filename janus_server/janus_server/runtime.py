@@ -17,6 +17,7 @@ import os
 import re
 import threading
 import uuid
+from pathlib import Path
 from typing import Callable
 
 from openai import OpenAI
@@ -41,10 +42,35 @@ LOCAL_MODELS = {
 }
 
 MLX_BASE_URL = "http://localhost:8080/v1"
-WORKER_SYSTEM_MAX_CHARS = 2_000
+WORKER_SYSTEM_MAX_CHARS = 8_000
 WORKER_TASK_MAX_CHARS = 6_000
 WORKER_CONTEXT_MAX_CHARS = 4_000
-WORKER_ROLES = {"implementer", "researcher", "verifier"}
+WORKER_ROLES = {
+    "scout", "researcher", "planner", "prototyper",
+    "implementer", "verifier", "operator",
+}
+READ_ONLY_WORKER_ROLES = {"scout", "researcher", "planner", "verifier"}
+_RESOURCE_ROOT = Path(__file__).resolve().parent
+_PERSONA_FILES = {
+    "janus": "personas/janus.md",
+    "scout": "personas/scout.md",
+    "researcher": "personas/scout.md",  # backwards-compatible alias
+    "planner": "personas/planner.md",
+    "prototyper": "personas/prototyper.md",
+    "implementer": "personas/implementer.md",
+    "verifier": "personas/verifier.md",
+    "operator": "personas/operator.md",
+}
+_ROLE_SKILLS = {
+    "janus": ("task-contract",),
+    "scout": ("codebase-recon",),
+    "researcher": ("codebase-recon",),
+    "planner": ("task-contract",),
+    "prototyper": (),
+    "implementer": ("minimal-patch", "verification-before-completion"),
+    "verifier": ("verification-before-completion",),
+    "operator": ("runtime-diagnostics",),
+}
 MAX_MODEL_QUEUE_FOR_SPAWN = 1
 SINGLE_SLOT_PARENT_RESERVE_NUMERATOR = 6
 SINGLE_SLOT_PARENT_RESERVE_DENOMINATOR = 10
@@ -65,6 +91,41 @@ MUTATING_REQUEST_WORDS = (
     "edit", "modify", "write", "implement", "fix", "refactor", "create", "delete",
     "수정", "변경", "작성", "구현", "고쳐", "리팩터", "생성", "삭제", "추가",
 )
+
+
+def _bundled_markdown(relative_path: str) -> str:
+    path = (_RESOURCE_ROOT / relative_path).resolve()
+    if not path.is_relative_to(_RESOURCE_ROOT):
+        raise RuntimeError(f"invalid bundled prompt path: {relative_path}")
+    try:
+        content = path.read_text(encoding="utf-8").strip()
+    except OSError as error:
+        raise RuntimeError(f"missing bundled prompt: {relative_path}") from error
+    if relative_path.endswith("SKILL.md") and content.startswith("---\n"):
+        _frontmatter, separator, body = content[4:].partition("\n---\n")
+        if not separator:
+            raise RuntimeError(f"invalid bundled skill frontmatter: {relative_path}")
+        content = body.strip()
+    return content
+
+
+def persona_prompt(role: str, *, custom_prompt: str = "") -> str:
+    """Build a trusted, fixed persona/skill prompt for one runtime role."""
+    normalized = str(role).lower().strip()
+    persona_path = _PERSONA_FILES.get(normalized)
+    if persona_path is None:
+        raise ValueError(f"unknown persona role: {normalized}")
+    sections = [_bundled_markdown(persona_path)]
+    for skill in _ROLE_SKILLS[normalized]:
+        sections.append(_bundled_markdown(f"builtin_skills/{skill}/SKILL.md"))
+    if custom_prompt.strip():
+        sections.append("## Delegated emphasis\n\n" + custom_prompt.strip())
+    prompt = "\n\n---\n\n".join(sections)
+    if len(prompt) > WORKER_SYSTEM_MAX_CHARS and normalized != "janus":
+        raise RuntimeError(
+            f"bundled worker prompt exceeds {WORKER_SYSTEM_MAX_CHARS} chars: {normalized}"
+        )
+    return prompt
 
 
 def is_read_only_request(text: str | None) -> bool:
@@ -332,7 +393,8 @@ class Orchestration:
                if self.worker_enabled else [])
             + [tool["name"] for tool in self.skill_tools]
         )
-        base_prompt = spec.get("system_prompt") or "You are an orchestrator."
+        profile_prompt = str(spec.get("system_prompt") or "").strip()
+        base_prompt = persona_prompt("janus", custom_prompt=profile_prompt)
         context_preamble = str(spec.get("context_preamble") or "").strip()
         if context_preamble:
             base_prompt = f"{base_prompt}\n\n{context_preamble}"
@@ -592,14 +654,22 @@ class Orchestration:
             # Doing so turned implementation workers into one-step read-only
             # scouts after the parent had already completed discovery.
             # 부분집합 규칙: 워커 도구 ⊆ 오케스트레이터의 spec.tools.
-            # researcher/verifier는 결과를 수정하지 못하도록 읽기 전용 교집합만 받는다.
+            # 조사·계획·검증 역할은 결과를 수정하지 못하도록 읽기 전용 교집합만 받는다.
             requested_tools = list(dict.fromkeys(str(t) for t in (tools or [])))
             candidates = requested_tools or list(self.tools)
             allowed = [tool for tool in candidates if tool in self.tools]
-            if role in {"researcher", "verifier"}:
+            if role in READ_ONLY_WORKER_ROLES:
                 allowed = [tool for tool in allowed if tool in T.READ_ONLY]
 
-            raw_system = str(system_prompt) or "You are a focused worker agent."
+            custom_system = str(system_prompt).strip()
+            raw_system = persona_prompt(role, custom_prompt=custom_system)
+            if role == "implementer":
+                raw_system += (
+                    "\n\nAfter applying the requested edits, return a concise factual result "
+                    "immediately. If run_bash is not in your tools, do not search for a shell, "
+                    "Python executable, or test runner; leave independent verification to the "
+                    "orchestrator. Do not broaden the original contract."
+                )
             raw_task = str(task) or "(no task)"
             if role_adaptation is not None:
                 raw_system = (
@@ -620,23 +690,6 @@ class Orchestration:
             prepared_context = raw_context[:WORKER_CONTEXT_MAX_CHARS]
             if prepared_context:
                 prepared_task += "\n\nRelevant context (only what this subtask needs):\n" + prepared_context
-            if role == "verifier":
-                prepared_system += (
-                    "\n\nYou are a read-only verifier. Check the supplied result and evidence; "
-                    "do not modify files. Return findings to the orchestrator."
-                )
-            elif role == "researcher":
-                prepared_system += (
-                    "\n\nInvestigate and return concise evidence; leave final integration to "
-                    "the orchestrator."
-                )
-            elif role == "implementer":
-                prepared_system += (
-                    "\n\nAfter applying the requested edits, return a concise factual result "
-                    "immediately. If run_bash is not in your tools, do not search for a shell, "
-                    "Python executable, or test runner; leave independent verification to the "
-                    "orchestrator. Do not broaden the original contract."
-                )
 
             fingerprint = hashlib.sha256(json.dumps(
                 {"name": str(name), "requested_role": requested_role, "role": role,
@@ -823,13 +876,14 @@ class Orchestration:
             "create_worker", handler,
             lambda v: str(v.get("result") or v.get("message")
                           or v.get("warning") or v.get("error") or ""),
-            T._obj(["name", "system_prompt", "task"],
+            T._obj(["name", "task"],
                    name={"type": "string", "maxLength": 40,
                          "description": "Short worker name."},
                    system_prompt={
                        "type": "string", "maxLength": 300,
                        "description": (
-                           "Concise role and rules only. Never restate the Task contract."
+                           "Optional task-specific emphasis only. The selected persona and "
+                           "skills are loaded automatically; never restate them."
                        ),
                    },
                    task={
@@ -839,8 +893,14 @@ class Orchestration:
                        ),
                    },
                    role={"type": "string",
-                         "enum": ["implementer", "researcher", "verifier"],
-                         "description": "Worker role. Verifier is forced read-only."},
+                         "enum": [
+                             "scout", "planner", "prototyper", "implementer",
+                             "verifier", "operator", "researcher",
+                         ],
+                         "description": (
+                             "Worker persona. Scout, planner, researcher, and verifier "
+                             "are forced read-only. Researcher is a legacy alias for scout."
+                         )},
                    context={"type": "string", "maxLength": 500,
                             "description": "Only the minimal context needed by this subtask."},
                    tools={"type": "array", "items": {"type": "string"},

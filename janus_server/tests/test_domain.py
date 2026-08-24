@@ -49,6 +49,13 @@ class DomainStoreTests(unittest.TestCase):
         self.assertEqual("4-bit MLX", models[0]["quantization"])
         self.assertIn("run_bash", json.loads(agents[0]["tools_json"]))
 
+    def test_new_task_requires_mockup_approval_before_implementation(self):
+        self.assertEqual("mockup", self.task["workflow_stage"])
+        approved = self.store.approve_task_mockup(self.task["id"])
+        self.assertEqual("implementation", approved["workflow_stage"])
+        with self.assertRaises(Conflict):
+            self.store.approve_task_mockup(self.task["id"])
+
     def test_skill_versions_activation_and_session_snapshot_are_durable(self):
         artifact = {
             "namespace": "claude", "name": "review", "description": "Review code",
@@ -144,10 +151,14 @@ class DomainStoreTests(unittest.TestCase):
             dispatch_columns = {
                 row["name"] for row in reopened.execute("PRAGMA table_info(dispatches)")
             }
+            task_columns = {
+                row["name"] for row in reopened.execute("PRAGMA table_info(tasks)")
+            }
         self.assertEqual(CURRENT_SCHEMA_VERSION, upgraded.schema_version())
         self.assertIn("progress", columns)
         self.assertIn("context_policy_json", profile_columns)
         self.assertIn("agent_profile_snapshot_json", dispatch_columns)
+        self.assertIn("workflow_stage", task_columns)
 
     def test_every_historical_schema_version_migrates_to_current(self):
         for starting_version in range(1, CURRENT_SCHEMA_VERSION):

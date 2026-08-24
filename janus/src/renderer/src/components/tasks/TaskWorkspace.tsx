@@ -317,6 +317,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
   const cancelTurn = useStore((state) => state.cancelTaskTurn)
   const stopSession = useStore((state) => state.stopTaskSession)
   const respondApproval = useStore((state) => state.respondTaskApproval)
+  const approveMockup = useStore((state) => state.approveTaskMockup)
   const [message, setMessage] = useState('')
   const [confirmNewAttempt, setConfirmNewAttempt] = useState(false)
   const ready = task.workspace?.state === 'ready'
@@ -654,6 +655,23 @@ function TaskRuntimeCard({ task }: { task: Task }) {
           </div>
         </div>
       ))}
+
+      {task.workflow_stage === 'mockup' && task.status === 'needs_you' && session?.status === 'idle' && !active && (
+        <div className="mt-3 flex items-center justify-between gap-4 border border-warning bg-panel px-3 py-2">
+          <div className="min-w-0 text-[10.5px] text-warn">
+            <strong className="block text-secondary">프론트 목업 승인 대기</strong>
+            화면과 주요 상호작용을 확인하세요. 수정이 필요하면 아래에 피드백을 보내고, 괜찮으면 실제 구현을 시작합니다.
+          </div>
+          <button
+            type="button"
+            onClick={() => void approveMockup()}
+            disabled={busy}
+            className="task-primary-action shrink-0"
+          >
+            목업 승인 · 구현 진행
+          </button>
+        </div>
+      )}
 
       <form onSubmit={submit} className="janus-composer janus-composer--session">
         <textarea
@@ -1348,8 +1366,22 @@ function RuntimeWorkerGraph() {
   const connected = useStore((state) => state.taskConnected)
   const events = useStore((state) => state.taskSessionEvents)
   const workers = useMemo(() => {
-    const spans = new Map<string, { id: string; name: string; role: string; state: RuntimeWorkerState; reason?: string }>()
-    const suppressed: Array<{ id: string; name: string; role: string; state: RuntimeWorkerState; reason?: string }> = []
+    const spans = new Map<string, {
+      id: string
+      name: string
+      role: string
+      state: RuntimeWorkerState
+      reason?: string
+      error?: string
+    }>()
+    const suppressed: Array<{
+      id: string
+      name: string
+      role: string
+      state: RuntimeWorkerState
+      reason?: string
+      error?: string
+    }> = []
     for (const event of events) {
       if (event.kind === 'span_start' || event.kind === 'span_end') {
         const raw = event.payload.span

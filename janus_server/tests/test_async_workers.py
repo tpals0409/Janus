@@ -8,6 +8,8 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from janus_server import runtime
 from janus_server.scheduler import ResourceScheduler
 from janus_server.workspace import WorkspaceContext
@@ -40,6 +42,26 @@ def make_orchestration(fake: FakeClient, root: Path, *, tools: list[str]):
 def control(orch, name: str):
     return next(tool["handler"] for tool in orch.worker_control_tools
                 if tool["name"] == name)
+
+
+def test_bundled_personas_and_skills_are_composed_by_role():
+    janus = runtime.persona_prompt("janus")
+    assert "# Janus" in janus
+    assert "# Task Contract" in janus
+    assert "name: task-contract" not in janus
+
+    implementer = runtime.persona_prompt(
+        "implementer", custom_prompt="Keep the change inside src/widget.ts.",
+    )
+    assert "# Implementer" in implementer
+    assert "# Minimal Patch" in implementer
+    assert "# Verification Before Completion" in implementer
+    assert "## Delegated emphasis" in implementer
+    assert "Keep the change inside src/widget.ts." in implementer
+
+    assert "# Scout" in runtime.persona_prompt("researcher")
+    with pytest.raises(ValueError, match="unknown persona role"):
+        runtime.persona_prompt("architect")
 
 
 def test_spawn_returns_before_worker_finishes_and_wait_collects_result():
@@ -97,6 +119,30 @@ def test_role_defaults_inherit_parent_tools_and_keep_read_only_roles_safe():
         }
         assert {"write_file", "edit_file", "run_bash"}.isdisjoint(researcher_tools)
         assert {"read_file", "glob", "grep"}.issubset(researcher_tools)
+
+
+def test_new_read_only_and_execution_roles_get_expected_tool_sets():
+    parent_tools = ["read_file", "glob", "grep", "write_file", "edit_file", "run_bash"]
+    fake = FakeClient([
+        {"text": "scouted"}, {"text": "planned"},
+        {"text": "prototyped"}, {"text": "operated"},
+    ])
+    with tempfile.TemporaryDirectory() as tmp:
+        orch = make_orchestration(fake, Path(tmp), tools=parent_tools)
+        for index, role in enumerate(("scout", "planner", "prototyper", "operator")):
+            orch.turn_worker_count = 0
+            created = orch.create_worker["handler"](
+                name=role, task=f"do {role}", role=role, tools=[], max_steps=2,
+            )
+            assert control(orch, "wait_worker")(created["worker"], 2)["finished"]
+            tool_names = {
+                item["function"]["name"] for item in fake.captured[index]["tools"]
+            }
+            if role in {"scout", "planner"}:
+                assert {"write_file", "edit_file", "run_bash"}.isdisjoint(tool_names)
+                assert {"read_file", "glob", "grep"}.issubset(tool_names)
+            else:
+                assert tool_names == set(parent_tools)
 
 
 def test_send_reuses_worker_session_and_stop_is_exposed():

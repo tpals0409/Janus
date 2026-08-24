@@ -401,7 +401,11 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(
             ["grep"], [tool["function"]["name"] for tool in worker_call["tools"]]
         )
-        self.assertIn("read-only verifier", worker_call["messages"][0]["content"])
+        self.assertIn("# Verifier", worker_call["messages"][0]["content"])
+        self.assertIn(
+            "# Verification Before Completion",
+            worker_call["messages"][0]["content"],
+        )
         prepared = next(
             message for message in seen
             if message["type"] == "agent_event"

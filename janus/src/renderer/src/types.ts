@@ -62,6 +62,7 @@ export interface Task {
   acceptance_command: string
   base_ref: string
   status: TaskStatus
+  workflow_stage?: 'direct' | 'mockup' | 'implementation'
   created_at: string
   updated_at: string
   archived_at: string | null
