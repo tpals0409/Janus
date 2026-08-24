@@ -236,6 +236,18 @@ class DomainApiTests(unittest.TestCase):
             self.assertEqual(200, mockup.status_code, mockup.text)
             task = mockup.json()
             self.assertEqual("mockup", task["workflow_stage"])
+            for target, expected in (("working", "todo"), ("needs_you", "working")):
+                transitioned = client.post(
+                    f"/tasks/{task['id']}/transition", headers=HEADERS,
+                    json={"status": target, "expected": expected},
+                )
+                self.assertEqual(200, transitioned.status_code, transitioned.text)
+            rejected = client.post(
+                f"/tasks/{task['id']}/mockup/reject", headers=HEADERS,
+                json={"feedback": "버튼 대비를 높여주세요"},
+            )
+            self.assertEqual(200, rejected.status_code, rejected.text)
+            self.assertEqual("버튼 대비를 높여주세요", rejected.json()["mockup_feedback"])
             approved = client.post(
                 f"/tasks/{task['id']}/mockup/approve", headers=HEADERS,
             )

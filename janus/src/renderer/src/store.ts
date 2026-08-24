@@ -196,6 +196,7 @@ interface State {
   }): Promise<void>
   resumeTaskSession(initialMessage?: string): Promise<void>
   approveTaskMockup(): Promise<void>
+  rejectTaskMockup(feedback: string): Promise<boolean>
   connectTaskSession(session: AgentSessionDetail, initialMessage?: string): void
   sendTaskMessage(text: string): void
   cancelTaskTurn(): void
@@ -1272,6 +1273,30 @@ export const useStore = create<State>((set, get) => ({
       )
     } catch (error) {
       set({ taskRuntimeError: errorMessage(error) })
+    } finally {
+      set({ taskBusy: false })
+    }
+  },
+
+  async rejectTaskMockup(feedback) {
+    const task = get().task
+    const trimmed = feedback.trim()
+    if (!task || task.workflow_stage !== 'mockup' || !trimmed) return false
+    set({ taskBusy: true, taskRuntimeError: null })
+    try {
+      const updated = (await apiJson(`${BASE}/tasks/${task.id}/mockup/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ feedback: trimmed })
+      })) as Task
+      set({
+        task: { ...task, ...updated },
+        tasks: get().tasks.map((item) => item.id === task.id ? { ...item, ...updated } : item)
+      })
+      return true
+    } catch (error) {
+      set({ taskRuntimeError: errorMessage(error) })
+      return false
     } finally {
       set({ taskBusy: false })
     }

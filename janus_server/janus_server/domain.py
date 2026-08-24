@@ -17,7 +17,7 @@ from typing import Any
 
 from .budget import empty_usage, merge_budget, normalize_budget
 
-CURRENT_SCHEMA_VERSION = 17
+CURRENT_SCHEMA_VERSION = 18
 
 DEFAULT_CONTEXT_POLICY = {
     "max_chars": 24_000,
@@ -554,12 +554,24 @@ MIGRATION_17 = """
 UPDATE tasks SET workflow_stage='direct' WHERE workflow_stage='mockup';
 """
 
+MIGRATION_18 = """
+ALTER TABLE tasks ADD COLUMN mockup_feedback TEXT;
+
+CREATE TABLE session_approval_scopes (
+    session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    scope TEXT NOT NULL CHECK(scope IN ('workspace_write')),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(session_id, workspace_id, scope)
+);
+"""
+
 MIGRATIONS = {
     1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3, 4: MIGRATION_4,
     5: MIGRATION_5, 6: MIGRATION_6, 7: MIGRATION_7, 8: MIGRATION_8,
     9: MIGRATION_9, 10: MIGRATION_10, 11: MIGRATION_11, 12: MIGRATION_12,
     13: MIGRATION_13, 14: MIGRATION_14, 15: MIGRATION_15, 16: MIGRATION_16,
-    17: MIGRATION_17,
+    17: MIGRATION_17, 18: MIGRATION_18,
 }
 
 
@@ -1249,11 +1261,30 @@ class DomainStore:
             task = self._one(
                 connection, "SELECT * FROM tasks WHERE id=?", (task_id,), "Task"
             )
-            if task["workflow_stage"] != "mockup":
+            if task["workflow_stage"] != "mockup" or task["status"] != "needs_you":
                 raise Conflict("목업 승인 대기 상태가 아닙니다")
             connection.execute(
-                "UPDATE tasks SET workflow_stage='implementation',updated_at=? WHERE id=?",
+                "UPDATE tasks SET workflow_stage='implementation',mockup_feedback=NULL,"
+                "updated_at=? WHERE id=?",
                 (now, task_id),
+            )
+        return self.get_task(task_id)
+
+    def reject_task_mockup(self, task_id: str, feedback: str) -> dict:
+        """Record actionable feedback without opening the implementation stage."""
+        feedback = feedback.strip()
+        if not feedback:
+            raise Conflict("목업 수정 요청 내용을 입력하세요")
+        now = _now()
+        with self.transaction(immediate=True) as connection:
+            task = self._one(
+                connection, "SELECT * FROM tasks WHERE id=?", (task_id,), "Task"
+            )
+            if task["workflow_stage"] != "mockup" or task["status"] != "needs_you":
+                raise Conflict("목업 수정 요청 대기 상태가 아닙니다")
+            connection.execute(
+                "UPDATE tasks SET mockup_feedback=?,updated_at=? WHERE id=?",
+                (feedback, now, task_id),
             )
         return self.get_task(task_id)
 
@@ -1951,6 +1982,44 @@ class DomainStore:
             return self._one(
                 connection, "SELECT * FROM agent_sessions WHERE id=?", (session_id,), "AgentSession"
             )
+
+    def grant_session_approval_scope(
+        self, session_id: str, workspace_id: str, scope: str,
+    ) -> dict:
+        if scope != "workspace_write":
+            raise Conflict(f"지원하지 않는 승인 범위입니다: {scope}")
+        created_at = _now()
+        with self.transaction(immediate=True) as connection:
+            session = self._one(
+                connection, "SELECT * FROM agent_sessions WHERE id=?",
+                (session_id,), "AgentSession",
+            )
+            workspace = self._one(
+                connection, "SELECT * FROM workspaces WHERE id=?",
+                (workspace_id,), "Workspace",
+            )
+            if session["task_id"] != workspace["task_id"]:
+                raise Conflict("승인 범위의 Session과 Workspace가 다른 Task에 속합니다")
+            connection.execute(
+                "INSERT OR IGNORE INTO session_approval_scopes("
+                "session_id,workspace_id,scope,created_at) VALUES (?,?,?,?)",
+                (session_id, workspace_id, scope, created_at),
+            )
+        return {
+            "session_id": session_id, "workspace_id": workspace_id,
+            "scope": scope, "created_at": created_at,
+        }
+
+    def list_session_approval_scopes(self, session_id: str) -> list[dict]:
+        with self._connect() as connection:
+            self._one(
+                connection, "SELECT * FROM agent_sessions WHERE id=?",
+                (session_id,), "AgentSession",
+            )
+            return [dict(row) for row in connection.execute(
+                "SELECT * FROM session_approval_scopes WHERE session_id=? "
+                "ORDER BY workspace_id,scope", (session_id,),
+            )]
 
     def list_sessions(self, task_id: str) -> list[dict]:
         with self._connect() as connection:

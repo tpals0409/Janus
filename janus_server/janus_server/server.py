@@ -788,6 +788,13 @@ def approve_task_mockup(task_id: str):
     return get_domain_store().approve_task_mockup(task_id)
 
 
+@app.post("/tasks/{task_id}/mockup/reject")
+def reject_task_mockup(task_id: str, body: dict):
+    return get_domain_store().reject_task_mockup(
+        task_id, str(body.get("feedback") or ""),
+    )
+
+
 @app.delete("/tasks/{task_id}")
 def archive_task(task_id: str):
     """Task를 목록에서 감춘다. 대화 기록과 Git 브랜치는 남는다.
@@ -2526,6 +2533,12 @@ def _task_context_snapshot(
             "Do not add speculative abstractions or dependencies. Once the mockup can be "
             "previewed, stop and ask the user to approve it before implementation."
         )
+        mockup_feedback = str((task or {}).get("mockup_feedback") or "").strip()
+        if mockup_feedback:
+            workflow_prompt += (
+                "\nThe user rejected the previous mockup. Revise only the mockup using this "
+                f"feedback, then request review again:\n{mockup_feedback}"
+            )
     elif workflow_stage == "implementation":
         workflow_prompt = (
             "WORKFLOW STAGE: APPROVED MOCKUP IMPLEMENTATION\n"
@@ -2995,7 +3008,10 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
     loop = asyncio.get_running_loop()
     pending: dict[str, list] = {}
     pending_lock = threading.Lock()
-    approved_scopes: set[tuple[str, str]] = set()
+    approved_scopes: set[tuple[str, str]] = {
+        (str(item["scope"]), str(item["workspace_id"]))
+        for item in store.list_session_approval_scopes(session_id)
+    }
     turn_task: asyncio.Task | None = None
     orch: runtime.Orchestration | None = None
     stop_requested = False
@@ -3270,8 +3286,19 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
                     approved = bool(message.get("approved"))
                     remember = approved and message.get("scope") == "session_workspace"
                     if slot and remember and slot[2] is not None:
-                        approved_scopes.add(slot[2])
-                        matching = [item for item in pending.values() if item[2] == slot[2]]
+                        try:
+                            store.grant_session_approval_scope(
+                                session_id, slot[2][1], slot[2][0],
+                            )
+                        except D.DomainError:
+                            approved = False
+                        if approved:
+                            approved_scopes.add(slot[2])
+                            matching = [
+                                item for item in pending.values() if item[2] == slot[2]
+                            ]
+                        else:
+                            matching = [slot]
                     else:
                         matching = [slot] if slot else []
                     for item in matching:

@@ -55,8 +55,13 @@ class DomainStoreTests(unittest.TestCase):
             project_id=self.project["id"], title="Mockup", objective="Preview UI",
             acceptance_command="pnpm test", base_ref="main", workflow_stage="mockup",
         )
+        self.store.transition_task(mockup["id"], "working", expected="todo")
+        self.store.transition_task(mockup["id"], "needs_you", expected="working")
+        rejected = self.store.reject_task_mockup(mockup["id"], "간격을 줄여주세요")
+        self.assertEqual("간격을 줄여주세요", rejected["mockup_feedback"])
         approved = self.store.approve_task_mockup(mockup["id"])
         self.assertEqual("implementation", approved["workflow_stage"])
+        self.assertIsNone(approved["mockup_feedback"])
         with self.assertRaises(Conflict):
             self.store.approve_task_mockup(mockup["id"])
 
@@ -98,6 +103,13 @@ class DomainStoreTests(unittest.TestCase):
         session = self.store.create_session(
             task_id=self.task["id"], dispatch_id=dispatch["id"],
             agent_profile_id="agent_default",
+        )
+        self.store.grant_session_approval_scope(
+            session["id"], self.workspace["id"], "workspace_write",
+        )
+        self.assertEqual(
+            ["workspace_write"],
+            [item["scope"] for item in self.store.list_session_approval_scopes(session["id"])],
         )
         snapshot = self.store.snapshot_session_skills(session["id"])
         self.assertEqual([second["id"]], [item["skill_version_id"] for item in snapshot])

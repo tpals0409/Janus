@@ -63,6 +63,7 @@ export interface Task {
   base_ref: string
   status: TaskStatus
   workflow_stage?: 'direct' | 'mockup' | 'implementation'
+  mockup_feedback?: string | null
   created_at: string
   updated_at: string
   archived_at: string | null

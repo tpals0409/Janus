@@ -328,6 +328,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
   const stopSession = useStore((state) => state.stopTaskSession)
   const respondApproval = useStore((state) => state.respondTaskApproval)
   const approveMockup = useStore((state) => state.approveTaskMockup)
+  const rejectMockup = useStore((state) => state.rejectTaskMockup)
   const [message, setMessage] = useState('')
   const [confirmNewAttempt, setConfirmNewAttempt] = useState(false)
   const messageRef = useRef<HTMLTextAreaElement>(null)
@@ -440,9 +441,13 @@ function TaskRuntimeCard({ task }: { task: Task }) {
     }
     return [...waiting.values()].at(-1) ?? null
   }, [events])
-  const submit = (event: FormEvent) => {
+  const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!message.trim()) return
+    if (task.workflow_stage === 'mockup' && task.status === 'needs_you') {
+      const recorded = await rejectMockup(message)
+      if (!recorded) return
+    }
     sendMessage(message)
     setMessage('')
   }
