@@ -254,6 +254,51 @@ class TaskRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(409, denied.status_code)
 
+    def test_renderer_disconnect_does_not_cancel_persisted_turn(self):
+        task = self.create_ready_task("Detached persistent chat")
+        detail = self.start(task["id"])
+
+        generation_started = threading.Event()
+
+        def delayed_answer():
+            generation_started.set()
+            time.sleep(0.1)
+            return {"text": "answer survived disconnect"}
+
+        fake = FakeClient([delayed_answer])
+        with (
+            patch.object(runtime, "resolve_local_model", lambda name: name),
+            patch.object(runtime, "make_client", lambda: fake),
+            self.connect(task["id"], detail["id"]) as ws,
+        ):
+            self.assertEqual("session_ready", ws.receive_json()["type"])
+            ws.send_json({"type": "message", "text": "keep working"})
+            self.assertTrue(generation_started.wait(1))
+            # Leaving the context closes the renderer socket while generation
+            # is still in flight. The Dispatch-owned turn must keep running.
+
+        deadline = time.monotonic() + 2
+        while True:
+            settled = self.client.get(
+                f"/sessions/{detail['id']}", headers=self.headers,
+            ).json()
+            if any(
+                event["kind"] == "transcript"
+                and event["payload"].get("kind") == "assistant"
+                for event in settled["events"]
+            ):
+                break
+            if time.monotonic() >= deadline:
+                self.fail("detached turn did not persist its assistant response")
+            time.sleep(0.02)
+        self.assertEqual("idle", settled["status"])
+        transcript = [
+            event["payload"] for event in settled["events"]
+            if event["kind"] == "transcript"
+        ]
+        self.assertEqual(["user", "assistant"], [event["kind"] for event in transcript])
+        self.assertEqual("answer survived disconnect", transcript[-1]["content"])
+
     def test_selected_agent_profile_is_saved_on_dispatch_and_session(self):
         task = self.create_ready_task("Profile")
         profile = self.store.create_agent_profile(

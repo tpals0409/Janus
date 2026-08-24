@@ -3112,7 +3112,30 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
             activated = True
             current = ensure_orchestration()
             send({"type": "run_start", "agent_profile_id": session["agent_profile_id"]})
-            await asyncio.to_thread(current.turn, text, dispatch_id=dispatch["id"])
+            runtime_done = threading.Event()
+            runtime_errors: list[BaseException] = []
+
+            def run_persisted_turn() -> None:
+                try:
+                    current.turn(text, dispatch_id=dispatch["id"])
+                except BaseException as error:
+                    runtime_errors.append(error)
+                finally:
+                    runtime_done.set()
+
+            threading.Thread(target=run_persisted_turn, daemon=True).start()
+            while not runtime_done.is_set():
+                try:
+                    await asyncio.sleep(0.02)
+                except asyncio.CancelledError:
+                    # The renderer socket owns delivery only. ASGI cancellation
+                    # of its connection scope must not settle the persistent
+                    # Dispatch before the model thread has finished.
+                    task = asyncio.current_task()
+                    if task is not None:
+                        task.uncancel()
+            if runtime_errors:
+                raise runtime_errors[0]
             persist_transcript(current)
             if current.budget_exhausted_reason:
                 failure = f"budget exhausted: {current.budget_exhausted_reason}"
@@ -3226,16 +3249,19 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
             "type": "run_error", "error": f"{type(error).__name__}: {error}"
         }))
     finally:
-        if orch is not None:
-            orch.cancel_all()
+        # A persisted Task turn belongs to its Dispatch, not to one renderer
+        # socket. Window reloads, navigation, and transient WebSocket reconnects
+        # must not throw away model work that is already running. Events keep
+        # being persisted by send(); only explicit cancel/stop or server shutdown
+        # may cancel the orchestration.
         with pending_lock:
             slots = list(pending.values())
         for slot in slots:
             slot[1] = False
             slot[0].set()
         if turn_task and not turn_task.done():
-            with suppress(asyncio.CancelledError, asyncio.TimeoutError):
-                await asyncio.wait_for(asyncio.shield(turn_task), timeout=10)
+            with suppress(asyncio.CancelledError):
+                await asyncio.shield(turn_task)
         with _TASK_RUNTIMES_LOCK:
             if orch is not None and _TASK_RUNTIMES.get(session_id) is orch:
                 _TASK_RUNTIMES.pop(session_id, None)
