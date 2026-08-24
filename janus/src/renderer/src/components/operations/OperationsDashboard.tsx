@@ -90,7 +90,7 @@ function TaskStrip({ task, onOpen }: { task: OperationsTask; onOpen: () => void 
   return (
     <button
       onClick={onOpen}
-      className="group w-full border border-border-subtle bg-panel p-3 text-left transition-colors hover:border-border-strong hover:bg-hover focus-visible:border-border-strong focus-visible:outline-none"
+      className="group w-full border border-border-subtle bg-panel p-3 text-left transition-colors hover:border-border-strong hover:bg-hover focus-visible:border-accent focus-visible:outline-none"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">

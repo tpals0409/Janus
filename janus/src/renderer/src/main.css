@@ -46,7 +46,7 @@
   --border-subtle: #1d2022;
   --border-default: #282c2f;
   --border-strong: #383d41;
-  --focus-border: #52585d;
+  --focus-border: #526b5e;
   --text-primary: #f0f1f1;
   --text-secondary: #a3a7aa;
   --text-muted: #686d71;
@@ -1981,11 +1981,20 @@ button {
   box-shadow: var(--floating-shadow);
 }
 
-button:focus-visible,
+button:focus:not(:focus-visible) {
+  outline: none;
+}
+
+button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 58%, transparent);
+  outline-offset: 2px;
+}
+
 input:focus-visible,
+select:focus-visible,
 textarea:focus-visible {
-  outline: 1px solid var(--border-strong);
-  outline-offset: 1px;
+  border-color: var(--focus-border);
+  outline: none;
 }
 
 @media (max-width: 1050px) {
