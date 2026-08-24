@@ -123,6 +123,26 @@ describe('Janus renderer fixture', () => {
     expect(approveTaskMockup).toHaveBeenCalledOnce()
   })
 
+  it('offers a visible restart action after a session stops', async () => {
+    window.history.replaceState({}, '', '/?fixture=task-runtime')
+    seedTaskRuntimeVisualFixture()
+    const session = useStore.getState().taskSession!
+    const startTaskSession = vi.fn().mockResolvedValue(undefined)
+    useStore.setState({
+      taskSession: { ...session, status: 'stopped' },
+      taskConnected: false,
+      startTaskSession
+    })
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    const restart = screen.getByRole('button', { name: '다시 시작' })
+    expect(restart).toBeVisible()
+    await user.click(restart)
+    expect(startTaskSession).toHaveBeenCalledWith({ priority: 0, queue_timeout_ms: 300000 })
+  })
+
   it('renders the Task-first shell and navigates to AgentProfile configuration', async () => {
     window.history.replaceState({}, '', '/?fixture=task-runtime')
     seedTaskRuntimeVisualFixture()

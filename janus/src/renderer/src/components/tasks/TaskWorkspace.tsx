@@ -347,6 +347,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
   const messageRef = useRef<HTMLTextAreaElement>(null)
   const ready = task.workspace?.state === 'ready'
   const resumable = session?.status === 'created' || session?.status === 'idle'
+  const restartable = session?.status === 'stopped' || session?.status === 'failed'
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId)
   const budget = session?.dispatch.budget ?? selectedProfile?.budget
   const usage = session?.dispatch.usage
@@ -847,6 +848,17 @@ function TaskRuntimeCard({ task }: { task: Task }) {
             {!connected && resumable && (
               <button type="button" onClick={() => void resumeSession()} disabled={busy} className="task-quiet-action">
                 <Play size={11} /> 재개
+              </button>
+            )}
+            {restartable && (
+              <button
+                type="button"
+                onClick={() => void startSession({ priority, queue_timeout_ms: queueTimeout * 1000 })}
+                disabled={!ready || busy || active}
+                className="task-primary-action"
+                title={ready ? '새 디스패치로 작업을 다시 시작' : '먼저 작업 공간을 준비하세요'}
+              >
+                <Play size={11} /> 다시 시작
               </button>
             )}
             {session && ['created', 'running', 'idle'].includes(session.status) && (
