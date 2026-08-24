@@ -143,6 +143,26 @@ class ReasoningStreamTests(unittest.TestCase):
         self.assertEqual("답만", text)
         self.assertNotIn("reasoning_delta", events)
 
+    def test_mtp_acceptance_metrics_are_emitted_from_final_stream_chunk(self):
+        events = []
+        final = SimpleNamespace(
+            usage=None,
+            choices=[],
+            model_extra={"timings": {
+                "draft_kind": "mtp", "draft_rounds": 4,
+                "draft_n": 12, "draft_n_accepted": 9,
+                "predicted_per_second": 31.5,
+            }},
+        )
+        agent._assemble(
+            [self._chunk(content="답"), final],
+            lambda kind, **kw: events.append((kind, kw)),
+        )
+        metrics = next(payload for kind, payload in events if kind == "speculative_metrics")
+        self.assertEqual("mtp", metrics["draft_kind"])
+        self.assertEqual(0.75, metrics["acceptance_rate"])
+        self.assertEqual(31.5, metrics["predicted_tokens_per_second"])
+
     def test_reasoning_generation_uses_configured_budget_and_low_effort(self):
         fake = FakeClient([{"text": "done"}])
         with tempfile.TemporaryDirectory() as tmp:

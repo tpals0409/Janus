@@ -681,6 +681,14 @@ export interface BackendServiceStatus {
   retryInMs: number
   lastError: string | null
   logPath: string
+  acceleration?: {
+    policy: 'required' | 'preferred' | 'off'
+    configured: boolean
+    active: boolean
+    kind: 'mtp' | null
+    draftModelPath: string | null
+    lastError: string | null
+  }
 }
 
 export interface BackendStatus {

@@ -112,14 +112,16 @@ export function Status({
   children,
   pulse = false,
   className,
+  title,
 }: {
   tone?: StatusTone
   children: ReactNode
   pulse?: boolean
   className?: string
+  title?: string
 }) {
   return (
-    <span className={cx('ui-status', `ui-status--${tone}`, pulse && 'ui-status--pulse', className)}>
+    <span title={title} className={cx('ui-status', `ui-status--${tone}`, pulse && 'ui-status--pulse', className)}>
       <span aria-hidden="true" className="ui-status__glyph">{statusGlyph[tone]}</span>
       <span>{children}</span>
     </span>

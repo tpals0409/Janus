@@ -437,6 +437,18 @@ function TaskRuntimeCard({ task }: { task: Task }) {
       evidence: Array.isArray(outcome.evidence) ? outcome.evidence.map(String) : []
     }
   }, [events])
+  const latestMtpMetrics = useMemo(() => {
+    const payload = [...events].reverse().find((event) => (
+      event.kind === 'agent_event' && event.payload.kind === 'speculative_metrics'
+    ))?.payload
+    if (!payload) return null
+    return {
+      acceptance: Number(payload.acceptance_rate ?? 0),
+      accepted: Number(payload.accepted_tokens ?? 0),
+      drafted: Number(payload.draft_tokens ?? 0),
+      tokensPerSecond: Number(payload.predicted_tokens_per_second ?? 0)
+    }
+  }, [events])
   const skillSuggestions = useMemo(() => {
     if (!message.startsWith('/') || message.slice(1).includes(' ')) return []
     const needle = message.slice(1).toLowerCase()
@@ -594,6 +606,13 @@ function TaskRuntimeCard({ task }: { task: Task }) {
             <strong className="col-span-4 text-danger">
               예산 소진 · {session.dispatch.budget_exhausted_reason}
             </strong>
+          )}
+          {latestMtpMetrics && (
+            <span className="col-span-4 text-secondary">
+              MTP · 승인 {(latestMtpMetrics.acceptance * 100).toFixed(1)}%
+              {' '}({latestMtpMetrics.accepted}/{latestMtpMetrics.drafted})
+              {' · '}{latestMtpMetrics.tokensPerSecond.toFixed(1)} tok/s
+            </span>
           )}
         </div>
       )}

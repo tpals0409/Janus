@@ -3,6 +3,7 @@ import { spawn, type ChildProcess } from 'child_process'
 import { randomBytes } from 'crypto'
 import { createWriteStream, mkdirSync } from 'fs'
 import net from 'net'
+import { homedir } from 'os'
 import { join } from 'path'
 import {
   appendBoundedText,
@@ -22,6 +23,9 @@ import {
   type CapturedConsole, type CapturedNetwork
 } from './task-browser'
 import { resolveRuntimePaths } from './runtime-paths'
+import {
+  buildMlxLaunchSpec, observeMtpOutput, type MtpPolicy
+} from './model-runtime'
 
 // ─────────────────────────── 백엔드 소유 ───────────────────────────
 // "하나의 앱": Janus를 켜면 janus-server와 MLX 모델 서버가 함께 뜨고, 끄면 함께
@@ -55,6 +59,12 @@ const env: NodeJS.ProcessEnv = {
 
 type ServiceLabel = 'server' | 'mlx'
 
+const requestedMtpPolicy = process.env.JANUS_MTP_POLICY
+const mtpPolicy: MtpPolicy = requestedMtpPolicy === 'preferred' || requestedMtpPolicy === 'off'
+  ? requestedMtpPolicy
+  : 'required'
+const mlxLaunch = buildMlxLaunchSpec(homedir(), mtpPolicy)
+
 const serviceSpecs: Record<ServiceLabel, {
   port: number; command: string; cwd: string; environment: string; logPath: string
 }> = {
@@ -67,12 +77,7 @@ const serviceSpecs: Record<ServiceLabel, {
   },
   mlx: {
     port: 8080,
-    command:
-      'DRAFT="$(ls -d ~/.cache/huggingface/hub/' +
-      'models--mlx-community--Qwen3.8-27B-MTP-4bit/snapshots/*/ 2>/dev/null | head -1)"; ' +
-      'set --; [ -n "$DRAFT" ] && set -- --draft-model "$DRAFT" --draft-kind mtp; ' +
-      'uv run --frozen mlx_vlm.server --model "$(ls -d ~/.cache/huggingface/hub/' +
-      'models--orcarouter--Qwen3.8-27B-Uncensored-MLX/snapshots/*/4-bit)" --port 8080 "$@"',
+    command: mlxLaunch.command,
     cwd: runtimePaths.modelRuntimeRoot,
     environment: runtimePaths.modelEnvironment,
     logPath: join(runtimePaths.logRoot, 'janus-mlx.log')
@@ -224,6 +229,12 @@ function spawnLogged(label: ServiceLabel): void {
   if (quitting || processAlive(service.process)) return
 
   const log = createWriteStream(spec.logPath, { flags: 'a', mode: 0o600 })
+  if (label === 'mlx') {
+    mlxLaunch.mtp.active = false
+    mlxLaunch.mtp.lastError = mlxLaunch.mtp.configured
+      ? null
+      : mlxLaunch.mtp.lastError
+  }
   let p: ChildProcess
   try {
     // detached: 프로세스 그룹을 따로 만들어 uv가 낳는 python 자식까지 한 번에 죽인다.
@@ -243,7 +254,21 @@ function spawnLogged(label: ServiceLabel): void {
   p.stdout?.pipe(log)
   p.stderr?.pipe(log)
   let recentError = ''
-  p.stderr?.on('data', (chunk) => { recentError = appendBoundedText(recentError, chunk) })
+  let rejectedMtpFallback = false
+  const observeOutput = (chunk: unknown): void => {
+    recentError = appendBoundedText(recentError, chunk)
+    if (label !== 'mlx') return
+    const observed = observeMtpOutput(mlxLaunch.mtp, chunk)
+    if (observed === 'failed' && mtpPolicy === 'required' && !rejectedMtpFallback) {
+      rejectedMtpFallback = true
+      recentError = appendBoundedText(recentError, `\n[janus] ${mlxLaunch.mtp.lastError}\n`)
+      if (p.pid != null) {
+        try { globalThis.process.kill(-p.pid, 'SIGTERM') } catch { p.kill('SIGTERM') }
+      }
+    }
+  }
+  p.stdout?.on('data', observeOutput)
+  p.stderr?.on('data', observeOutput)
   let handled = false
   const stopped = (reason: string): void => {
     if (handled) return
@@ -263,7 +288,12 @@ async function endpointHealthy(label: ServiceLabel): Promise<boolean> {
     const response = await fetch(url, { headers, signal: AbortSignal.timeout(800) })
     if (!response.ok) return false
     const body = (await response.json()) as Record<string, unknown>
-    return label === 'server' ? body.ok === true : Array.isArray(body.data)
+    if (label === 'server') return body.ok === true
+    const modelReady = Array.isArray(body.data)
+    const mtpReady = mtpPolicy !== 'required'
+      || services.mlx.ownership === 'external'
+      || mlxLaunch.mtp.active
+    return modelReady && mtpReady
   } catch {
     return false
   }
@@ -332,7 +362,8 @@ function backendStatus() {
     attempts: service.attempts,
     retryInMs: Math.max(0, service.nextRetryAt - now),
     lastError: service.lastError,
-    logPath: serviceSpecs[label].logPath
+    logPath: serviceSpecs[label].logPath,
+    ...(label === 'mlx' ? { acceleration: { ...mlxLaunch.mtp } } : {})
   })
   return { server: publicState('server', services.server), mlx: publicState('mlx', services.mlx) }
 }

@@ -252,6 +252,7 @@ def _assemble(stream, emit, cancel=None) -> tuple[str, list[dict], dict | None]:
     parts: list[str] = []
     calls: dict[int, dict] = {}
     usage: dict | None = None
+    emitted_speculative_metrics = False
 
     for chunk in stream:
         if cancel is not None and cancel.is_set():
@@ -260,6 +261,32 @@ def _assemble(stream, emit, cancel=None) -> tuple[str, list[dict], dict | None]:
             except Exception:
                 pass
             break
+        # MLX는 마지막 스트리밍 청크의 timings에 speculative decoding 통계를 싣는다.
+        # OpenAI SDK가 모르는 필드는 model_extra에 보존하므로 양쪽 표현을 받는다.
+        raw_timings = getattr(chunk, "timings", None)
+        if raw_timings is None:
+            raw_timings = (getattr(chunk, "model_extra", None) or {}).get("timings")
+        if raw_timings is not None and not emitted_speculative_metrics:
+            if hasattr(raw_timings, "model_dump"):
+                raw_timings = raw_timings.model_dump()
+            elif not isinstance(raw_timings, dict):
+                raw_timings = vars(raw_timings)
+            draft_kind = raw_timings.get("draft_kind")
+            if draft_kind:
+                drafted = int(raw_timings.get("draft_n") or 0)
+                accepted = int(raw_timings.get("draft_n_accepted") or 0)
+                emit(
+                    "speculative_metrics",
+                    draft_kind=str(draft_kind),
+                    draft_rounds=int(raw_timings.get("draft_rounds") or 0),
+                    draft_tokens=drafted,
+                    accepted_tokens=accepted,
+                    acceptance_rate=(accepted / drafted if drafted else 0.0),
+                    predicted_tokens_per_second=float(
+                        raw_timings.get("predicted_per_second") or 0.0
+                    ),
+                )
+                emitted_speculative_metrics = True
         # 마지막 청크(choices 비어있음)에 usage가 실려온다
         if getattr(chunk, "usage", None):
             u = chunk.usage

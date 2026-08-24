@@ -19,6 +19,22 @@ describe('Janus renderer fixture', () => {
     const revokeTaskApprovalScope = vi.fn().mockResolvedValue(undefined)
     useStore.setState({
       taskConnected: true,
+      serverUp: true,
+      mlxUp: true,
+      backendStatus: {
+        server: {
+          phase: 'up', attempts: 0, retryInMs: 0, lastError: null,
+          logPath: '/logs/server.log'
+        },
+        mlx: {
+          phase: 'up', attempts: 0, retryInMs: 0, lastError: null,
+          logPath: '/logs/mlx.log',
+          acceleration: {
+            policy: 'required', configured: true, active: true, kind: 'mtp',
+            draftModelPath: '/models/mtp', lastError: null
+          }
+        }
+      },
       revokeTaskApprovalScope,
       taskSession: {
         ...session,
@@ -42,6 +58,16 @@ describe('Janus renderer fixture', () => {
         {
           ...fixtureEvent,
           seq: 6,
+          kind: 'agent_event',
+          payload: {
+            type: 'agent_event', kind: 'speculative_metrics',
+            acceptance_rate: 0.75, accepted_tokens: 9, draft_tokens: 12,
+            predicted_tokens_per_second: 31.5
+          }
+        },
+        {
+          ...fixtureEvent,
+          seq: 7,
           kind: 'turn_end',
           payload: {
             type: 'turn_end',
@@ -59,8 +85,11 @@ describe('Janus renderer fixture', () => {
     render(<App />)
 
     expect(screen.getByText('최근 턴 · partial')).toBeVisible()
+    expect(screen.getByText('모델 :8080 · MTP 활성')).toBeVisible()
     expect(screen.getByText('구현은 끝났고 패키징 검증이 남았습니다.')).toBeVisible()
     expect(screen.getByText('pnpm test: 11 passed')).toBeVisible()
+    await user.click(screen.getByText('실행 설정'))
+    expect(screen.getByText(/MTP · 승인 75.0%.*9\/12.*31.5 tok\/s/)).toBeVisible()
     await user.click(screen.getByRole('button', { name: '파일 수정 권한 취소' }))
     expect(revokeTaskApprovalScope).toHaveBeenCalledWith('workspace_write')
     const composer = screen.getByRole('textbox', { name: '작업 지시' })

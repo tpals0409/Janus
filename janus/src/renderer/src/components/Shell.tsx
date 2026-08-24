@@ -92,13 +92,20 @@ export function StatusBar({ mode }: { mode: string }) {
   const project = projects.find((item) => item.id === projectId)
   const serverExternal = backendStatus?.server.phase === 'external'
   const mlxPhase = backendStatus?.mlx.phase
+  const acceleration = backendStatus?.mlx.acceleration
   const mlxText = mlxUp
-    ? `모델 :8080${mlxPhase === 'external' ? ' (외부)' : ''}`
+    ? mlxPhase === 'external'
+      ? '모델 :8080 (외부) · MTP 확인 불가'
+      : acceleration?.active
+        ? '모델 :8080 · MTP 활성'
+        : '모델 :8080 · MTP 비활성'
     : mlxPhase === 'failed'
-      ? `모델 재시작 실패 (${backendStatus?.mlx.attempts}회) · 재시도 예정`
+      ? `모델 재시작 실패 (${backendStatus?.mlx.attempts}회) · ${acceleration?.lastError ?? '로그 확인 필요'}`
       : mlxPhase === 'restarting'
         ? '모델 재시작 중…'
-        : '모델 로딩 중…'
+        : acceleration?.policy === 'required'
+          ? '모델·MTP 로딩 중…'
+          : '모델 로딩 중…'
 
   return (
     <footer className="status-bar">
@@ -108,6 +115,7 @@ export function StatusBar({ mode }: { mode: string }) {
       <Status
         tone={mlxPhase === 'failed' ? 'danger' : mlxUp ? 'success' : 'warning'}
         pulse={!mlxUp && mlxPhase !== 'failed'}
+        title={acceleration?.draftModelPath ?? acceleration?.lastError ?? undefined}
       >
         {mlxText}
       </Status>
