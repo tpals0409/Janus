@@ -426,6 +426,25 @@ function TaskRuntimeCard({ task }: { task: Task }) {
     }
     return '준비 중'
   }, [events])
+  const lastTurnOutcome = useMemo(() => {
+    const payload = [...events].reverse().find((event) => event.kind === 'turn_end')?.payload
+    const raw = payload?.outcome
+    if (!raw || typeof raw !== 'object') return null
+    const outcome = raw as Record<string, unknown>
+    return {
+      status: String(outcome.outcome ?? 'partial'),
+      summary: String(outcome.summary ?? ''),
+      evidence: Array.isArray(outcome.evidence) ? outcome.evidence.map(String) : []
+    }
+  }, [events])
+  const skillSuggestions = useMemo(() => {
+    if (!message.startsWith('/') || message.slice(1).includes(' ')) return []
+    const needle = message.slice(1).toLowerCase()
+    return (session?.skills ?? []).filter((skill) =>
+      skill.name.toLowerCase().includes(needle)
+      || `${skill.namespace}:${skill.name}`.toLowerCase().includes(needle)
+    ).slice(0, 6)
+  }, [message, session?.skills])
 
   // 답이 흘러나오는 동안 바닥에 붙어 있게 한다. 위로 올려 읽는 중이면 끌어내리지 않는다.
   useEffect(() => {
@@ -552,8 +571,12 @@ function TaskRuntimeCard({ task }: { task: Task }) {
             <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-border pt-2">
               <span className="mr-1 text-faint">고정된 스킬</span>
               {session.skills?.map((skill) => (
-                <span key={skill.skill_version_id} className="rounded border border-border-strong bg-raised px-1.5 py-0.5 text-muted">
-                  {skill.namespace}:{skill.name} · v{skill.version} · {skill.activation_mode === 'auto' ? '자동' : '수동'}
+                <span
+                  key={skill.skill_version_id}
+                  title={skill.loaded_at ? skill.load_reason ?? undefined : '이번 세션에서 아직 로드되지 않음'}
+                  className="rounded border border-border-strong bg-raised px-1.5 py-0.5 text-muted"
+                >
+                  {skill.namespace}:{skill.name} · v{skill.version} · {skill.activation_mode === 'auto' ? '자동' : '수동'} · {skill.loaded_at ? '로드됨' : '대기'}
                 </span>
               ))}
             </div>
@@ -622,8 +645,24 @@ function TaskRuntimeCard({ task }: { task: Task }) {
           </span>
         </div>
       )}
+
         </div>
       </details>
+
+      {lastTurnOutcome && !active && (
+        <div className="mt-3 border border-border bg-panel px-3 py-2.5 text-[10.5px]">
+          <div className="flex items-center justify-between gap-3">
+            <strong className="text-secondary">최근 턴 · {lastTurnOutcome.status.replaceAll('_', ' ')}</strong>
+            <span className="font-mono text-[9px] text-faint">finish_turn 기록</span>
+          </div>
+          {lastTurnOutcome.summary && <p className="mt-1 text-muted">{lastTurnOutcome.summary}</p>}
+          {lastTurnOutcome.evidence.length > 0 && (
+            <ul className="mt-2 list-disc space-y-1 pl-4 font-mono text-[9px] text-faint">
+              {lastTurnOutcome.evidence.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
 
       <div className="task-session-console">
         <div ref={transcriptRef} className="task-transcript">
@@ -734,6 +773,25 @@ function TaskRuntimeCard({ task }: { task: Task }) {
       )}
 
       <form onSubmit={submit} className="janus-composer janus-composer--session">
+        {skillSuggestions.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1.5" role="listbox" aria-label="스킬 자동완성">
+            {skillSuggestions.map((skill) => (
+              <button
+                key={skill.skill_version_id}
+                type="button"
+                role="option"
+                aria-selected="false"
+                onClick={() => {
+                  setMessage(`/${skill.name} `)
+                  requestAnimationFrame(() => messageRef.current?.focus())
+                }}
+                className="task-quiet-action"
+              >
+                /{skill.name} · {skill.activation_mode === 'manual' ? '수동' : '자동'}
+              </button>
+            ))}
+          </div>
+        )}
         <textarea
           ref={messageRef}
           rows={3}

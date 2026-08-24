@@ -129,8 +129,9 @@ class RuntimeTests(unittest.TestCase):
             patch.object(runtime, "resolve_local_model", lambda name: name),
             patch.object(runtime, "make_client", lambda: fake),
         ):
+            events = []
             orch = runtime.Orchestration(
-                {**SPEC, "skills": [base]}, send=lambda _event: None, approver=None,
+                {**SPEC, "skills": [base]}, send=events.append, approver=None,
                 workspace_context=WorkspaceContext(
                     root=Path(tmp), task_id="task_manual", workspace_id="workspace_manual",
                 ),
@@ -138,10 +139,13 @@ class RuntimeTests(unittest.TestCase):
             loader = next(tool for tool in orch.skill_tools if tool["name"] == "load_skill")
             orch.current_user_text = "ship this"
             self.assertIn("수동 스킬", loader["handler"](name="deploy")["error"])
+            self.assertEqual("skill_load_failed", events[-1]["type"])
+            self.assertEqual("deploy", events[-1]["requested"])
             orch.current_user_text = "redeployment plan"
             self.assertIn("수동 스킬", loader["handler"](name="deploy")["error"])
             orch.current_user_text = "use /deploy"
             self.assertIn("필요한 capability", loader["handler"](name="deploy")["error"])
+            self.assertIn("run_bash", events[-1]["reason"])
 
     def test_loaded_session_skill_is_not_injected_twice_after_resume(self):
         fake = FakeClient([])

@@ -453,9 +453,16 @@ class Orchestration:
             return []
 
         def load_skill(name: str, reason: str = "", **_) -> dict:
+            def fail(message: str) -> dict:
+                self.send({
+                    "type": "skill_load_failed", "requested": name,
+                    "reason": message,
+                })
+                return {"error": message}
+
             item, error = self._find_skill(name)
             if item is None:
-                return {"error": error}
+                return fail(str(error))
             if item["activation_mode"] == "manual":
                 names = {
                     str(item["name"]).lower(),
@@ -471,7 +478,7 @@ class Orchestration:
                     for candidate in names
                 )
                 if not explicitly_named:
-                    return {"error": "수동 스킬은 사용자가 이름을 명시한 턴에서만 불러올 수 있습니다"}
+                    return fail("수동 스킬은 사용자가 이름을 명시한 턴에서만 불러올 수 있습니다")
             version_id = str(item["skill_version_id"])
             if version_id in self.loaded_skill_versions:
                 return {
@@ -486,7 +493,7 @@ class Orchestration:
                 available.add("create_worker")
             missing = sorted(required - available)
             if missing:
-                return {"error": f"스킬에 필요한 capability가 AgentProfile에 없습니다: {missing}"}
+                return fail(f"스킬에 필요한 capability가 AgentProfile에 없습니다: {missing}")
             instructions = str(compiled.get("instructions") or "")
             instructions = instructions.replace("{{input}}", self.current_user_text)
             instructions = instructions.replace("{{workspace_root}}", str(self.workspace_context.root))
@@ -496,7 +503,7 @@ class Orchestration:
                 try:
                     self.on_skill_loaded(version_id, reason[:1000], prompt_tokens)
                 except Exception as callback_error:
-                    return {"error": f"스킬 로딩 상태를 저장하지 못했습니다: {callback_error}"}
+                    return fail(f"스킬 로딩 상태를 저장하지 못했습니다: {callback_error}")
             self.loaded_skill_versions.add(version_id)
             self.send({
                 "type": "skill_loaded", "skill_id": item["skill_id"],

@@ -275,6 +275,9 @@ export interface AgentProfileSkill {
   compatibility: SkillCompatibility
   compiled: SkillSummary['compiled']
   report: SkillSummary['report']
+  loaded_at?: string | null
+  load_reason?: string | null
+  prompt_tokens?: number
 }
 
 export interface SkillImportCandidate {

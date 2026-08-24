@@ -4,12 +4,61 @@ import { describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { useStore } from './store'
 import { seedTaskRuntimeVisualFixture } from './visualFixture'
+import type { AgentProfileSkill } from './types'
 
 vi.mock('./components/FileView', () => ({
   default: () => <div>선택한 프로젝트 루트 · 읽기 전용</div>
 }))
 
 describe('Janus renderer fixture', () => {
+  it('shows durable turn evidence and completes slash skill names', async () => {
+    window.history.replaceState({}, '', '/?fixture=task-runtime')
+    seedTaskRuntimeVisualFixture()
+    const session = useStore.getState().taskSession!
+    const fixtureEvent = useStore.getState().taskSessionEvents.at(-1)!
+    useStore.setState({
+      taskConnected: true,
+      taskSession: {
+        ...session,
+        skills: [{
+          skill_version_id: 'skill-version-review',
+          name: 'review',
+          namespace: 'local',
+          activation_mode: 'manual',
+          version: 1,
+          loaded_at: null
+        } as AgentProfileSkill]
+      },
+      taskSessionEvents: [
+        ...useStore.getState().taskSessionEvents,
+        {
+          ...fixtureEvent,
+          seq: 6,
+          kind: 'turn_end',
+          payload: {
+            type: 'turn_end',
+            outcome: {
+              outcome: 'partial',
+              summary: '구현은 끝났고 패키징 검증이 남았습니다.',
+              evidence: ['pnpm test: 11 passed']
+            }
+          }
+        }
+      ]
+    })
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    expect(screen.getByText('최근 턴 · partial')).toBeVisible()
+    expect(screen.getByText('구현은 끝났고 패키징 검증이 남았습니다.')).toBeVisible()
+    expect(screen.getByText('pnpm test: 11 passed')).toBeVisible()
+    const composer = screen.getByRole('textbox', { name: '작업 지시' })
+    await user.type(composer, '/rev')
+    await user.click(screen.getByRole('option', { name: '/review · 수동' }))
+    expect(composer).toHaveValue('/review ')
+  })
+
   it('gates implementation on explicit mockup approval', async () => {
     window.history.replaceState({}, '', '/?fixture=task-runtime')
     seedTaskRuntimeVisualFixture()

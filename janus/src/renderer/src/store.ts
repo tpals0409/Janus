@@ -1377,6 +1377,27 @@ export const useStore = create<State>((set, get) => ({
             )
           } })
         }
+      } else if (payload.type === 'skill_loaded') {
+        const activeSession = get().taskSession
+        if (activeSession) {
+          set({ taskSession: {
+            ...activeSession,
+            skills: (activeSession.skills ?? []).map((skill) =>
+              skill.skill_version_id === payload.skill_version_id
+                ? {
+                    ...skill,
+                    loaded_at: new Date().toISOString(),
+                    load_reason: String(payload.reason ?? ''),
+                    prompt_tokens: Number(payload.prompt_tokens ?? 0)
+                  }
+                : skill
+            )
+          } })
+        }
+      } else if (payload.type === 'skill_load_failed') {
+        set({
+          taskRuntimeError: `스킬 ${String(payload.requested ?? '')} 로드 실패: ${String(payload.reason ?? '알 수 없는 오류')}`
+        })
       } else if (payload.type === 'stale_dispatch') {
         set({
           taskRuntimeError: String(payload.error ?? '이 디스패치는 이미 만료됐습니다'),
