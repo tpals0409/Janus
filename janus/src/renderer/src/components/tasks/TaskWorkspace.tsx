@@ -1655,6 +1655,8 @@ function TaskContextPanel({ task, view, onView }: { task: Task; view: TaskView; 
   const session = useStore((state) => state.taskSession)
   const changedFiles = changeSet ? Object.values(changeSet.counts).reduce((total, count) => total + count, 0) : 0
   const latestVerification = verificationRuns.at(0)
+  const includedSources = session?.context?.items.filter((item) => item.status === 'included').length ?? 0
+  const activeSkills = session?.skills?.filter((skill) => skill.activation_mode !== 'off').length ?? 0
 
   const row = (target: TaskView, icon: ReactNode, label: string, value?: ReactNode) => (
     <button className="context-panel-row" aria-current={view === target ? 'page' : undefined} onClick={() => onView(target)}>
@@ -1672,23 +1674,23 @@ function TaskContextPanel({ task, view, onView }: { task: Task; view: TaskView; 
           {task.workspace?.state === 'ready' ? '로컬' : '준비 중'}
         </Status>
       </div>
+      <section className="task-context-panel__environment">
+        {row('changes', <GitCompareArrows size={16} />, '변경 사항', changedFiles ? `${changedFiles}개` : '—')}
+        {row('workspace', <Laptop size={16} />, '로컬', task.workspace?.state ? stateLabel(task.workspace.state) : '미생성')}
+        {row('workspace', <GitBranch size={14} />, task.workspace?.branch_name ?? task.base_ref)}
+        {row('verification', <ShieldCheck size={16} />, '검증', latestVerification ? stateLabel(latestVerification.status) : '—')}
+        {row('ship', <GitPullRequest size={16} />, '커밋 또는 푸시', shipments.length ? `${shipments.length}` : '—')}
+      </section>
       <section>
-        <div className="task-context-panel__section-label">실행 흐름</div>
+        <div className="task-context-panel__section-label">하위 에이전트</div>
         <RuntimeWorkerGraph task={task} verificationStatus={latestVerification?.status} />
       </section>
       <section>
-        {row('changes', <GitCompareArrows size={14} />, '변경 사항', changedFiles ? `${changedFiles}` : '—')}
-        {row('workspace', <Laptop size={14} />, '로컬', task.workspace?.state ? stateLabel(task.workspace.state) : '미생성')}
-        {row('workspace', <GitBranch size={14} />, task.workspace?.branch_name ?? task.base_ref)}
-        {row('verification', <ShieldCheck size={14} />, '검증', latestVerification ? stateLabel(latestVerification.status) : '—')}
-        {row('review', <MessageSquare size={14} />, '검토', review?.comments.length ? `${review.comments.length}` : '—')}
-        {row('ship', <GitPullRequest size={14} />, '커밋 또는 푸시', shipments.length ? `${shipments.length}` : '—')}
-      </section>
-      <section>
-        <div className="task-context-panel__section-label">실행</div>
-        {row('conversation', <CircleDot size={14} />, session ? `시도 ${session.dispatch.attempt}` : '세션 미시작', session ? stateLabel(session.status) : undefined)}
-        {row('context', <Settings2 size={14} />, '컨텍스트', session?.context ? `~${session.context.estimated_static_tokens.toLocaleString()}` : '—')}
-        {row('development', <Settings2 size={14} />, '개발 도구')}
+        <div className="task-context-panel__section-label">출처</div>
+        {row('context', <CircleDot size={16} />, '컨텍스트 출처', includedSources ? `${includedSources}개` : '—')}
+        {row('context', <Settings2 size={16} />, '활성 스킬', activeSkills ? `${activeSkills}개` : '—')}
+        {row('review', <MessageSquare size={16} />, '검토 의견', review?.comments.length ? `${review.comments.length}` : '—')}
+        {row('development', <Settings2 size={16} />, '개발 도구')}
       </section>
       <div className="task-context-panel__meta">
         <span>{task.workspace?.root_path ?? '작업 공간 준비 전'}</span>
