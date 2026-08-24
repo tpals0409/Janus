@@ -88,6 +88,16 @@ _TASK_RUNTIMES: dict[str, runtime.Orchestration] = {}
 _VERIFICATION_JOBS_LOCK = threading.Lock()
 _VERIFICATION_JOBS: dict[str, threading.Thread] = {}
 _EVALUATION_JOBS_LOCK = threading.Lock()
+_SESSION_APPROVAL_TOOLS = {"write_file", "edit_file"}
+
+
+def _session_approval_key(
+    tool: str, context: WorkspaceContext,
+) -> tuple[str, str] | None:
+    """Return the narrow permission remembered for this websocket session."""
+    if tool not in _SESSION_APPROVAL_TOOLS:
+        return None
+    return ("workspace_write", context.workspace_id)
 _EVALUATION_JOBS: dict[str, threading.Thread] = {}
 _EVALUATION_PROCESSES: dict[str, subprocess.Popen[str]] = {}
 _EVALUATION_CANCELLED: set[str] = set()
@@ -2983,6 +2993,7 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
     loop = asyncio.get_running_loop()
     pending: dict[str, list] = {}
     pending_lock = threading.Lock()
+    approved_scopes: set[tuple[str, str]] = set()
     turn_task: asyncio.Task | None = None
     orch: runtime.Orchestration | None = None
     stop_requested = False
@@ -3072,16 +3083,22 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
     def approver(
         node_id: str, tool: str, args: dict, approval_context: WorkspaceContext
     ) -> bool:
+        scope_key = _session_approval_key(tool, approval_context)
+        with pending_lock:
+            if scope_key is not None and scope_key in approved_scopes:
+                return True
         req_id = uuid.uuid4().hex[:12]
         event = threading.Event()
         with pending_lock:
-            pending[req_id] = [event, False]
+            pending[req_id] = [event, False, scope_key]
         send({
             "type": "approval_request",
             "id": req_id,
             "node_id": node_id,
             "tool": tool,
             "args": args,
+            "rememberable": scope_key is not None,
+            "approval_scope": scope_key[0] if scope_key is not None else None,
             **approval_context.identifiers(),
         })
         if not event.wait(timeout=APPROVAL_TIMEOUT):
@@ -3248,9 +3265,16 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
             elif kind == "approval_response":
                 with pending_lock:
                     slot = pending.get(message.get("id"))
-                if slot:
-                    slot[1] = bool(message.get("approved"))
-                    slot[0].set()
+                    approved = bool(message.get("approved"))
+                    remember = approved and message.get("scope") == "session_workspace"
+                    if slot and remember and slot[2] is not None:
+                        approved_scopes.add(slot[2])
+                        matching = [item for item in pending.values() if item[2] == slot[2]]
+                    else:
+                        matching = [slot] if slot else []
+                    for item in matching:
+                        item[1] = approved
+                        item[0].set()
             elif kind == "cancel":
                 if orch is not None:
                     orch.cancel_all()
@@ -3319,8 +3343,9 @@ async def run_agent(ws: WebSocket, agent_id: str):
         return
     await ws.accept(subprotocol="janus")
     loop = asyncio.get_running_loop()
-    pending: dict[str, list] = {}   # req_id -> [threading.Event, approved]
+    pending: dict[str, list] = {}   # req_id -> [threading.Event, approved, scope_key]
     pending_lock = threading.Lock()
+    approved_scopes: set[tuple[str, str]] = set()
     turn_task: asyncio.Task | None = None
     orch: runtime.Orchestration | None = None
     run_owner_id = agent_id
@@ -3331,14 +3356,20 @@ async def run_agent(ws: WebSocket, agent_id: str):
         node_id: str, tool: str, args: dict, context: WorkspaceContext
     ) -> bool:
         """agent 워커 스레드에서 **블로킹**으로 호출된다."""
+        scope_key = _session_approval_key(tool, context)
+        with pending_lock:
+            if scope_key is not None and scope_key in approved_scopes:
+                return True
         req_id = uuid.uuid4().hex[:12]
         ev = threading.Event()
         with pending_lock:
-            pending[req_id] = [ev, False]
+            pending[req_id] = [ev, False, scope_key]
         asyncio.run_coroutine_threadsafe(
             ws.send_json({
                 "type": "approval_request", "id": req_id,
                 "node_id": node_id, "tool": tool, "args": args,
+                "rememberable": scope_key is not None,
+                "approval_scope": scope_key[0] if scope_key is not None else None,
                 **context.identifiers(),
             }),
             loop,
@@ -3432,9 +3463,16 @@ async def run_agent(ws: WebSocket, agent_id: str):
             elif t == "approval_response":
                 with pending_lock:
                     slot = pending.get(msg.get("id"))
-                if slot:
-                    slot[1] = bool(msg.get("approved"))
-                    slot[0].set()
+                    approved = bool(msg.get("approved"))
+                    remember = approved and msg.get("scope") == "session_workspace"
+                    if slot and remember and slot[2] is not None:
+                        approved_scopes.add(slot[2])
+                        matching = [item for item in pending.values() if item[2] == slot[2]]
+                    else:
+                        matching = [slot] if slot else []
+                    for item in matching:
+                        item[1] = approved
+                        item[0].set()
 
             elif t == "cancel":
                 # 현재 턴만 중단 — 세션은 살아서 다음 message가 대화를 잇는다

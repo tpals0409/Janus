@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type {
-  AgentEvent, AgentProfile, AgentProfileSkill, AgentSessionDetail, AgentSummary, ApprovalRequest, ChangeSet,
+  AgentEvent, AgentProfile, AgentProfileSkill, AgentSessionDetail, AgentSummary, ApprovalRequest, ApprovalResponseScope, ChangeSet,
   BackendStatus, ModelProfile, Project, RunDetail, RunSummary, SessionEvent, Span,
   EvaluationComparison, EvaluationExperiment, OperationsSnapshot, PullRequestSnapshot, ReviewSnapshot, ShipHandoff, Spec,
   SkillActivationMode, SkillImportPreview, SkillSummary, Task, TaskShipment, ToolInfo, TreeEntry,
@@ -199,7 +199,7 @@ interface State {
   sendTaskMessage(text: string): void
   cancelTaskTurn(): void
   stopTaskSession(): Promise<void>
-  respondTaskApproval(id: string, approved: boolean): void
+  respondTaskApproval(id: string, approved: boolean, scope?: ApprovalResponseScope): void
   pickWorkspace(): Promise<void>
   setWorkspaceTo(path: string): Promise<void>
   setSidebarTab(t: 'tasks' | 'files'): void
@@ -220,7 +220,7 @@ interface State {
   stopTurn(): void
   stopWorker(nodeId: string): void
   endSession(): void
-  respondApproval(id: string, approved: boolean): void
+  respondApproval(id: string, approved: boolean, scope?: ApprovalResponseScope): void
 
   loadRuns(): Promise<void>
   loadRun(runId: string): Promise<void>
@@ -1381,10 +1381,10 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  respondTaskApproval(id, approved) {
+  respondTaskApproval(id, approved, scope = 'once') {
     const socket = get().taskWs
     if (!socket || socket.readyState !== WebSocket.OPEN) return
-    socket.send(JSON.stringify({ type: 'approval_response', id, approved }))
+    socket.send(JSON.stringify({ type: 'approval_response', id, approved, scope }))
     set({ taskApprovals: get().taskApprovals.filter((item) => item.id !== id) })
   },
 
@@ -1656,10 +1656,10 @@ export const useStore = create<State>((set, get) => ({
     get().ws?.close()
   },
 
-  respondApproval(id, approved) {
+  respondApproval(id, approved, scope = 'once') {
     const { approvals, ws } = get()
     if (!approvals.some((request) => request.id === id) || !ws || ws.readyState !== WebSocket.OPEN) return
-    ws.send(JSON.stringify({ type: 'approval_response', id, approved }))
+    ws.send(JSON.stringify({ type: 'approval_response', id, approved, scope }))
     set({ approvals: approvals.filter((request) => request.id !== id) })
   },
 

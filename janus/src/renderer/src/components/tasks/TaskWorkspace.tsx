@@ -651,7 +651,15 @@ function TaskRuntimeCard({ task }: { task: Task }) {
           </div>
           <div className="flex shrink-0 gap-2">
             <button onClick={() => respondApproval(approval.id, false)} className="task-quiet-action">거부</button>
-            <button onClick={() => respondApproval(approval.id, true)} className="task-primary-action">승인</button>
+            <button onClick={() => respondApproval(approval.id, true, 'once')} className="task-quiet-action">이번만</button>
+            {approval.rememberable && (
+              <button
+                onClick={() => respondApproval(approval.id, true, 'session_workspace')}
+                className="task-primary-action"
+              >
+                이 세션에서 파일 수정 허용
+              </button>
+            )}
           </div>
         </div>
       ))}

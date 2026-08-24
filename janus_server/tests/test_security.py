@@ -204,6 +204,73 @@ class ServerBoundaryTests(unittest.TestCase):
             finally:
                 server._set_legacy_workspace(previous_workspace)
 
+    def test_workspace_write_approval_can_be_remembered_for_the_session(self):
+        spec = {
+            "name": "remember-write-approval", "model": "qwen3.8-27b",
+            "system_prompt": "write files", "tools": ["write_file", "edit_file"],
+            "approval": "ask", "max_steps": 4,
+        }
+        fake = FakeClient([
+            {"calls": [("write_file", json.dumps({"path": "a.txt", "content": "A"}))]},
+            {"calls": [("edit_file", json.dumps({
+                "path": "a.txt", "old_string": "A", "new_string": "B",
+            }))]},
+            {"text": "done"},
+        ])
+
+        previous_workspace = server._get_legacy_workspace()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            agents = root / "agents"
+            runs = root / "runs"
+            workspace = root / "workspace"
+            agents.mkdir()
+            workspace.mkdir()
+            (agents / "remember.yaml").write_text(S.dumps(spec), encoding="utf-8")
+            server._set_legacy_workspace(workspace)
+            try:
+                with (
+                    patch.object(server, "AGENTS_DIR", agents),
+                    patch.object(server, "RUNS_DIR", runs),
+                    patch.object(runtime, "resolve_local_model", lambda n: n),
+                    patch.object(runtime, "make_client", lambda: fake),
+                    self.client.websocket_connect(
+                        "/run/remember",
+                        headers={"origin": self.origin},
+                        subprotocols=["janus", "test-token"],
+                    ) as ws,
+                ):
+                    ws.send_json({"type": "message", "text": "write then edit"})
+                    approval = None
+                    while approval is None:
+                        message = ws.receive_json()
+                        if message["type"] == "run_error":
+                            self.fail(message["error"])
+                        if message["type"] == "approval_request":
+                            approval = message
+
+                    self.assertTrue(approval["rememberable"])
+                    self.assertEqual("workspace_write", approval["approval_scope"])
+                    ws.send_json({
+                        "type": "approval_response", "id": approval["id"],
+                        "approved": True, "scope": "session_workspace",
+                    })
+
+                    extra_approvals = []
+                    while True:
+                        message = ws.receive_json()
+                        if message["type"] == "run_error":
+                            self.fail(message["error"])
+                        if message["type"] == "approval_request":
+                            extra_approvals.append(message)
+                        if message["type"] == "turn_end":
+                            break
+
+                self.assertEqual([], extra_approvals)
+                self.assertEqual("B", (workspace / "a.txt").read_text(encoding="utf-8"))
+            finally:
+                server._set_legacy_workspace(previous_workspace)
+
 
 if __name__ == "__main__":
     unittest.main()

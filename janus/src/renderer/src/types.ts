@@ -618,7 +618,11 @@ export interface ApprovalRequest {
   task_id: string
   workspace_id: string
   dispatch_id: string
+  rememberable?: boolean
+  approval_scope?: 'workspace_write' | null
 }
+
+export type ApprovalResponseScope = 'once' | 'session_workspace'
 
 export interface Span {
   id: string

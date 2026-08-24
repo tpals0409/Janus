@@ -66,11 +66,20 @@ export default function ApprovalCard() {
             거부
           </Button>
           <Button
-            onClick={() => respond(approval.id, true)}
+            onClick={() => respond(approval.id, true, 'once')}
+            variant={approval.rememberable ? 'ghost' : 'primary'}
             compact
           >
-            승인
+            이번만
           </Button>
+          {approval.rememberable && (
+            <Button
+              onClick={() => respond(approval.id, true, 'session_workspace')}
+              compact
+            >
+              이 세션에서 파일 수정 허용
+            </Button>
+          )}
         </div>
       </div>
       <div className="max-h-32 overflow-auto border border-border bg-base px-2.5 py-2">
