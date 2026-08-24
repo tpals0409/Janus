@@ -1,6 +1,18 @@
 import { useState } from 'react'
 import Editor, { loader, type OnMount } from '@monaco-editor/react'
 import * as monaco from 'monaco-editor/editor/editor.api'
+import 'monaco-editor/languages/definitions/css/register'
+import 'monaco-editor/languages/definitions/go/register'
+import 'monaco-editor/languages/definitions/html/register'
+import 'monaco-editor/languages/definitions/javascript/register'
+import 'monaco-editor/languages/definitions/markdown/register'
+import 'monaco-editor/languages/definitions/python/register'
+import 'monaco-editor/languages/definitions/rust/register'
+import 'monaco-editor/languages/definitions/shell/register'
+import 'monaco-editor/languages/definitions/sql/register'
+import 'monaco-editor/languages/definitions/typescript/register'
+import 'monaco-editor/languages/definitions/xml/register'
+import 'monaco-editor/languages/definitions/yaml/register'
 import { ChevronRight, FileCode2, LockKeyhole, X } from 'lucide-react'
 import { useStore } from '../store'
 
@@ -39,6 +51,16 @@ function languageFor(path: string): string {
   } as Record<string, string>)[extension] ?? (extension ? extension.toUpperCase() : 'Plain Text')
 }
 
+function languageIdFor(path: string): string {
+  const extension = path.split('.').pop()?.toLowerCase() ?? ''
+  return ({
+    ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript',
+    css: 'css', scss: 'scss', html: 'html', json: 'json', md: 'markdown', py: 'python',
+    rs: 'rust', go: 'go', sh: 'shell', bash: 'shell', yaml: 'yaml', yml: 'yaml',
+    xml: 'xml', sql: 'sql'
+  } as Record<string, string>)[extension] ?? 'plaintext'
+}
+
 export default function FileView() {
   const openedFile = useStore((state) => state.openedFile)
   const closeFile = useStore((state) => state.closeFile)
@@ -47,6 +69,7 @@ export default function FileView() {
 
   const parts = openedFile.path.split('/').filter(Boolean)
   const language = languageFor(openedFile.path)
+  const languageId = languageIdFor(openedFile.path)
   const mount: OnMount = (editor) => {
     const update = () => {
       const position = editor.getPosition()
@@ -79,6 +102,7 @@ export default function FileView() {
         <Editor
           height="100%"
           path={openedFile.path}
+          language={languageId}
           theme="janus-ide"
           value={openedFile.content}
           onMount={mount}
