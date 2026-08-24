@@ -120,6 +120,32 @@ class TaskRuntimeTests(unittest.TestCase):
             subprotocols=["janus", "test-token"],
         )
 
+    def test_finish_turn_completed_moves_task_to_review(self):
+        task = self.create_ready_task("structured completion")
+        started = self.start(task["id"])
+        session_id = started["id"]
+        fake = FakeClient([
+            {"calls": [("finish_turn", json.dumps({
+                "outcome": "completed", "summary": "Implemented and verified",
+                "evidence": ["tests passed"],
+            }))]},
+            {"text": "완료했습니다."},
+        ])
+        with (
+            patch.object(runtime, "resolve_local_model", lambda name: name),
+            patch.object(runtime, "make_client", lambda: fake),
+            self.connect(task["id"], session_id) as ws,
+        ):
+            self.assertEqual("session_ready", ws.receive_json()["type"])
+            ws.send_json({"type": "message", "text": "finish it"})
+            events = self.drain_turn(ws)
+
+        turn_end = next(event for event in events if event["type"] == "turn_end")
+        self.assertEqual("completed", turn_end["outcome"]["outcome"])
+        updated = self.client.get(f"/tasks/{task['id']}", headers=self.headers).json()
+        self.assertEqual("review", updated["status"])
+        self.assertIsNone(updated["attention_reason"])
+
     def drain_turn(self, ws) -> list[dict]:
         seen = []
         while True:

@@ -2077,6 +2077,7 @@ class DomainStore:
 
     def settle_session_turn(
         self, session_id: str, *, failed: bool = False, error: str | None = None,
+        outcome: str = "partial",
     ) -> dict:
         """Persist the post-turn resumable state, guarded by latest Dispatch."""
         now = _now()
@@ -2095,17 +2096,29 @@ class DomainStore:
             ).fetchone()
             if latest is None or latest["id"] != session["dispatch_id"]:
                 raise StaleDispatch(f"오래된 Dispatch의 결과입니다: {session['dispatch_id']}")
-            session_status = "failed" if failed else "idle"
-            dispatch_status = "failed" if failed else "needs_you"
-            task_status = "failed" if failed else "needs_you"
             task = self._one(
                 connection, "SELECT workflow_stage FROM tasks WHERE id=?",
                 (session["task_id"],), "Task",
             )
-            attention_reason = None if failed else (
-                "mockup_review" if task["workflow_stage"] == "mockup"
-                else "conversation_idle"
+            normalized_outcome = str(outcome).strip().lower()
+            if normalized_outcome not in {
+                "completed", "partial", "input_required", "mockup_review",
+            }:
+                normalized_outcome = "partial"
+            if task["workflow_stage"] == "mockup" and normalized_outcome == "completed":
+                normalized_outcome = "mockup_review"
+            if task["workflow_stage"] != "mockup" and normalized_outcome == "mockup_review":
+                normalized_outcome = "partial"
+            session_status = "failed" if failed else "idle"
+            dispatch_status = "failed" if failed else "needs_you"
+            task_status = "failed" if failed else (
+                "review" if normalized_outcome == "completed" else "needs_you"
             )
+            attention_reason = None if failed or normalized_outcome == "completed" else {
+                "partial": "conversation_idle",
+                "input_required": "input_required",
+                "mockup_review": "mockup_review",
+            }[normalized_outcome]
             connection.execute(
                 "UPDATE agent_sessions SET status=?,error=?,updated_at=?,"
                 "stopped_at=CASE WHEN ?='failed' THEN ? ELSE NULL END WHERE id=?",

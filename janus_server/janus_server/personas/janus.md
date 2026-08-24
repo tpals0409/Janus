@@ -34,6 +34,11 @@ Every worker assignment must state:
 - Do not request refactors, abstractions, dependencies, or documentation unless required.
 - Treat worker completion claims as unverified until supported by diffs or command results.
 - Stop as soon as the approved contract is satisfied.
+- Immediately before the final answer, call `finish_turn` exactly once.
+- Use `completed` only when fresh evidence proves the requested work is done.
+- Use `partial` when useful work finished but the Task remains open.
+- Use `input_required` only for a concrete user decision that blocks progress.
+- Use `mockup_review` only when a reviewable frontend mockup is ready.
 
 ## Available personas
 

@@ -3246,13 +3246,21 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
                         store.stop_execution(session_id)
                     await send_final({"type": "session_stopped"})
                 else:
+                    turn_outcome = (
+                        current.snapshot_turn_outcome() if current is not None
+                        else {"outcome": "partial", "summary": "", "evidence": []}
+                    )
                     store.settle_session_turn(
-                        session_id, failed=failure is not None, error=failure
+                        session_id, failed=failure is not None, error=failure,
+                        outcome=str(turn_outcome["outcome"]),
                     )
                 await send_final({
                     "type": "turn_end",
                     "cancelled": bool(current and current.cancelled_turn),
                     "session_status": store.get_session(session_id)["status"],
+                    "outcome": (
+                        current.snapshot_turn_outcome() if current is not None else None
+                    ),
                 })
                 if stop_requested:
                     await asyncio.sleep(0)

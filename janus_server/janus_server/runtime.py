@@ -358,6 +358,7 @@ class Orchestration:
         self.last_text = ""
         self.cancelled_turn = False
         self.turn_failed = False  # 턴이 예외로 죽음 — 저장본이 success로 거짓말하지 않게
+        self.turn_outcome: dict | None = None
         self.current_user_text = ""
         self.skill_snapshots = list(spec.get("skills") or [])
         self.loaded_skill_versions: set[str] = {
@@ -381,7 +382,9 @@ class Orchestration:
 
         self.create_worker = self._make_create_worker()
         self.worker_control_tools = self._make_worker_control_tools()
+        self.finish_turn = self._make_finish_turn_tool()
         registry = dict(T.REGISTRY)
+        registry[self.finish_turn["name"]] = self.finish_turn
         if self.worker_enabled:
             registry[self.create_worker["name"]] = self.create_worker
             registry.update({tool["name"]: tool for tool in self.worker_control_tools})
@@ -392,6 +395,7 @@ class Orchestration:
             + (["create_worker"] + [tool["name"] for tool in self.worker_control_tools]
                if self.worker_enabled else [])
             + [tool["name"] for tool in self.skill_tools]
+            + [self.finish_turn["name"]]
         )
         profile_prompt = str(spec.get("system_prompt") or "").strip()
         base_prompt = persona_prompt("janus", custom_prompt=profile_prompt)
@@ -617,6 +621,58 @@ class Orchestration:
         self.send({"type": "span_end", "span": dict(span)})
 
     # ── create_worker 스킬 ──
+
+    def _make_finish_turn_tool(self) -> dict:
+        def handler(
+            outcome: str, summary: str, evidence: list[str] | None = None, **_,
+        ) -> dict:
+            normalized = str(outcome).strip().lower()
+            allowed = {"completed", "partial", "input_required", "mockup_review"}
+            if normalized not in allowed:
+                return {"error": f"지원하지 않는 turn outcome입니다: {normalized}"}
+            record = {
+                "outcome": normalized,
+                "summary": str(summary).strip()[:1000],
+                "evidence": [str(item)[:500] for item in (evidence or [])[:10]],
+            }
+            self.turn_outcome = record
+            return {
+                **record,
+                "recorded": True,
+                "instruction": "이제 사용자에게 간결한 최종 답변을 하고 도구 호출을 멈추세요.",
+            }
+
+        return T._t(
+            "finish_turn", handler,
+            lambda value: json.dumps(value, ensure_ascii=False),
+            T._obj(
+                ["outcome", "summary"],
+                outcome={
+                    "type": "string",
+                    "enum": ["completed", "partial", "input_required", "mockup_review"],
+                    "description": "Durable outcome for the current Task turn.",
+                },
+                summary={
+                    "type": "string", "maxLength": 1000,
+                    "description": "Concise factual result or required user decision.",
+                },
+                evidence={
+                    "type": "array", "maxItems": 10,
+                    "items": {"type": "string", "maxLength": 500},
+                    "description": "Changed files, commands, or other fresh evidence.",
+                },
+            ),
+            "Record the Task outcome immediately before the final user-facing answer.",
+            "Call exactly once at the completion boundary. Use completed only with fresh "
+            "evidence, input_required only for a concrete user decision, and mockup_review "
+            "only after producing a reviewable mockup.",
+            resource_class="cpu_tool", render_chars=4000,
+        )
+
+    def snapshot_turn_outcome(self) -> dict:
+        return dict(self.turn_outcome or {
+            "outcome": "partial", "summary": "finish_turn was not called", "evidence": [],
+        })
 
     def _make_create_worker(self) -> dict:
         def handler(name: str = "", system_prompt: str = "", task: str = "",
@@ -1129,6 +1185,7 @@ class Orchestration:
         self.cancel.clear()
         self.cancelled_turn = False
         self.turn_failed = False
+        self.turn_outcome = None
         dispatch_id = self.telemetry.begin_turn(dispatch_id)
         self.current_dispatch_id = dispatch_id
         self.last_dispatch_id = dispatch_id
@@ -1158,6 +1215,7 @@ class Orchestration:
                     + (["create_worker"] + [tool["name"] for tool in self.worker_control_tools]
                        if self.worker_enabled else [])
                     + [tool["name"] for tool in self.skill_tools]
+                    + [self.finish_turn["name"]]
                 ),
                 workspace_context=context,
                 approve=self._approve_for(ORCH_ID, context),
@@ -1166,7 +1224,7 @@ class Orchestration:
                 cancel=self.cancel,
                 extra_tools=(
                     ([self.create_worker] + self.worker_control_tools
-                     if self.worker_enabled else []) + self.skill_tools
+                     if self.worker_enabled else []) + self.skill_tools + [self.finish_turn]
                 ),
                 session=self.session,
                 scheduler=self.scheduler,

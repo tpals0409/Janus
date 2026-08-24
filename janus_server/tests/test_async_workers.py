@@ -64,6 +64,21 @@ def test_bundled_personas_and_skills_are_composed_by_role():
         runtime.persona_prompt("architect")
 
 
+def test_finish_turn_records_a_structured_outcome():
+    with tempfile.TemporaryDirectory() as tmp:
+        orch = make_orchestration(FakeClient([]), Path(tmp), tools=["echo"])
+        recorded = orch.finish_turn["handler"](
+            outcome="completed", summary="Implemented the requested change.",
+            evidence=["pytest: passed"],
+        )
+        assert recorded["recorded"] is True
+        assert orch.snapshot_turn_outcome() == {
+            "outcome": "completed",
+            "summary": "Implemented the requested change.",
+            "evidence": ["pytest: passed"],
+        }
+
+
 def test_spawn_returns_before_worker_finishes_and_wait_collects_result():
     entered = threading.Event()
     release = threading.Event()
