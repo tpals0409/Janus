@@ -49,7 +49,7 @@ function WindowedOutput({ value }: { value: string }) {
   const bottom = useRef<HTMLDivElement>(null)
   useEffect(() => bottom.current?.scrollIntoView({ block: 'end' }), [value])
   return (
-    <div className="h-full overflow-auto bg-base p-2 font-mono text-[10px] leading-[1.55] text-secondary">
+    <div className="h-full overflow-auto bg-base p-3 font-mono text-[12px] leading-[1.6] text-secondary">
       {omitted > 0 && <div className="mb-2 text-faint">… 이전 {omitted}줄 숨김</div>}
       <pre className="whitespace-pre-wrap break-words">{visible.join('\n')}</pre>
       <div ref={bottom} />
@@ -74,7 +74,7 @@ function TerminalPane({
   }
   return (
     <div className="flex min-w-0 flex-1 flex-col border border-border bg-base">
-      <div className="flex h-7 items-center gap-2 border-b border-border px-2 font-mono text-[10px] text-faint">
+      <div className="flex h-8 items-center gap-2 border-b border-border px-3 font-mono text-[11px] text-faint">
         <TerminalIcon size={10} /> {terminal.pane_id === 'primary' ? '기본' : '보조'} · {{ running: '실행 중', exited: '종료됨', stopped: '중단됨' }[terminal.state]}
         <span className="ml-auto truncate">{terminal.cwd}</span>
         <button onClick={() => void navigator.clipboard.writeText(stripAnsi(terminal.output))} title="출력 복사" className="hover:text-fg"><Clipboard size={10} /></button>
@@ -82,11 +82,11 @@ function TerminalPane({
       </div>
       <div className="min-h-0 flex-1"><WindowedOutput value={terminal.output} /></div>
       <form onSubmit={submit} className="flex border-t border-border">
-        <span className="px-2 py-1.5 font-mono text-[10px] text-secondary">$</span>
+        <span className="px-3 py-2 font-mono text-[12px] text-secondary">$</span>
         <input
           value={command} onChange={(event) => setCommand(event.target.value)}
           disabled={terminal.state !== 'running'} placeholder="이 작업 워크트리에서 실행"
-          className="min-w-0 flex-1 bg-transparent py-1.5 pr-2 font-mono text-[10px] outline-none disabled:opacity-40"
+          className="min-w-0 flex-1 bg-transparent py-2 pr-3 font-mono text-[12px] outline-none disabled:opacity-40"
         />
       </form>
     </div>
@@ -258,9 +258,9 @@ export default function TaskDevelopmentSurface({ task }: { task: Task }) {
   const secondary = terminals.find((item) => item.pane_id === 'secondary')
 
   return (
-    <section className="task-card overflow-hidden p-0">
-      <div className="flex h-9 items-center border-b border-border px-2">
-        <div className="mr-3 font-mono text-[10px] uppercase tracking-[0.16em] text-muted">작업 개발 화면</div>
+    <section className="task-development-surface">
+      <div className="task-development-surface__toolbar">
+        <div className="mr-3 text-[12px] font-medium text-secondary">개발</div>
         <Tabs
           items={['terminal', 'editor', 'preview'] as const}
           value={tab}
@@ -278,11 +278,11 @@ export default function TaskDevelopmentSurface({ task }: { task: Task }) {
       {error && <div className="error-strip border-x-0 border-t-0 text-[10px]">{error}</div>}
 
       {tab === 'terminal' && (
-        <div className="flex h-[330px] flex-col">
+        <div className="flex min-h-0 flex-1 flex-col">
           <div className="flex h-8 items-center gap-1.5 border-b border-border px-2">
             {!primary && <Button onClick={() => void openTerminal('primary')} compact><Play size={9} /> 터미널 열기</Button>}
             {primary && <button onClick={() => { setSplit(!split); remember({ split: !split }); if (!split && !secondary) void openTerminal('secondary') }} className="task-quiet-action"><Columns2 size={9} /> {split ? '단일 화면' : '분할'}</button>}
-            <span className="ml-auto font-mono text-[10px] text-faint">PTY · 작업 공간에 cwd 고정 · 최근 출력 400줄</span>
+            <span className="ml-auto font-mono text-[11px] text-faint">PTY · 작업 공간 고정 · 최근 출력 400줄</span>
           </div>
           <div className="flex min-h-0 flex-1 gap-px bg-border p-px">
             {primary ? <TerminalPane terminal={primary} onInput={inputTerminal} onStop={stopTerminal} /> : <EmptyState title="터미널 없음" description="이 작업 소유의 셸을 여세요." />}
@@ -292,55 +292,55 @@ export default function TaskDevelopmentSurface({ task }: { task: Task }) {
       )}
 
       {tab === 'editor' && (
-        <div className="grid h-[420px] grid-cols-[230px_minmax(0,1fr)]">
+        <div className="grid min-h-0 flex-1 grid-cols-[240px_minmax(0,1fr)]">
           <aside className="min-h-0 border-r border-border bg-panel">
             <form onSubmit={(event) => void searchFiles(event)} className="flex border-b border-border p-2">
               <Search size={11} className="mr-1.5 mt-1.5 text-faint" />
-              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="작업 공간 텍스트 검색" className="min-w-0 flex-1 bg-transparent text-[10px] outline-none" />
+              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="작업 공간 텍스트 검색" className="min-w-0 flex-1 bg-transparent text-[12px] outline-none" />
             </form>
             <div className="h-[calc(100%-37px)] overflow-auto p-1.5">
               {matches.map((match, index) => (
                 <button key={`${match.path}-${match.line}-${index}`} onClick={() => void openFile(match.path)} className="mb-1 w-full rounded px-2 py-1.5 text-left hover:bg-raised">
-                  <div className="truncate font-mono text-[10px] text-secondary">{match.path}:{match.line}</div>
-                  <div className="mt-0.5 truncate text-[10px] text-faint">{match.text}</div>
+                  <div className="truncate font-mono text-[11px] text-secondary">{match.path}:{match.line}</div>
+                  <div className="mt-0.5 truncate text-[11px] text-faint">{match.text}</div>
                 </button>
               ))}
-              {!matches.length && <div className="px-2 py-6 text-center text-[10px] text-faint"><FileSearch size={14} className="mx-auto mb-2" />검색 결과를 Monaco 편집기로 엽니다.</div>}
+              {!matches.length && <div className="px-2 py-6 text-center text-[11px] text-faint"><FileSearch size={14} className="mx-auto mb-2" />검색 결과를 Monaco 편집기로 엽니다.</div>}
             </div>
           </aside>
           <div className="min-w-0">
             {file ? (
               <div className="flex h-full flex-col">
-                <div className="flex h-8 items-center gap-2 border-b border-border px-2 font-mono text-[10px] text-faint">
+                <div className="flex h-9 items-center gap-2 border-b border-border px-3 font-mono text-[11px] text-faint">
                   <FolderTree size={10} /> <span className="truncate">{file.path}</span>
                   {dirty && <span className="text-warn">● 수정됨</span>}
                   <button onClick={() => void saveFile()} disabled={!dirty} className="task-quiet-action ml-auto"><Save size={9} /> 저장 ⌘S</button>
                 </div>
                 <div className="min-h-0 flex-1">
-                  <Editor height="100%" path={file.path} theme="vs-dark" value={draft} onChange={(value) => { setDraft(value ?? ''); setDirty((value ?? '') !== file.content) }} options={{ minimap: { enabled: false }, fontSize: 11, scrollBeyondLastLine: false, automaticLayout: true }} />
+                  <Editor height="100%" path={file.path} theme="vs-dark" value={draft} onChange={(value) => { setDraft(value ?? ''); setDirty((value ?? '') !== file.content) }} options={{ minimap: { enabled: false }, fontSize: 13, lineHeight: 21, scrollBeyondLastLine: false, automaticLayout: true }} />
                 </div>
               </div>
-            ) : <div className="grid h-full place-items-center text-[10px] text-faint">작업 공간의 파일을 검색해 여세요.</div>}
+            ) : <div className="grid h-full place-items-center text-[11px] text-faint">작업 공간의 파일을 검색해 여세요.</div>}
           </div>
         </div>
       )}
 
       {tab === 'preview' && (
-        <div className="min-h-[400px]">
+        <div className="flex min-h-0 flex-1 flex-col">
           <div className="flex h-9 items-center gap-1.5 border-b border-border px-2">
             <input value={previewUrl} onChange={(event) => setPreviewUrl(event.target.value)} className="task-input mt-0 min-w-0 flex-1 font-mono text-[10px]" />
             <button onClick={() => void openPreview()} className="task-primary-action"><ExternalLink size={9} /> 미리보기 열기</button>
             <button onClick={() => void inspect()} disabled={!browser?.open} className="task-quiet-action"><MousePointer2 size={9} /> 요소 선택</button>
             <button onClick={() => void capture()} disabled={!browser?.open} className="task-quiet-action"><Camera size={9} /> 화면 캡처</button>
           </div>
-          <div className="grid h-[360px] grid-cols-[1fr_1fr] gap-px bg-border">
-            <div className="min-h-0 overflow-auto bg-panel p-2">
+          <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1.45fr)_minmax(300px,0.55fr)] gap-px bg-border">
+            <div className="min-h-0 overflow-auto bg-canvas p-3">
               <div className="mb-2 flex items-center justify-between task-label"><span>콘솔 · {browser?.console.length ?? 0}</span><button onClick={() => void navigator.clipboard.writeText((browser?.console ?? []).map((item) => `[${item.level}] ${item.message}`).join('\n'))}><Clipboard size={9} /></button></div>
               {(browser?.console ?? []).slice(-200).map((item, index) => <div key={`${item.at}-${index}`} className={`border-b border-border/50 py-1 font-mono text-[10px] ${item.level === 'error' ? 'text-danger' : 'text-muted'}`}>[{item.level}] {item.message}</div>)}
               <div className="mb-2 mt-4 task-label">네트워크 · {browser?.network.length ?? 0}</div>
               {(browser?.network ?? []).slice(-200).map((item, index) => <div key={`${item.at}-${index}`} className="flex gap-2 border-b border-border/50 py-1 font-mono text-[10px]"><span className={item.error || (item.status ?? 0) >= 400 ? 'text-danger' : 'text-ok'}>{item.error ?? item.status ?? '…'}</span><span className="text-faint">{item.method}</span><span className="truncate text-muted">{item.url}</span></div>)}
             </div>
-            <div className="min-h-0 overflow-auto bg-panel p-2">
+            <div className="min-h-0 overflow-auto bg-panel p-3">
               {inspection ? (
                 <div>
                   <div className="task-label">선택한 요소 · {inspection.element.tag}{inspection.element.id ? `#${inspection.element.id}` : ''}</div>

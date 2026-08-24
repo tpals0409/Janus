@@ -1,11 +1,11 @@
 import { useEffect } from 'react'
 import {
-  AlertTriangle, ArrowUpRight, Cpu, Gauge, MemoryStick, RefreshCw
+  AlertTriangle, ArrowUpRight, CheckCircle2, Cpu, Gauge, MemoryStick, RefreshCw
 } from 'lucide-react'
 import { useStore } from '../../store'
 import { useDomainEvent } from '../../domainEvents'
 import type { OperationsLane, OperationsTask } from '../../types'
-import { Button, EmptyState, Status } from '../ui'
+import { Button, Status } from '../ui'
 
 const LANES: Array<{ id: OperationsLane; label: string; tone: 'muted' | 'success' | 'warning' | 'danger'; color: string; note: string }> = [
   { id: 'queue', label: '대기', tone: 'muted', color: 'var(--text-muted)', note: '소유권 대기 중' },
@@ -86,31 +86,35 @@ function Timeline({ task }: { task: OperationsTask }) {
   )
 }
 
-function TaskStrip({ task, onOpen }: { task: OperationsTask; onOpen: () => void }) {
+function TaskStrip({ task, onOpen, attention = false }: { task: OperationsTask; onOpen: () => void; attention?: boolean }) {
   return (
     <button
       onClick={onOpen}
-      className="group w-full border border-border-subtle bg-panel p-3 text-left transition-colors hover:border-border-strong hover:bg-hover focus-visible:border-accent focus-visible:outline-none"
+      className={`operations-task-row group ${attention ? 'operations-task-row--attention' : ''}`}
     >
-      <div className="flex items-start justify-between gap-2">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="truncate font-mono text-[10px] uppercase tracking-[0.12em] text-faint">
+          <div className="truncate font-mono text-[10.5px] text-faint">
             {task.project_name} · {task.dispatch ? `시도 ${task.dispatch.attempt}` : '미배정'}
           </div>
-          <div className="mt-1 line-clamp-2 text-[11.5px] font-semibold leading-[1.35] text-fg">
+          <div className="mt-1 truncate text-[14px] font-medium text-fg">
             {task.title}
           </div>
         </div>
         <ArrowUpRight size={11} className="mt-0.5 shrink-0 text-faint group-hover:text-fg" />
       </div>
-      <div className="mt-2.5 flex items-center justify-between font-mono text-[10px] uppercase text-faint">
+      <div className="mt-2 flex items-center gap-3 font-mono text-[10.5px] text-faint">
         <span>{STATUS_LABEL[task.session?.status ?? task.status] ?? task.session?.status ?? task.status}</span>
         <span className={task.budget_progress.peak >= 90 ? 'text-danger' : ''}>
-          최대 {Math.round(task.budget_progress.peak)}%
+          예산 최대 {Math.round(task.budget_progress.peak)}%
         </span>
       </div>
-      <div className="mt-2"><BudgetBars task={task} /></div>
-      <Timeline task={task} />
+      </div>
+      <div className="operations-task-row__telemetry">
+        <BudgetBars task={task} />
+        <Timeline task={task} />
+      </div>
     </button>
   )
 }
@@ -135,45 +139,45 @@ export default function OperationsDashboard({ onOpenTask }: { onOpenTask: () => 
   }
 
   const model = snapshot?.scheduler.resources.model_generation
+  const priorityLanes: OperationsLane[] = ['needs_you', 'failed']
+  const flowLanes: OperationsLane[] = ['working', 'idle', 'queue', 'review']
+  const renderGroup = (laneId: OperationsLane, attention = false) => {
+    if (!snapshot) return null
+    const lane = LANES.find((item) => item.id === laneId)!
+    const tasks = snapshot.tasks.filter((task) => task.lane === laneId)
+    if (!tasks.length && attention) return null
+    return (
+      <section key={lane.id} className="operations-group">
+        <header>
+          <div><Status tone={lane.tone}>{lane.label}</Status><span>{lane.note}</span></div>
+          <strong style={{ color: lane.color }}>{tasks.length}</strong>
+        </header>
+        <div className="operations-group__list">
+          {tasks.map((task) => <TaskStrip key={task.id} task={task} attention={attention} onOpen={() => void open(task)} />)}
+          {tasks.length === 0 && <div className="operations-group__empty">현재 작업 없음</div>}
+        </div>
+      </section>
+    )
+  }
   return (
     <main className="workspace-surface min-w-0 flex-1 overflow-y-auto">
-      <section className="border-b border-border bg-panel px-5 py-4">
+      <section className="operations-header">
         <div className="flex items-start justify-between gap-6">
           <div>
-            <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted">
-              로컬 에이전트 제어실
-            </div>
-            <h1 className="task-title mt-1 text-[20px] font-semibold">처리량보다 먼저 확인할 일.</h1>
-            <p className="mt-1 max-w-[680px] text-[10.5px] text-faint">
-              대기·실행·대화 가능·확인·검토·복구 중인 모든 작업을 한 보드에서 보여줍니다.
-            </p>
+            <h1 className="task-title text-[16px] font-medium">운영</h1>
+            <p className="mt-1 text-[11.5px] text-faint">개입이 필요한 작업을 먼저 확인하고 실행 흐름을 추적합니다.</p>
           </div>
           <Button onClick={() => void load()} variant="secondary" compact><RefreshCw size={11} /> 새로고침</Button>
         </div>
 
         {snapshot && (
-          <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-4 border-t border-border pt-3">
-            <div>
-              <div className="mb-1.5 flex justify-between font-mono text-[10px] uppercase text-faint">
-                <span>확인 현황 · 작업 {snapshot.summary.total}개</span>
-                <span>조치 필요 {snapshot.summary.attention}개</span>
-              </div>
-              <div className="flex h-1.5 gap-[2px] overflow-hidden bg-active">
-                {snapshot.tasks.map((task) => {
-                  const lane = LANES.find((item) => item.id === task.lane)!
-                  return <span key={task.id} title={`${task.title} · ${lane.label}`} className="min-w-[4px] flex-1" style={{ background: lane.color }} />
-                })}
-              </div>
-            </div>
-            <div className="flex items-center gap-2 border-l border-border pl-4 text-[10px] text-muted">
-              <Cpu size={12} /> 모델 {model?.active ?? 0}/{model?.cap ?? 1} · 대기 {model?.queued ?? 0}
-            </div>
-            <div className="flex items-center gap-2 border-l border-border pl-4 text-[10px] text-muted">
-              <MemoryStick size={12} /> 최대 {bytes(snapshot.memory.janus_process_peak_rss_bytes)}
-            </div>
-            <div className="flex items-center gap-2 border-l border-border pl-4 text-[10px] text-muted">
-              <Gauge size={12} /> 리스 {snapshot.scheduler.active_leases}개
-            </div>
+          <div className="operations-summary">
+            <div><strong>{snapshot.summary.attention}</strong><span>확인 필요</span></div>
+            <div><strong>{snapshot.tasks.filter((task) => task.lane === 'working').length}</strong><span>실행 중</span></div>
+            <div><strong>{snapshot.tasks.filter((task) => task.lane === 'idle').length}</strong><span>대화 가능</span></div>
+            <div><Cpu size={13} /><span>모델 {model?.active ?? 0}/{model?.cap ?? 1} · 대기 {model?.queued ?? 0}</span></div>
+            <div><MemoryStick size={13} /><span>메모리 {bytes(snapshot.memory.janus_process_peak_rss_bytes)}</span></div>
+            <div><Gauge size={13} /><span>리스 {snapshot.scheduler.active_leases}개</span></div>
           </div>
         )}
       </section>
@@ -187,27 +191,12 @@ export default function OperationsDashboard({ onOpenTask }: { onOpenTask: () => 
       {!snapshot ? (
         <div className="grid h-[420px] place-items-center font-mono text-[10px] text-faint">운영 현황 로딩 중…</div>
       ) : (
-        <section className="grid min-w-[1380px] grid-cols-6 gap-3 p-4">
-          {LANES.map((lane) => {
-            const tasks = snapshot.tasks.filter((task) => task.lane === lane.id)
-            return (
-              <div key={lane.id} className="min-w-0">
-                <div className="mb-2 flex items-end justify-between border-b pb-2" style={{ borderColor: `${lane.color}55` }}>
-                  <div>
-                    <Status tone={lane.tone}>{lane.label}</Status>
-                    <div className="mt-0.5 text-[10px] text-faint">{lane.note}</div>
-                  </div>
-                  <span className="font-mono text-[18px] font-semibold" style={{ color: lane.color }}>{tasks.length}</span>
-                </div>
-                <div className="space-y-2">
-                  {tasks.map((task) => <TaskStrip key={task.id} task={task} onOpen={() => void open(task)} />)}
-                  {tasks.length === 0 && (
-                    <EmptyState title="없음" />
-                  )}
-                </div>
-              </div>
-            )
-          })}
+        <section className="operations-content">
+          <div className="operations-attention">
+            {priorityLanes.map((lane) => renderGroup(lane, true))}
+            {snapshot.summary.attention === 0 && <div className="operations-clear"><CheckCircle2 size={16} /> 지금 확인할 작업이 없습니다.</div>}
+          </div>
+          <div className="operations-flow">{flowLanes.map((lane) => renderGroup(lane))}</div>
         </section>
       )}
     </main>

@@ -258,6 +258,23 @@ describe('Janus renderer fixture', () => {
 
     await user.click(screen.getByRole('button', { name: '에이전트' }))
     expect(screen.getByRole('tablist', { name: '에이전트 프로필' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Janus Local' })).toBeVisible()
+    expect(screen.getByText('실행 계약')).toBeVisible()
+    await user.click(screen.getByRole('tab', { name: '프롬프트' }))
     expect(screen.getByRole('heading', { name: '시스템 프롬프트' })).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: '평가' }))
+    expect(screen.getByRole('heading', { name: '평가' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: '대조 프로필' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: '후보 프로필' })).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: '모니터' }))
+    expect(screen.getByRole('heading', { name: '운영' })).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: '작업' }))
+    await user.click(screen.getByRole('tab', { name: /작업/ }))
+    const development = screen.getByRole('button', { name: '개발 도구' })
+    await user.click(development)
+    expect(development).toHaveAttribute('aria-current', 'page')
   })
 })

@@ -1,6 +1,6 @@
 import { ChangeEvent, useEffect, useMemo, useState } from 'react'
 import {
-  AlertTriangle, Check, CheckCircle2, Download, FlaskConical, Loader2, Play, Square, Upload
+  AlertTriangle, Check, CheckCircle2, Download, Loader2, Play, Square, Upload
 } from 'lucide-react'
 import { useStore } from '../../store'
 import { useDomainEvent } from '../../domainEvents'
@@ -41,7 +41,7 @@ function ExperimentLane({ role }: { role: 'baseline' | 'candidate' }) {
   }
 
   return (
-    <section className="border border-border-subtle bg-panel p-4">
+    <section className={`evaluation-lane evaluation-lane--${role}`}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-faint">{role === 'baseline' ? '기준' : '후보'}</div>
@@ -153,7 +153,7 @@ function ComparisonLedger() {
     : verdict === 'regression' || verdict === 'incomparable_conditions'
       ? 'var(--color-danger)' : 'var(--color-warn)'
   return (
-    <section className="mt-4 border border-border-subtle bg-panel">
+    <section className="evaluation-ledger">
       <div className="grid grid-cols-[minmax(0,1fr)_180px_minmax(0,1fr)] items-end gap-3 border-b border-border p-4">
         <label>
           <span className="task-label">기준 결과</span>
@@ -263,27 +263,25 @@ export default function EvaluationLab() {
 
   return (
     <main className="workspace-surface min-w-0 flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-[1180px] px-5 py-5">
-        <div className="mb-4 flex items-end justify-between gap-5">
+      <div className="evaluation-page">
+        <div className="evaluation-page__header">
           <div>
-            <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.2em] text-muted">
-              <FlaskConical size={12} /> 평가 실험실
-            </div>
-            <h1 className="task-title mt-2 text-[20px] font-semibold tracking-[-0.01em]">정책 변경을 증명하세요.</h1>
-            <p className="mt-2 max-w-[700px] text-[11px] leading-relaxed text-faint">
-              변경할 수 없는 두 프로필 스냅샷으로 같은 고정 작업을 실행합니다. 수용 여부를 먼저 판정하고 시간·토큰·분산·사람의 개입으로 우승 후보를 결정합니다.
-            </p>
+            <h1 className="task-title text-[16px] font-medium">평가</h1>
+            <p>같은 작업과 하드웨어 조건에서 기준 프로필과 후보 프로필을 비교합니다.</p>
           </div>
           <div className="text-right font-mono text-[10px] text-faint">
             실험 {experiments.length}개<br />{active ? '실행기 작동 중' : '실행기 대기 중'}
           </div>
         </div>
         {error && <div className="error-strip mb-4">{error}</div>}
-        <div className="grid grid-cols-2 gap-4">
-          <ExperimentLane role="baseline" />
-          <ExperimentLane role="candidate" />
+        <div className="evaluation-workbench">
+          <div className="evaluation-workbench__profiles">
+            <ExperimentLane role="baseline" />
+            <div className="evaluation-workbench__versus">VS</div>
+            <ExperimentLane role="candidate" />
+          </div>
+          <ComparisonLedger />
         </div>
-        <ComparisonLedger />
       </div>
     </main>
   )

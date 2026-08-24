@@ -12,8 +12,9 @@ import SkillLibrary from './components/SkillLibrary'
 import ContextPolicyEditor from './components/ContextPolicyEditor'
 import { BrandMark, Status, Tabs } from './components/ui'
 import CommandPalette from './components/CommandPalette'
+import AgentOverview from './components/AgentOverview'
 
-const DESIGN_TABS = ['프롬프트', '스킬', '컨텍스트 정책', '그래프'] as const
+const DESIGN_TABS = ['개요', '프롬프트', '스킬', '컨텍스트 정책', '그래프'] as const
 
 
 export default function App() {
@@ -31,7 +32,7 @@ export default function App() {
   const selectedAgentProfileId = useStore((s) => s.selectedAgentProfileId)
 
   const [nav, setNav] = useState('tasks')
-  const [tab, setTab] = useState<(typeof DESIGN_TABS)[number]>('프롬프트')
+  const [tab, setTab] = useState<(typeof DESIGN_TABS)[number]>('개요')
   const selectedProfile = agentProfiles.find((profile) => profile.id === selectedAgentProfileId)
 
   const pollHealth = useStore((s) => s.pollHealth)
@@ -153,7 +154,9 @@ export default function App() {
               <Tabs items={DESIGN_TABS} value={tab} onChange={setTab} label="에이전트 프로필" />
 
               <div className="min-h-0 flex-1">
-                {tab === '프롬프트' ? (
+                {tab === '개요' ? (
+                  <AgentOverview onOpen={setTab} />
+                ) : tab === '프롬프트' ? (
                   <PromptEditor />
                 ) : tab === '스킬' ? (
                   <SkillLibrary />
