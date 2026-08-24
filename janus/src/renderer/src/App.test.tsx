@@ -197,9 +197,16 @@ describe('Janus renderer fixture', () => {
 
     // 작업은 사이드바에서 바로 제거할 수 있어야 한다 — 확인을 거친 뒤에만 지운다
     const archiveTask = vi.fn().mockResolvedValue(undefined)
-    useStore.setState({ archiveTask })
+    const stopTaskSession = vi.fn().mockImplementation(async () => {
+      const session = useStore.getState().taskSession
+      if (session) useStore.setState({ taskSession: { ...session, status: 'stopped' }, taskRuntimeError: null })
+    })
+    useStore.setState({ archiveTask, stopTaskSession })
     await user.click(screen.getByRole('button', { name: 'Make Task runtime restart-safe 제거' }))
     expect(archiveTask).not.toHaveBeenCalled()
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: '세션 중단' }))
+    expect(stopTaskSession).toHaveBeenCalledTimes(1)
+    expect(await screen.findByRole('button', { name: '작업 제거' })).toBeVisible()
     await user.click(screen.getByRole('button', { name: '작업 제거' }))
     expect(archiveTask).toHaveBeenCalledWith(useStore.getState().tasks[0].id)
 

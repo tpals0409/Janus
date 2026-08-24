@@ -127,8 +127,15 @@ export default function TaskSidebar({
   const sidebarTab = useStore((state) => state.sidebarTab)
   const setSidebarTab = useStore((state) => state.setSidebarTab)
   const archiveTask = useStore((state) => state.archiveTask)
+  const session = useStore((state) => state.taskSession)
+  const stopTaskSession = useStore((state) => state.stopTaskSession)
   const busy = useStore((state) => state.taskBusy)
   const [pendingDelete, setPendingDelete] = useState<Task | null>(null)
+  const deletingActiveSession = Boolean(
+    pendingDelete?.id === taskId
+    && session
+    && ['created', 'running', 'idle'].includes(session.status)
+  )
   return (
     <aside className="resource-sidebar">
       <ProjectSwitcher />
@@ -169,11 +176,30 @@ export default function TaskSidebar({
           ))}
           {projectId && tasks.length === 0 && <div className="px-4 py-5 text-center text-[11px] leading-relaxed text-faint">아직 실행 단위가 없습니다.<br />오른쪽 입력창에서 목표를 위임하세요.</div>}
         </div>
-        <ConfirmDialog open={Boolean(pendingDelete)} title={`“${pendingDelete?.title ?? ''}” 작업을 제거할까요?`} description="목록에서만 제거합니다. 대화 기록과 Git 브랜치는 보존됩니다." confirmLabel="작업 제거" danger onClose={() => setPendingDelete(null)} onConfirm={() => {
-          const id = pendingDelete?.id
-          setPendingDelete(null)
-          if (id) void archiveTask(id)
-        }} />
+        <ConfirmDialog
+          open={Boolean(pendingDelete)}
+          title={deletingActiveSession
+            ? `“${pendingDelete?.title ?? ''}” 세션을 먼저 중단할까요?`
+            : `“${pendingDelete?.title ?? ''}” 작업을 제거할까요?`}
+          description={deletingActiveSession
+            ? '실행 중인 세션은 바로 제거할 수 없습니다. 세션을 중단한 뒤 작업 제거를 한 번 더 확인합니다.'
+            : '목록에서만 제거합니다. 대화 기록과 Git 브랜치는 보존됩니다.'}
+          confirmLabel={deletingActiveSession ? '세션 중단' : '작업 제거'}
+          danger
+          onClose={() => setPendingDelete(null)}
+          onConfirm={() => {
+            const target = pendingDelete
+            if (!target) return
+            setPendingDelete(null)
+            if (deletingActiveSession) {
+              void stopTaskSession().then(() => {
+                if (!useStore.getState().taskRuntimeError) setPendingDelete(target)
+              })
+              return
+            }
+            void archiveTask(target.id)
+          }}
+        />
       </div>
       )}
       <nav className="task-sidebar-nav" aria-label="기본 탐색">

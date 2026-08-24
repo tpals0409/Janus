@@ -1487,11 +1487,6 @@ export const useStore = create<State>((set, get) => ({
   async stopTaskSession() {
     const session = get().taskSession
     if (!session) return
-    const socket = get().taskWs
-    if (socket?.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: 'stop' }))
-      return
-    }
     set({ taskBusy: true, taskRuntimeError: null })
     try {
       const stopped = (await apiJson(`${BASE}/sessions/${session.id}/stop`, {
