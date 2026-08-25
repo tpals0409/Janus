@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Boxes, ChevronDown, Files, FolderGit2, ListTodo, MessageSquarePlus, Plus, Trash2 } from 'lucide-react'
+import { Boxes, ChevronDown, Files, FlaskConical, FolderGit2, ListTodo, MessageSquarePlus, Plus, Trash2 } from 'lucide-react'
 import { useStore } from '../../store'
 import type { Project, Task } from '../../types'
 import FileTree from '../FileTree'
@@ -126,6 +126,7 @@ export default function TaskSidebar({
       <nav className="task-sidebar-nav" aria-label="기본 탐색">
         <button aria-current={activeNavigation === 'tasks' ? 'page' : undefined} onClick={() => onNavigate?.('tasks')}><ListTodo size={14} /> 작업</button>
         <button aria-current={activeNavigation === 'agents' ? 'page' : undefined} onClick={() => onNavigate?.('agents')}><Boxes size={14} /> 에이전트</button>
+        <button aria-current={activeNavigation === 'evaluations' ? 'page' : undefined} onClick={() => onNavigate?.('evaluations')}><FlaskConical size={14} /> 평가</button>
       </nav>
       <div className="task-sidebar-actions">
         <button type="button" onClick={onNewConversation} disabled={!projectId} className="task-sidebar-new-chat">

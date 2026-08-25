@@ -2858,3 +2858,128 @@ textarea:focus-visible {
 .approval-timer[data-urgent] {
   color: var(--warning);
 }
+
+.eval-lab {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  padding: 20px 24px;
+  background: var(--bg-canvas);
+}
+
+.eval-lab__toolbar {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.eval-lab__toolbar h2 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.eval-lab__hint {
+  flex: 1;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.eval-lab__error {
+  color: var(--danger);
+  font-size: 11px;
+}
+
+.eval-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.eval-table th {
+  padding: 6px 10px 6px 0;
+  border-bottom: 1px solid var(--border-default);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.eval-table td {
+  height: 32px;
+  padding-right: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.eval-compare {
+  padding-top: 14px;
+  border-top: 1px solid var(--border-default);
+}
+
+.eval-compare h3 {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.eval-compare__controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.eval-compare__controls .ui-select {
+  max-width: 220px;
+}
+
+.eval-compare__empty {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.eval-comparison {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.eval-comparison__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.eval-comparison__exports {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.eval-comparison__rows {
+  margin-top: 6px;
+  padding-left: 2px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.eval-comparison__rows[data-kind='regression'] {
+  color: var(--danger);
+}
+
+.eval-run-form {
+  display: flex;
+  width: 380px;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+}
+
+.eval-run-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

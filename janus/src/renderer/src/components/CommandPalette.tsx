@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Boxes, ListTodo, Search, TerminalSquare } from 'lucide-react'
+import { FlaskConical, Boxes, ListTodo, Search, TerminalSquare } from 'lucide-react'
 import { useStore } from '../store'
 
 type Command = {
@@ -23,6 +23,7 @@ export default function CommandPalette({ onNavigate }: { onNavigate: (id: string
   const commands = useMemo<Command[]>(() => [
     { id: 'nav:tasks', label: '작업 열기', detail: '프로젝트와 Task 실행', icon: ListTodo, run: () => onNavigate('tasks') },
     { id: 'nav:agents', label: '에이전트 열기', detail: 'AgentProfile 구성', icon: Boxes, run: () => onNavigate('agents') },
+    { id: 'nav:evaluations', label: '평가 열기', detail: 'Evaluation Lab 실험과 비교', icon: FlaskConical, run: () => onNavigate('evaluations') },
     ...profiles.map((profile): Command => ({
       id: `profile:${profile.id}`,
       label: `${profile.name} 프로필로 전환`,

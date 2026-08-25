@@ -498,4 +498,21 @@ describe('Janus renderer fixture', () => {
     expect(screen.getByRole('button', { name: '턴 취소' })).toBeVisible()
     expect(screen.getByRole('button', { name: '다음 턴으로 보내기' })).toBeVisible()
   })
+
+  it('opens the Evaluation Lab from the navigation', async () => {
+    window.history.replaceState({}, '', '/?fixture=task-runtime')
+    seedTaskRuntimeVisualFixture()
+    useStore.setState({ taskConnected: true })
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } })
+    ))
+    const user = userEvent.setup()
+
+    render(<App />)
+    await user.click(screen.getByRole('button', { name: '평가' }))
+
+    expect(await screen.findByText('실험이 아직 없습니다')).toBeVisible()
+    expect(screen.getAllByRole('button', { name: /새 실험/ }).length).toBeGreaterThan(0)
+    vi.unstubAllGlobals()
+  })
 })

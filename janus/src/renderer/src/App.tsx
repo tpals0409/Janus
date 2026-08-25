@@ -11,6 +11,7 @@ import SkillLibrary from './components/SkillLibrary'
 import ContextPolicyEditor from './components/ContextPolicyEditor'
 import { BrandMark, Status, Tabs } from './components/ui'
 import CommandPalette from './components/CommandPalette'
+import EvaluationLab from './components/EvaluationLab'
 import AgentOverview from './components/AgentOverview'
 
 const DESIGN_TABS = ['대시보드', '지침', '스킬', '컨텍스트', '그래프'] as const
@@ -142,7 +143,9 @@ export default function App() {
         <div className="app-titlebar__context">
           {nav === 'tasks'
             ? task?.title ?? projects.find((project) => project.id === projectId)?.name ?? '작업'
-            : selectedProfile?.name ?? '실행 프로필'}
+            : nav === 'evaluations'
+              ? 'Evaluation Lab'
+              : selectedProfile?.name ?? '실행 프로필'}
         </div>
         <div className="app-titlebar__status">
           <span className="font-mono text-[10px] text-faint">local</span>
@@ -169,6 +172,8 @@ export default function App() {
             newConversation={newConversation}
             onNewConversationChange={setNewConversation}
           />
+        ) : nav === 'evaluations' ? (
+          <EvaluationLab />
         ) : nav !== 'agents' ? (
           <div className="grid flex-1 place-items-center text-[12px] text-faint">
             이 화면은 아직 구현되지 않았습니다
