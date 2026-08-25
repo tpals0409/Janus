@@ -1,6 +1,39 @@
+import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { Bot, ChevronDown } from 'lucide-react'
 import { Status } from './ui'
+
+const MODEL_LOAD_KEY = 'janus.model-load-seconds'
+
+/** 로딩 경과를 초 단위로 세고, 완료되면 다음 콜드 스타트의 기대치로 기억한다. */
+function useModelLoadSeconds(loading: boolean): { elapsed: number | null; lastSeconds: number | null } {
+  const elapsedRef = useRef(0)
+  const [elapsed, setElapsed] = useState<number | null>(null)
+  const [lastSeconds, setLastSeconds] = useState<number | null>(() => {
+    const stored = Number(localStorage.getItem(MODEL_LOAD_KEY))
+    return Number.isFinite(stored) && stored > 0 ? Math.round(stored) : null
+  })
+  useEffect(() => {
+    if (!loading) {
+      if (elapsedRef.current >= 3) {
+        localStorage.setItem(MODEL_LOAD_KEY, String(elapsedRef.current))
+        setLastSeconds(elapsedRef.current)
+      }
+      elapsedRef.current = 0
+      setElapsed(null)
+      return
+    }
+    const startedAt = Date.now()
+    elapsedRef.current = 0
+    setElapsed(0)
+    const id = window.setInterval(() => {
+      elapsedRef.current = Math.round((Date.now() - startedAt) / 1000)
+      setElapsed(elapsedRef.current)
+    }, 1000)
+    return () => window.clearInterval(id)
+  }, [loading])
+  return { elapsed, lastSeconds }
+}
 
 export function AgentProfilePicker() {
   const profiles = useStore((state) => state.agentProfiles)
@@ -31,6 +64,11 @@ export function StatusBar({ mode }: { mode: string }) {
   const serverExternal = backendStatus?.server.phase === 'external'
   const mlxPhase = backendStatus?.mlx.phase
   const acceleration = backendStatus?.mlx.acceleration
+  const mlxLoading = !mlxUp && mlxPhase !== 'failed'
+  const { elapsed, lastSeconds } = useModelLoadSeconds(mlxLoading)
+  const loadClock = elapsed === null
+    ? ''
+    : ` · ${elapsed}초${lastSeconds !== null ? ` (지난번 ${lastSeconds}초)` : ''}`
   const mlxText = mlxUp
     ? mlxPhase === 'external'
       ? '모델 :8080 (외부) · MTP 확인 불가'
@@ -40,10 +78,10 @@ export function StatusBar({ mode }: { mode: string }) {
     : mlxPhase === 'failed'
       ? `모델 시작 실패 · ${backendStatus?.mlx.attempts ?? 0}회`
       : mlxPhase === 'restarting'
-        ? '모델 재시작 중…'
+        ? `모델 재시작 중${loadClock}`
         : acceleration?.policy === 'required'
-          ? '모델·MTP 로딩 중…'
-          : '모델 로딩 중…'
+          ? `모델·MTP 로딩 중${loadClock}`
+          : `모델 로딩 중${loadClock}`
 
   return (
     <footer className="status-bar">
