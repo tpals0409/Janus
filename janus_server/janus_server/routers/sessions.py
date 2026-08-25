@@ -440,6 +440,7 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
         for item in store.list_session_approval_scopes(session_id)
     }
     turn_task: asyncio.Task | None = None
+    queued_texts: list[str] = []
     orch: runtime.Orchestration | None = None
     stop_requested = False
     stale_notified = threading.Event()
@@ -713,6 +714,15 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
                     "error": "더 최신 Dispatch가 이 Task의 실행 권한을 소유합니다",
                 }))
 
+    def _start_turn(text: str) -> None:
+        nonlocal turn_task
+        turn_task = asyncio.create_task(do_turn(text))
+        turn_task.add_done_callback(_drain_queued_turns)
+
+    def _drain_queued_turns(_task: asyncio.Task) -> None:
+        if queued_texts and not stop_requested and not stale_notified.is_set():
+            _start_turn(queued_texts.pop(0))
+
     await _safe_send(_payload_with_ids({
         "type": "session_ready",
         "agent_profile_id": session["agent_profile_id"],
@@ -732,9 +742,17 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
             kind = message.get("type")
             if kind in {"message", "resume"}:
                 text = str(message.get("text") or "").strip()
-                if not text or (turn_task and not turn_task.done()) or stop_requested:
+                if not text or stop_requested:
                     continue
-                turn_task = asyncio.create_task(do_turn(text))
+                if turn_task and not turn_task.done():
+                    # 실행 중 지시는 버리지 않는다 — 이 턴이 끝나면 순서대로 실행한다.
+                    queued_texts.append(text)
+                    await _safe_send(_payload_with_ids({
+                        "type": "turn_queued", "text": text,
+                        "position": len(queued_texts),
+                    }))
+                    continue
+                _start_turn(text)
             elif kind == "approval_response":
                 granted_scope = None
                 with pending_lock:
@@ -789,6 +807,7 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
                 orch.stop_worker(str(message.get("node_id") or ""))
             elif kind == "stop":
                 stop_requested = True
+                queued_texts.clear()
                 if orch is not None:
                     orch.cancel_all()
                 with pending_lock:

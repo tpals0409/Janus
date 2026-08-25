@@ -298,6 +298,34 @@ class TaskRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(409, denied.status_code)
 
+    def test_a_message_during_an_active_turn_runs_on_the_next_turn(self):
+        task = self.create_ready_task("Queued steering")
+        detail = self.start(task["id"])
+        session_id = detail["id"]
+
+        fake = FakeClient([{"text": "answer one"}, {"text": "answer two"}])
+        with (
+            patch.object(runtime, "resolve_local_model", lambda name: name),
+            patch.object(runtime, "make_client", lambda: fake),
+            self.connect(task["id"], session_id) as ws,
+        ):
+            self.assertEqual("session_ready", ws.receive_json()["type"])
+            ws.send_json({"type": "message", "text": "question one"})
+            ws.send_json({"type": "message", "text": "question two"})
+            first = self.drain_turn(ws)
+            second = self.drain_turn(ws)
+
+        queued = [event for event in first if event["type"] == "turn_queued"]
+        self.assertEqual(["question two"], [event["text"] for event in queued])
+        self.assertEqual(
+            "run_start", second[0]["type"],
+            "큐에 쌓인 지시는 턴이 끝나면 자동으로 다음 턴을 시작해야 한다",
+        )
+        self.assertIn(
+            "question two",
+            [item["content"] for item in fake.captured[1]["messages"]],
+        )
+
     def test_renderer_disconnect_does_not_cancel_persisted_turn(self):
         task = self.create_ready_task("Detached persistent chat")
         detail = self.start(task["id"])

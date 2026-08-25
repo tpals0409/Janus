@@ -484,4 +484,18 @@ describe('Janus renderer fixture', () => {
     expect(screen.getByText(/모델·MTP 로딩 중 · 0초 \(지난번 74초\)/)).toBeVisible()
     localStorage.removeItem('janus.model-load-seconds')
   })
+
+  it('keeps the composer open during an active turn and queues for the next one', async () => {
+    window.history.replaceState({}, '', '/?fixture=task-runtime')
+    seedTaskRuntimeVisualFixture()
+    useStore.setState({ taskConnected: true, taskTurnActive: true })
+
+    render(<App />)
+
+    const composer = screen.getByRole('textbox', { name: '작업 지시' })
+    expect(composer).toBeEnabled()
+    expect(composer).toHaveAttribute('placeholder', '지금 보내면 이 턴이 끝난 뒤 실행됩니다')
+    expect(screen.getByRole('button', { name: '턴 취소' })).toBeVisible()
+    expect(screen.getByRole('button', { name: '다음 턴으로 보내기' })).toBeVisible()
+  })
 })
