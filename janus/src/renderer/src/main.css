@@ -1018,6 +1018,144 @@ button {
   padding: 40px 24px 22px;
 }
 
+.worker-modal__backdrop {
+  position: fixed;
+  z-index: 60;
+  display: grid;
+  padding: 32px;
+  inset: 0;
+  background: rgb(0 0 0 / 46%);
+  backdrop-filter: blur(3px);
+  place-items: center;
+}
+
+.worker-modal {
+  display: flex;
+  overflow: hidden;
+  width: min(100%, 720px);
+  max-height: min(100%, 640px);
+  flex-direction: column;
+  border: 1px solid var(--border-default);
+  border-radius: 18px;
+  background: var(--bg-surface);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 40%);
+}
+
+.worker-modal__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--border-default);
+  padding: 12px 14px;
+}
+
+.worker-modal__header strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.worker-modal__header small {
+  color: var(--text-faint);
+  font-size: 10.5px;
+}
+
+.worker-modal__badge {
+  margin-left: auto;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.worker-modal__elapsed {
+  color: var(--text-muted);
+  font-family: var(--font-mono, monospace);
+  font-size: 10.5px;
+  font-style: normal;
+}
+
+.worker-modal__close {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  color: var(--text-muted);
+  place-items: center;
+}
+
+.worker-modal__close:hover {
+  background: var(--bg-panel);
+  color: var(--text-primary);
+}
+
+.worker-modal__body {
+  display: flex;
+  overflow-y: auto;
+  flex-direction: column;
+  padding: 14px;
+  gap: 10px;
+}
+
+.worker-modal__turn {
+  border-left: 2px solid var(--border-default);
+  padding: 2px 0 2px 10px;
+}
+
+.worker-modal__turn small {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--text-faint);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.worker-modal__turn p {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.worker-modal__turn code {
+  display: block;
+  overflow-x: auto;
+  border-radius: 8px;
+  background: var(--bg-panel);
+  padding: 6px 8px;
+  color: var(--text-muted);
+  font-size: 10.5px;
+}
+
+.worker-modal__turn--reasoning p {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.worker-modal__turn--tool {
+  border-left-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.worker-modal__turn--answer {
+  border-left-color: var(--accent);
+}
+
+.worker-modal__turn--error {
+  border-left-color: var(--danger);
+}
+
+.worker-modal__turn--error p {
+  color: var(--danger);
+}
+
+.worker-modal__empty {
+  color: var(--text-faint);
+  font-size: 11.5px;
+}
+
 .new-chat-composer {
   position: relative;
   width: min(100%, 800px);

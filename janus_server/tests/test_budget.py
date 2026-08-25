@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from janus_server import agent, runtime
+from janus_server import agent, budget, runtime, scheduler as scheduler_mod
 from janus_server.budget import BudgetTracker, normalize_budget
 from janus_server.scheduler import ResourceScheduler
 from janus_server.workspace import WorkspaceContext
@@ -237,6 +237,51 @@ class BudgetTests(unittest.TestCase):
         self.assertEqual(1, orch.worker_seq)
         self.assertIsNone(orch.dispatch_budget.exhausted_reason)
 
+
+
+class SuppressionGuidanceTests(unittest.TestCase):
+    """일시적 억제에 "직접 하라"고 시키면 위임이 조용히 사라진다."""
+
+    def test_queue_backpressure_tells_the_orchestrator_to_wait_not_to_implement(self):
+        guidance = runtime.suppression_guidance("model_queue_backpressure")
+        self.assertIn("wait_worker", guidance)
+        self.assertIn("Do not implement the work yourself", guidance)
+        self.assertNotIn("complete the task directly", guidance)
+
+    def test_a_duplicate_worker_is_integrated_not_reimplemented(self):
+        guidance = runtime.suppression_guidance("duplicate_worker_running")
+        self.assertIn("wait_worker", guidance)
+        self.assertIn("Do not implement it again yourself", guidance)
+
+    def test_a_structural_policy_still_allows_direct_completion(self):
+        guidance = runtime.suppression_guidance("worker_policy_fixed_one")
+        self.assertIn("complete the task directly", guidance)
+        self.assertIn("suppressed", guidance)
+
+class BudgetCancelEventProtocolTests(unittest.TestCase):
+    def test_setting_a_budget_cancel_marks_it_cancelled(self):
+        cancel = budget.BudgetCancel(None, [])
+        self.assertFalse(cancel.is_set())
+        cancel.set()
+        self.assertTrue(cancel.is_set())
+
+    def test_setting_a_budget_cancel_sets_the_external_event(self):
+        external = threading.Event()
+        cancel = budget.BudgetCancel(external, [])
+        cancel.set()
+        self.assertTrue(external.is_set())
+        self.assertTrue(cancel.is_set())
+
+    def test_scheduler_close_cancels_a_lease_held_with_a_budget_cancel(self):
+        scheduler = scheduler_mod.ResourceScheduler()
+        cancel = budget.BudgetCancel(None, [])
+        lease = scheduler.acquire(
+            scheduler_mod.ResourceClass.MODEL_GENERATION, cancel=cancel,
+        )
+        # 종료가 AttributeError로 죽으면 shutdown_local_resources가 완주하지 못한다.
+        scheduler.close()
+        self.assertTrue(cancel.is_set())
+        lease.release()
 
 if __name__ == "__main__":
     unittest.main()

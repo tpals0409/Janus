@@ -1677,6 +1677,163 @@ type RuntimeWorkerState =
   | 'error'
   | 'suppressed'
 
+type RuntimeWorker = {
+  id: string
+  name: string
+  role: string
+  state: RuntimeWorkerState
+  reason?: string
+  error?: string
+  startedAt?: string
+  endedAt?: string
+  durationMs?: number
+}
+
+const WORKER_STATE_META: Record<RuntimeWorkerState, { glyph: string, label: string, tone: string }> = {
+  queued: { glyph: '◷', label: '모델 대기', tone: 'var(--warning)' },
+  running: { glyph: '●', label: '실행 중', tone: 'var(--accent)' },
+  waiting_approval: { glyph: '!', label: '승인 대기', tone: 'var(--warning)' },
+  stopping: { glyph: '◌', label: '중지 중', tone: 'var(--warning)' },
+  partial: { glyph: '◐', label: '부분 완료', tone: 'var(--warning)' },
+  success: { glyph: '✓', label: '완료', tone: 'var(--success)' },
+  error: { glyph: '×', label: '실패', tone: 'var(--danger)' },
+  suppressed: { glyph: '—', label: '억제', tone: 'var(--warning)' }
+}
+
+/** 워커 활동은 대화창에서 걸러진다(worker_id가 있으면 숨김) — 여기서만 볼 수 있다. */
+function useWorkerActivity(workerId: string | null) {
+  const events = useStore((state) => state.taskSessionEvents)
+  return useMemo(() => {
+    const calls: { key: string, tool: string, detail: string }[] = []
+    let reasoning = ''
+    let answer = ''
+    let task = ''
+    if (!workerId) return { reasoning, answer, calls, task }
+    for (const event of events) {
+      if (event.kind !== 'agent_event') continue
+      if (String(event.payload.worker_id ?? '') !== workerId) continue
+      const kind = String(event.payload.kind ?? '')
+      const text = String(event.payload.text ?? '')
+      if (kind === 'reasoning_delta') reasoning += text
+      else if (kind === 'text_delta') answer += text
+      else if (kind === 'assistant') answer = String(event.payload.content ?? answer)
+      else if (kind === 'worker_task') task = String(event.payload.task ?? task)
+      else if (kind.startsWith('tool_')) {
+        if (kind !== 'tool_start') continue
+        calls.push({
+          key: String(event.seq),
+          tool: String(event.payload.name ?? event.payload.tool ?? '도구'),
+          detail: JSON.stringify(event.payload.args ?? {}).slice(0, 240)
+        })
+      }
+    }
+    return { reasoning, answer, calls, task }
+  }, [events, workerId])
+}
+
+const RUNNING_STATES = new Set<RuntimeWorkerState>(['queued', 'running', 'waiting_approval', 'stopping'])
+
+/** 실행 중인 워커는 값이 멈춰 있으면 안 된다 — 끝날 때까지 1초마다 다시 센다. */
+function useElapsedLabel(worker: RuntimeWorker | null): string | null {
+  const running = Boolean(worker && RUNNING_STATES.has(worker.state))
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    if (!running) return
+    const timer = setInterval(() => setTick((value) => value + 1), 1000)
+    return () => clearInterval(timer)
+  }, [running])
+  if (!worker?.startedAt) return null
+  const started = Date.parse(worker.startedAt)
+  if (Number.isNaN(started)) return null
+  const ended = worker.endedAt ? Date.parse(worker.endedAt) : null
+  const ms = worker.durationMs
+    ?? ((ended !== null && !Number.isNaN(ended) ? ended : Date.now()) - started)
+  if (ms < 0) return null
+  const seconds = Math.floor(ms / 1000)
+  if (seconds < 60) return `${seconds}초`
+  return `${Math.floor(seconds / 60)}분 ${String(seconds % 60).padStart(2, '0')}초`
+}
+
+function WorkerDetailModal({ worker, onClose }: { worker: RuntimeWorker, onClose: () => void }) {
+  const { reasoning, answer, calls, task } = useWorkerActivity(
+    worker.state === 'suppressed' ? null : worker.id
+  )
+  const elapsed = useElapsedLabel(worker)
+  const meta = WORKER_STATE_META[worker.state]
+  useEffect(() => {
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+  const empty = !reasoning && !answer && calls.length === 0 && !worker.error && !worker.reason
+  return (
+    <div className="worker-modal__backdrop" role="presentation" onClick={onClose}>
+      <div
+        className="worker-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`워커 ${worker.name}`}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="worker-modal__header">
+          <div className="min-w-0">
+            <strong>{worker.name}</strong>
+            <small>{worker.role}</small>
+          </div>
+          <span className="worker-modal__badge" style={{ color: meta.tone }}>
+            {meta.glyph} {meta.label}
+          </span>
+          {elapsed && <em className="worker-modal__elapsed">{elapsed}</em>}
+          <button type="button" onClick={onClose} aria-label="닫기" className="worker-modal__close">
+            <X size={14} />
+          </button>
+        </header>
+        <div className="worker-modal__body">
+          {task && (
+            <div className="worker-modal__turn worker-modal__turn--task">
+              <small>지시</small>
+              <p>{task}</p>
+            </div>
+          )}
+          {reasoning && (
+            <div className="worker-modal__turn worker-modal__turn--reasoning">
+              <small>사고</small>
+              <p>{reasoning}</p>
+            </div>
+          )}
+          {calls.map((call) => (
+            <div key={call.key} className="worker-modal__turn worker-modal__turn--tool">
+              <small>{call.tool}</small>
+              <code>{call.detail}</code>
+            </div>
+          ))}
+          {answer && (
+            <div className="worker-modal__turn worker-modal__turn--answer">
+              <small>답</small>
+              <p>{answer}</p>
+            </div>
+          )}
+          {worker.reason && (
+            <div className="worker-modal__turn worker-modal__turn--note">
+              <small>사유</small>
+              <p>{worker.reason}</p>
+            </div>
+          )}
+          {worker.error && (
+            <div className="worker-modal__turn worker-modal__turn--error">
+              <small>오류</small>
+              <p>{worker.error}</p>
+            </div>
+          )}
+          {empty && <p className="worker-modal__empty">아직 이 워커의 활동 기록이 없습니다.</p>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function RuntimeWorkerGraph({
   task,
   verificationStatus
@@ -1687,34 +1844,26 @@ function RuntimeWorkerGraph({
   const session = useStore((state) => state.taskSession)
   const connected = useStore((state) => state.taskConnected)
   const events = useStore((state) => state.taskSessionEvents)
+  const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null)
   const workers = useMemo(() => {
-    const spans = new Map<string, {
-      id: string
-      name: string
-      role: string
-      state: RuntimeWorkerState
-      reason?: string
-      error?: string
-    }>()
-    const suppressed: Array<{
-      id: string
-      name: string
-      role: string
-      state: RuntimeWorkerState
-      reason?: string
-      error?: string
-    }> = []
+    const spans = new Map<string, RuntimeWorker>()
+    const suppressed: RuntimeWorker[] = []
     for (const event of events) {
       if (event.kind === 'span_start' || event.kind === 'span_end') {
         const raw = event.payload.span
         if (!raw || typeof raw !== 'object') continue
         const span = raw as Span
         if (!span.node_id || span.node_id === 'orchestrator') continue
+        const known = spans.get(span.node_id)
         spans.set(span.node_id, {
+          ...known,
           id: span.node_id,
           name: span.label ?? span.node_id,
           role: '워커',
-          state: span.status
+          state: span.status,
+          startedAt: known?.startedAt ?? event.created_at,
+          endedAt: event.kind === 'span_end' ? event.created_at : known?.endedAt,
+          durationMs: span.duration_ms ?? known?.durationMs
         })
       }
       if (event.kind === 'agent_event' && event.payload.kind === 'worker_spawn_suppressed') {
@@ -1723,7 +1872,8 @@ function RuntimeWorkerGraph({
           name: String(event.payload.name ?? `요청 ${suppressed.length + 1}`),
           role: String(event.payload.role ?? '워커'),
           state: 'suppressed',
-          reason: String(event.payload.reason ?? '정책 억제')
+          reason: String(event.payload.reason ?? '정책 억제'),
+          startedAt: event.created_at
         })
       }
       if (event.kind === 'agent_event' && event.payload.kind === 'worker_state') {
@@ -1748,17 +1898,8 @@ function RuntimeWorkerGraph({
     }
     return [...spans.values(), ...suppressed].slice(-6)
   }, [events])
-  const stateMeta: Record<RuntimeWorkerState, { glyph: string; label: string; tone: string }> = {
-    queued: { glyph: '◷', label: '모델 대기', tone: 'var(--warning)' },
-    running: { glyph: '●', label: '실행 중', tone: 'var(--accent)' },
-    waiting_approval: { glyph: '!', label: '승인 대기', tone: 'var(--warning)' },
-    stopping: { glyph: '◌', label: '중지 중', tone: 'var(--warning)' },
-    partial: { glyph: '◐', label: '부분 완료', tone: 'var(--warning)' },
-    success: { glyph: '✓', label: '완료', tone: 'var(--success)' },
-    error: { glyph: '×', label: '실패', tone: 'var(--danger)' },
-    suppressed: { glyph: '—', label: '억제', tone: 'var(--warning)' }
-  }
 
+  const selected = workers.find((worker) => worker.id === selectedWorkerId) ?? null
   return (
     <div className="runtime-graph" aria-label="Janus 실행 흐름">
       <div className="runtime-graph__request" title={task.objective}>
@@ -1779,21 +1920,31 @@ function RuntimeWorkerGraph({
       {workers.length ? (
         <div className="runtime-graph__workers">
           {workers.map((worker) => {
-            const meta = stateMeta[worker.state]
+            const meta = WORKER_STATE_META[worker.state]
             return (
-              <div className="runtime-graph__worker" key={worker.id} title={worker.reason}>
+              <button
+                type="button"
+                className="runtime-graph__worker"
+                key={worker.id}
+                title={worker.reason}
+                aria-label={`워커 ${worker.name} 상세`}
+                onClick={() => setSelectedWorkerId(worker.id)}
+              >
                 <span style={{ color: meta.tone }}>{meta.glyph}</span>
                 <div className="min-w-0">
                   <strong>{worker.name}</strong>
                   <small>{worker.role}</small>
                 </div>
                 <em style={{ color: meta.tone }}>{meta.label}</em>
-              </div>
+              </button>
             )
           })}
         </div>
       ) : (
         <div className="runtime-graph__empty">워커가 시작되면 이 축에 표시됩니다.</div>
+      )}
+      {selected && (
+        <WorkerDetailModal worker={selected} onClose={() => setSelectedWorkerId(null)} />
       )}
       <div className="runtime-graph__outcome" data-ready={Boolean(verificationStatus)}>
         <span>{verificationStatus ? '✓' : '○'}</span>

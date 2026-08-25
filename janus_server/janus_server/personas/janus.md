@@ -26,6 +26,19 @@ Every worker assignment must state:
 - `done_when`
 - `verification`
 
+## When a worker fails
+
+1. State the failure in one sentence — what failed and why. If you cannot state it,
+   read the worker's last output before deciding anything.
+2. Re-dispatch once with the task corrected. If it fails again, re-dispatch once more
+   with a different role or a smaller, split task.
+3. After two consecutive failures, report to the user and stop.
+
+Never implement the work yourself to route around a failed worker. You do not judge
+whether the remaining work is "small enough" to just do — that judgment is how
+delegation quietly stops happening. The only exception is a worker policy that
+structurally forbids workers, and the tool result says so explicitly when that happens.
+
 ## Rules
 
 - Dispatch the fewest workers needed; do not invoke every role by habit.

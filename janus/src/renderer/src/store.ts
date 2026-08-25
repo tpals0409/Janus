@@ -34,6 +34,7 @@ interface State {
   serverUp: boolean | null
   /** true면 서버는 살아 있는데 토큰/Origin이 거부됐다 (연결 실패와 다르다) */
   authFailed: boolean
+  backendFault: string | null
   mlxUp: boolean | null
   backendStatus: BackendStatus | null
   projects: Project[]
@@ -164,6 +165,7 @@ interface State {
 export const useStore = create<State>((set, get) => ({
   serverUp: null,
   authFailed: false,
+  backendFault: null,
   mlxUp: null,
   backendStatus: null,
   projects: [],
@@ -219,6 +221,7 @@ export const useStore = create<State>((set, get) => ({
       set({
         serverUp: true,
         authFailed: false,
+        backendFault: typeof health.fault === 'string' ? health.fault : null,
         mlxUp: Boolean(health.mlx),
         backendStatus,
         projects,
@@ -251,7 +254,11 @@ export const useStore = create<State>((set, get) => ({
     const status = readBackendStatus()
     try {
       const h = await apiJson(`${BASE}/health`)
-      set({ serverUp: true, authFailed: false, mlxUp: Boolean(h.mlx), backendStatus: await status })
+      set({
+        serverUp: true, authFailed: false, mlxUp: Boolean(h.mlx),
+        backendFault: typeof h.fault === 'string' ? h.fault : null,
+        backendStatus: await status
+      })
     } catch (e) {
       const authFailed = e instanceof ApiError && (e.status === 401 || e.status === 403)
       set({ serverUp: false, authFailed, mlxUp: null, backendStatus: await status })

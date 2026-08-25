@@ -17,7 +17,7 @@ os.environ.setdefault("JANUS_ALLOWED_ORIGINS", "http://localhost:5173")
 
 from fastapi.testclient import TestClient
 
-from janus_server import domain, runtime, server
+from janus_server import domain, runtime, scheduler as scheduler_mod, server
 from janus_server.scheduler import ResourceClass, ResourceScheduler
 from tests.fakes import FakeClient, text_chunk
 
@@ -534,7 +534,13 @@ class TaskRuntimeTests(unittest.TestCase):
         first_client = FakeClient([lambda: endless()])
         second_client = FakeClient([{"text": "finished independently"}])
         clients = iter([first_client, second_client])
+        # 이 테스트는 model slot 경합을 검증한다 — 전역 기본 슬롯 수가 바뀌어도
+        # 시나리오가 성립하도록 여기서 1로 고정한다.
         with (
+            patch.dict(
+                scheduler_mod.default_scheduler().caps,
+                {scheduler_mod.ResourceClass.MODEL_GENERATION: 1},
+            ),
             patch.object(runtime, "resolve_local_model", lambda name: name),
             patch.object(runtime, "make_client", side_effect=lambda: next(clients)),
             self.connect(first_task["id"], first_session["id"]) as first_ws,
