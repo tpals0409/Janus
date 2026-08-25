@@ -13,7 +13,7 @@ os.environ.setdefault("JANUS_AUTH_TOKEN", "test-token")
 
 from fastapi.testclient import TestClient
 
-from janus_server import scheduler, server
+from janus_server import scheduler, server, shared
 
 
 class TerminalApiTests(unittest.TestCase):
@@ -25,11 +25,11 @@ class TerminalApiTests(unittest.TestCase):
             "JANUS_WORKTREES_DIR": str(self.root / "workspaces"),
         })
         self.env.start()
-        server._DOMAIN_STORE = None
-        server._DOMAIN_STORE_PATH = None
-        server._DOMAIN_RECOVERED_PATH = None
-        server._TERMINAL_MANAGER = None
-        server._TERMINAL_MANAGER_PATH = None
+        shared._DOMAIN_STORE = None
+        shared._DOMAIN_STORE_PATH = None
+        shared._DOMAIN_RECOVERED_PATH = None
+        shared._TERMINAL_MANAGER = None
+        shared._TERMINAL_MANAGER_PATH = None
         scheduler._DEFAULT_SCHEDULER = scheduler.ResourceScheduler()
         self.client = TestClient(server.app)
         self.headers = {"x-janus-token": server.AUTH_TOKEN}
@@ -39,14 +39,14 @@ class TerminalApiTests(unittest.TestCase):
         )
 
     def tearDown(self):
-        if server._TERMINAL_MANAGER is not None:
-            server._TERMINAL_MANAGER.stop_all()
+        if shared._TERMINAL_MANAGER is not None:
+            shared._TERMINAL_MANAGER.stop_all()
         self.client.close()
-        server._TERMINAL_MANAGER = None
-        server._TERMINAL_MANAGER_PATH = None
-        server._DOMAIN_STORE = None
-        server._DOMAIN_STORE_PATH = None
-        server._DOMAIN_RECOVERED_PATH = None
+        shared._TERMINAL_MANAGER = None
+        shared._TERMINAL_MANAGER_PATH = None
+        shared._DOMAIN_STORE = None
+        shared._DOMAIN_STORE_PATH = None
+        shared._DOMAIN_RECOVERED_PATH = None
         self.env.stop()
         self.temp.cleanup()
 

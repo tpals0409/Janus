@@ -12,7 +12,7 @@ os.environ.setdefault("JANUS_AUTH_TOKEN", "test-token")
 
 from fastapi.testclient import TestClient
 
-from janus_server import server
+from janus_server import server, shared
 from janus_server.routers import evaluations
 
 
@@ -45,25 +45,25 @@ class EvaluationApiTests(unittest.TestCase):
             "JANUS_EVALUATIONS_DIR": f"{self.temp.name}/evaluations",
         })
         self.env.start()
-        server._DOMAIN_STORE = None
-        server._DOMAIN_STORE_PATH = None
-        server._DOMAIN_RECOVERED_PATH = None
-        with server._EVALUATION_JOBS_LOCK:
-            server._EVALUATION_JOBS.clear()
-            server._EVALUATION_PROCESSES.clear()
-            server._EVALUATION_CANCELLED.clear()
+        shared._DOMAIN_STORE = None
+        shared._DOMAIN_STORE_PATH = None
+        shared._DOMAIN_RECOVERED_PATH = None
+        with shared._EVALUATION_JOBS_LOCK:
+            shared._EVALUATION_JOBS.clear()
+            shared._EVALUATION_PROCESSES.clear()
+            shared._EVALUATION_CANCELLED.clear()
         self.client = TestClient(server.app)
         self.headers = {"x-janus-token": server.AUTH_TOKEN}
 
     def tearDown(self):
         self.client.close()
-        server._DOMAIN_STORE = None
-        server._DOMAIN_STORE_PATH = None
-        server._DOMAIN_RECOVERED_PATH = None
-        with server._EVALUATION_JOBS_LOCK:
-            server._EVALUATION_JOBS.clear()
-            server._EVALUATION_PROCESSES.clear()
-            server._EVALUATION_CANCELLED.clear()
+        shared._DOMAIN_STORE = None
+        shared._DOMAIN_STORE_PATH = None
+        shared._DOMAIN_RECOVERED_PATH = None
+        with shared._EVALUATION_JOBS_LOCK:
+            shared._EVALUATION_JOBS.clear()
+            shared._EVALUATION_PROCESSES.clear()
+            shared._EVALUATION_CANCELLED.clear()
         self.env.stop()
         self.temp.cleanup()
 

@@ -1,4 +1,4 @@
-"""Janus tasks 라우터 — server.py에서 분리되었다."""
+"""Janus tasks 라우터 — shared.py에서 분리되었다."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from fastapi import APIRouter
 
 from .. import domain as D
 from .. import workspace_service as WS
-from ..server import (
+from ..shared import (
     _dispatch_json,
     _workspace_job_active,
     get_domain_store,

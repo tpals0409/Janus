@@ -1,4 +1,4 @@
-"""Janus terminals 라우터 — server.py에서 분리되었다."""
+"""Janus terminals 라우터 — shared.py에서 분리되었다."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from fastapi import APIRouter
 
 from .. import domain as D
 from .. import terminal_service as terminal_mod
-from ..server import (
+from ..shared import (
     get_domain_store,
     get_terminal_manager,
 )

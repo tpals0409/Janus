@@ -1,4 +1,4 @@
-"""Janus shipping 라우터 — server.py에서 분리되었다."""
+"""Janus shipping 라우터 — shared.py에서 분리되었다."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from fastapi import APIRouter
 from .. import domain as D
 from .. import github_service as github_mod
 from .. import workspace_service as WS
-from ..server import (
+from ..shared import (
     _review_snapshot,
     get_domain_store,
     get_github_service,

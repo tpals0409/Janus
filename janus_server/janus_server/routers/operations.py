@@ -1,4 +1,4 @@
-"""Janus operations 라우터 — server.py에서 분리되었다."""
+"""Janus operations 라우터 — shared.py에서 분리되었다."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from fastapi import APIRouter
 from .. import domain as D
 from .. import scheduler as scheduler_mod
 from .. import telemetry as telemetry_mod
-from ..server import (
+from ..shared import (
     _dispatch_json,
     get_domain_store,
 )

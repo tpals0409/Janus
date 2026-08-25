@@ -17,7 +17,7 @@ os.environ.setdefault("JANUS_ALLOWED_ORIGINS", "http://localhost:5173")
 
 from fastapi.testclient import TestClient
 
-from janus_server import domain, runtime, server
+from janus_server import domain, runtime, server, shared
 from janus_server import scheduler as scheduler_mod
 from janus_server.routers import sessions
 from janus_server.scheduler import ResourceClass, ResourceScheduler
@@ -35,11 +35,11 @@ class TaskRuntimeTests(unittest.TestCase):
             "JANUS_WORKTREES_DIR": str(root / "workspaces"),
         })
         self.env.start()
-        server._DOMAIN_STORE = None
-        server._DOMAIN_STORE_PATH = None
-        server._DOMAIN_RECOVERED_PATH = None
-        with server._TASK_RUNTIMES_LOCK:
-            server._TASK_RUNTIMES.clear()
+        shared._DOMAIN_STORE = None
+        shared._DOMAIN_STORE_PATH = None
+        shared._DOMAIN_RECOVERED_PATH = None
+        with shared._TASK_RUNTIMES_LOCK:
+            shared._TASK_RUNTIMES.clear()
         self.client = TestClient(server.app)
         self.headers = {"x-janus-token": server.AUTH_TOKEN}
         self.store = server.get_domain_store()
@@ -50,13 +50,13 @@ class TaskRuntimeTests(unittest.TestCase):
 
     def tearDown(self):
         self.client.close()
-        with server._TASK_RUNTIMES_LOCK:
-            for orch in server._TASK_RUNTIMES.values():
+        with shared._TASK_RUNTIMES_LOCK:
+            for orch in shared._TASK_RUNTIMES.values():
                 orch.cancel_all()
-            server._TASK_RUNTIMES.clear()
-        server._DOMAIN_STORE = None
-        server._DOMAIN_STORE_PATH = None
-        server._DOMAIN_RECOVERED_PATH = None
+            shared._TASK_RUNTIMES.clear()
+        shared._DOMAIN_STORE = None
+        shared._DOMAIN_STORE_PATH = None
+        shared._DOMAIN_RECOVERED_PATH = None
         self.env.stop()
         self.temp.cleanup()
 
@@ -105,8 +105,8 @@ class TaskRuntimeTests(unittest.TestCase):
         worker = threading.Thread(target=active_work)
         worker.start()
         self.assertTrue(acquired.wait(2))
-        with server._TASK_RUNTIMES_LOCK:
-            server._TASK_RUNTIMES["shutdown-test"] = LiveRuntime()  # type: ignore[assignment]
+        with shared._TASK_RUNTIMES_LOCK:
+            shared._TASK_RUNTIMES["shutdown-test"] = LiveRuntime()  # type: ignore[assignment]
 
         idle = asyncio.run(server.shutdown_local_resources(scheduler, timeout=2))
         worker.join(2)
@@ -420,7 +420,7 @@ class TaskRuntimeTests(unittest.TestCase):
             "tool": "edit_file", "args": {"path": "a.ts"}, "rememberable": True,
             "approval_scope": "workspace_write",
         }
-        server._PENDING_APPROVALS[session_id] = {
+        shared._PENDING_APPROVALS[session_id] = {
             "req-1": [answered, False, ("workspace_write", started["workspace_id"]), request]
         }
         try:
@@ -441,9 +441,9 @@ class TaskRuntimeTests(unittest.TestCase):
                 # 세션에 속하기 때문이다.
                 ws.send_json({"type": "approval_response", "id": "req-1", "approved": True})
                 self.assertTrue(answered.wait(timeout=5))
-                self.assertTrue(server._PENDING_APPROVALS[session_id]["req-1"][1])
+                self.assertTrue(shared._PENDING_APPROVALS[session_id]["req-1"][1])
         finally:
-            server._PENDING_APPROVALS.pop(session_id, None)
+            shared._PENDING_APPROVALS.pop(session_id, None)
 
     def test_selected_agent_profile_is_saved_on_dispatch_and_session(self):
         task = self.create_ready_task("Profile")
@@ -611,9 +611,9 @@ class TaskRuntimeTests(unittest.TestCase):
         self.store.activate_session_turn(detail["id"])
         self.assertEqual("running", self.store.get_session(detail["id"])["status"])
 
-        server._DOMAIN_STORE = None
-        server._DOMAIN_STORE_PATH = None
-        server._DOMAIN_RECOVERED_PATH = None
+        shared._DOMAIN_STORE = None
+        shared._DOMAIN_STORE_PATH = None
+        shared._DOMAIN_RECOVERED_PATH = None
         reopened = server.get_domain_store()
         self.store = reopened
         self.assertEqual("idle", reopened.get_session(detail["id"])["status"])

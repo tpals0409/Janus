@@ -1,4 +1,4 @@
-"""Janus skills 라우터 — server.py에서 분리되었다."""
+"""Janus skills 라우터 — shared.py에서 분리되었다."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException
 
 from .. import domain as D
 from .. import skills as skill_mod
-from ..server import (
+from ..shared import (
     _skill_json,
     _skill_summary,
     get_domain_store,

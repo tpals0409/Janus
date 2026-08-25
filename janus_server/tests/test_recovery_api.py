@@ -13,7 +13,7 @@ os.environ.setdefault("JANUS_ALLOWED_ORIGINS", "http://localhost:5173")
 
 from fastapi.testclient import TestClient
 
-from janus_server import server
+from janus_server import server, shared
 
 
 class RecoveryApiTests(unittest.TestCase):
@@ -32,16 +32,16 @@ class RecoveryApiTests(unittest.TestCase):
             "JANUS_DIAGNOSTICS_DIR": str(self.diagnostics),
         })
         self.environment.start()
-        server._DOMAIN_STORE = None
-        server._DOMAIN_STORE_PATH = None
-        server._DOMAIN_RECOVERED_PATH = None
+        shared._DOMAIN_STORE = None
+        shared._DOMAIN_STORE_PATH = None
+        shared._DOMAIN_RECOVERED_PATH = None
         self.client = TestClient(server.app)
         self.headers = {"x-janus-token": server.AUTH_TOKEN}
 
     def tearDown(self):
-        server._DOMAIN_STORE = None
-        server._DOMAIN_STORE_PATH = None
-        server._DOMAIN_RECOVERED_PATH = None
+        shared._DOMAIN_STORE = None
+        shared._DOMAIN_STORE_PATH = None
+        shared._DOMAIN_RECOVERED_PATH = None
         self.environment.stop()
         self.temp.cleanup()
 

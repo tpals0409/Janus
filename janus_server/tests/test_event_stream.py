@@ -7,7 +7,7 @@ os.environ.setdefault("JANUS_AUTH_TOKEN", "test-token")
 
 from fastapi.testclient import TestClient
 
-from janus_server import server
+from janus_server import server, shared
 
 
 class EventStreamTests(unittest.TestCase):
@@ -19,7 +19,7 @@ class EventStreamTests(unittest.TestCase):
             "/events", subprotocols=["janus", server.AUTH_TOKEN]
         ) as websocket:
             self.assertEqual("ready", websocket.receive_json()["event"])
-            server._EVENT_BUS.publish("workspace", "ready", task_id="task_1")
+            shared._EVENT_BUS.publish("workspace", "ready", task_id="task_1")
             event = websocket.receive_json()
             self.assertEqual("workspace", event["topic"])
             self.assertEqual("ready", event["event"])

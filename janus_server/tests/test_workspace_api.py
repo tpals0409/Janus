@@ -15,7 +15,7 @@ os.environ.setdefault("JANUS_AUTH_TOKEN", "test-token")
 
 from fastapi.testclient import TestClient
 
-from janus_server import server
+from janus_server import server, shared
 from janus_server.routers import workspaces
 
 
@@ -46,12 +46,12 @@ class WorkspaceApiTests(unittest.TestCase):
             "JANUS_WORKTREES_DIR": str(self.worktrees),
         })
         self.env.start()
-        server._DOMAIN_STORE = None
-        server._DOMAIN_STORE_PATH = None
-        server._WORKSPACE_SERVICE = None
-        server._WORKSPACE_SERVICE_PATH = None
-        with server._WORKSPACE_JOBS_LOCK:
-            server._WORKSPACE_JOBS.clear()
+        shared._DOMAIN_STORE = None
+        shared._DOMAIN_STORE_PATH = None
+        shared._WORKSPACE_SERVICE = None
+        shared._WORKSPACE_SERVICE_PATH = None
+        with shared._WORKSPACE_JOBS_LOCK:
+            shared._WORKSPACE_JOBS.clear()
         self.client = TestClient(server.app)
         self.headers = {"x-janus-token": server.AUTH_TOKEN}
         project = self.client.post(
@@ -61,15 +61,15 @@ class WorkspaceApiTests(unittest.TestCase):
         self.project_id = project["id"]
 
     def tearDown(self):
-        with server._WORKSPACE_JOBS_LOCK:
-            threads = list(server._WORKSPACE_JOBS.values())
+        with shared._WORKSPACE_JOBS_LOCK:
+            threads = list(shared._WORKSPACE_JOBS.values())
         for thread in threads:
             thread.join(timeout=5)
         self.client.close()
-        server._DOMAIN_STORE = None
-        server._DOMAIN_STORE_PATH = None
-        server._WORKSPACE_SERVICE = None
-        server._WORKSPACE_SERVICE_PATH = None
+        shared._DOMAIN_STORE = None
+        shared._DOMAIN_STORE_PATH = None
+        shared._WORKSPACE_SERVICE = None
+        shared._WORKSPACE_SERVICE_PATH = None
         self.env.stop()
         self.temp.cleanup()
 

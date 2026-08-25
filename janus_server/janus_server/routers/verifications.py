@@ -1,4 +1,4 @@
-"""Janus verifications 라우터 — server.py에서 분리되었다."""
+"""Janus verifications 라우터 — shared.py에서 분리되었다."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ from fastapi import APIRouter
 
 from .. import domain as D
 from .. import scheduler as scheduler_mod
-from .. import server, verification
-from ..server import (
+from .. import shared, verification
+from ..shared import (
     _publish_change,
     _verification_commands,
     _verification_workspace,
@@ -75,19 +75,19 @@ def _run_verification_job(run_id: str) -> None:
         except D.DomainError:
             pass
     finally:
-        with server._VERIFICATION_JOBS_LOCK:
-            if server._VERIFICATION_JOBS.get(run_id) is threading.current_thread():
-                server._VERIFICATION_JOBS.pop(run_id, None)
+        with shared._VERIFICATION_JOBS_LOCK:
+            if shared._VERIFICATION_JOBS.get(run_id) is threading.current_thread():
+                shared._VERIFICATION_JOBS.pop(run_id, None)
 
 
 
 def _start_verification_job(run_id: str) -> None:
-    with server._VERIFICATION_JOBS_LOCK:
+    with shared._VERIFICATION_JOBS_LOCK:
         thread = threading.Thread(
             target=_run_verification_job, args=(run_id,),
             name=f"janus-verification-{run_id}", daemon=True,
         )
-        server._VERIFICATION_JOBS[run_id] = thread
+        shared._VERIFICATION_JOBS[run_id] = thread
         thread.start()
 
 

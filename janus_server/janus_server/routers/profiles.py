@@ -1,10 +1,10 @@
-"""Janus profiles 라우터 — server.py에서 분리되었다."""
+"""Janus profiles 라우터 — shared.py에서 분리되었다."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from ..server import (
+from ..shared import (
     _agent_profile_json,
     _model_profile_json,
     _pin_library_skills,

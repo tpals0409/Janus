@@ -1,4 +1,4 @@
-"""Janus projects 라우터 — server.py에서 분리되었다."""
+"""Janus projects 라우터 — shared.py에서 분리되었다."""
 
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 
 from .. import domain as D
-from .. import server
+from .. import shared
 from .. import tools as T
-from ..server import (
+from ..shared import (
     _agent_profile_json,
     _delegation_base_ref,
     _evaluation_comparison_json,
@@ -79,7 +79,7 @@ def project_tree(project_id: str, path: str = ""):
         raise HTTPException(404, f"디렉토리가 아님: {path}")
     entries = []
     for item in sorted(root.iterdir(), key=lambda item: (item.is_file(), item.name.lower())):
-        if item.name in server._IGNORE or item.name.startswith("."):
+        if item.name in shared._IGNORE or item.name.startswith("."):
             continue
         entries.append({
             "name": item.name,
