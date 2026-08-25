@@ -16,7 +16,7 @@ os.environ.setdefault("JANUS_AUTH_TOKEN", "test-token")
 
 from fastapi.testclient import TestClient
 
-from janus_server import github_service, scheduler, server
+from janus_server import github_service, scheduler, server, shared
 from janus_server.routers import shipping
 
 
@@ -43,12 +43,12 @@ class VerificationApiTests(unittest.TestCase):
             "JANUS_WORKTREES_DIR": str(root / "workspaces"),
         })
         self.env.start()
-        server._DOMAIN_STORE = None
-        server._DOMAIN_STORE_PATH = None
-        server._DOMAIN_RECOVERED_PATH = None
-        server._WORKSPACE_SERVICE = None
-        server._WORKSPACE_SERVICE_PATH = None
-        server._GITHUB_SERVICE = None
+        shared._DOMAIN_STORE = None
+        shared._DOMAIN_STORE_PATH = None
+        shared._DOMAIN_RECOVERED_PATH = None
+        shared._WORKSPACE_SERVICE = None
+        shared._WORKSPACE_SERVICE_PATH = None
+        shared._GITHUB_SERVICE = None
         scheduler._DEFAULT_SCHEDULER = scheduler.ResourceScheduler()
         self.client = TestClient(server.app)
         self.headers = {"x-janus-token": server.AUTH_TOKEN}
@@ -73,17 +73,17 @@ class VerificationApiTests(unittest.TestCase):
         self._wait_workspace()
 
     def tearDown(self):
-        with server._VERIFICATION_JOBS_LOCK:
-            threads = list(server._VERIFICATION_JOBS.values())
+        with shared._VERIFICATION_JOBS_LOCK:
+            threads = list(shared._VERIFICATION_JOBS.values())
         for thread in threads:
             thread.join(timeout=5)
         self.client.close()
-        server._DOMAIN_STORE = None
-        server._DOMAIN_STORE_PATH = None
-        server._DOMAIN_RECOVERED_PATH = None
-        server._WORKSPACE_SERVICE = None
-        server._WORKSPACE_SERVICE_PATH = None
-        server._GITHUB_SERVICE = None
+        shared._DOMAIN_STORE = None
+        shared._DOMAIN_STORE_PATH = None
+        shared._DOMAIN_RECOVERED_PATH = None
+        shared._WORKSPACE_SERVICE = None
+        shared._WORKSPACE_SERVICE_PATH = None
+        shared._GITHUB_SERVICE = None
         self.env.stop()
         self.temp.cleanup()
 
@@ -359,7 +359,7 @@ class VerificationApiTests(unittest.TestCase):
                 }
 
         fake_github = FakeGitHub()
-        server._GITHUB_SERVICE = fake_github
+        shared._GITHUB_SERVICE = fake_github
         pull_request = self.client.post(
             f"/tasks/{self.task_id}/pull-request", headers=self.headers, json={
                 "title": "Verify", "body": "Verified work", "base": "main",
@@ -398,7 +398,7 @@ class VerificationApiTests(unittest.TestCase):
                     "gh pr create 실패(exit 4): authentication required"
                 )
 
-        server._GITHUB_SERVICE = UnauthorizedGitHub()
+        shared._GITHUB_SERVICE = UnauthorizedGitHub()
         with patch.object(shipping, "_pushed_task_head", return_value=(task, workspace, head)):
             response = self.client.post(
                 f"/tasks/{self.task_id}/pull-request", headers=self.headers,

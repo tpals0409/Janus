@@ -1,11 +1,11 @@
-"""Janus reviews 라우터 — server.py에서 분리되었다."""
+"""Janus reviews 라우터 — shared.py에서 분리되었다."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter
 
 from .. import domain as D
-from ..server import (
+from ..shared import (
     _review_snapshot,
     get_domain_store,
     get_workspace_service,

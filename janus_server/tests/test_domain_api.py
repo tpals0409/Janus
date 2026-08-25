@@ -17,7 +17,7 @@ os.environ.setdefault("JANUS_AUTH_TOKEN", "test-token")
 
 from fastapi.testclient import TestClient
 
-from janus_server import domain, server
+from janus_server import domain, server, shared
 
 HEADERS = {"x-janus-token": server.AUTH_TOKEN}
 
@@ -28,8 +28,8 @@ def domain_api():
         path = Path(tmp) / "janus.sqlite3"
         with (
             patch.dict(os.environ, {"JANUS_DB_FILE": str(path)}),
-            patch.object(server, "_DOMAIN_STORE", None),
-            patch.object(server, "_DOMAIN_STORE_PATH", None),
+            patch.object(shared, "_DOMAIN_STORE", None),
+            patch.object(shared, "_DOMAIN_STORE_PATH", None),
         ):
             yield TestClient(server.app), path
 
@@ -94,7 +94,7 @@ class DomainApiTests(unittest.TestCase):
                 "requested_ref": "main", "revision": revision, "license": "MIT",
                 "root": root, "skill_directories": [skill],
             }
-            with patch.object(server.skill_mod, "download_github_skills", return_value=source):
+            with patch.object(shared.skill_mod, "download_github_skills", return_value=source):
                 preview = client.post(
                     "/skills/preview/github", headers=HEADERS,
                     json={"url": "https://github.com/acme/skills"},
@@ -362,8 +362,8 @@ class DomainApiTests(unittest.TestCase):
                 json={"name": "Restart", "repo_path": "/tmp/janus-restart-repo"},
             ).json()
             self.assertTrue(path.is_file())
-            server._DOMAIN_STORE = None
-            server._DOMAIN_STORE_PATH = None
+            shared._DOMAIN_STORE = None
+            shared._DOMAIN_STORE_PATH = None
             restored = client.get("/projects", headers=HEADERS).json()
             self.assertEqual([project["id"]], [item["id"] for item in restored])
 
@@ -411,8 +411,8 @@ class DomainApiTests(unittest.TestCase):
     def test_health_reports_a_database_newer_than_the_app_without_a_500(self):
         with domain_api() as (client, path):
             client.get("/health", headers=HEADERS)  # 스키마를 만든다
-            server._DOMAIN_STORE = None
-            server._DOMAIN_STORE_PATH = None
+            shared._DOMAIN_STORE = None
+            shared._DOMAIN_STORE_PATH = None
             fault = domain.MigrationError(
                 "database schema v99은 이 Janus(v14)보다 새 버전입니다"
             )

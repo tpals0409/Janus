@@ -12,7 +12,7 @@ os.environ.setdefault("JANUS_AUTH_TOKEN", "test-token")
 
 from fastapi.testclient import TestClient
 
-from janus_server import server
+from janus_server import server, shared
 from janus_server.budget import normalize_budget
 
 
@@ -25,9 +25,9 @@ class OperationsDashboardTests(unittest.TestCase):
             "JANUS_WORKTREES_DIR": str(self.root / "workspaces"),
         })
         self.env.start()
-        server._DOMAIN_STORE = None
-        server._DOMAIN_STORE_PATH = None
-        server._DOMAIN_RECOVERED_PATH = None
+        shared._DOMAIN_STORE = None
+        shared._DOMAIN_STORE_PATH = None
+        shared._DOMAIN_RECOVERED_PATH = None
         self.client = TestClient(server.app)
         self.headers = {"x-janus-token": server.AUTH_TOKEN}
         self.store = server.get_domain_store()
@@ -37,9 +37,9 @@ class OperationsDashboardTests(unittest.TestCase):
 
     def tearDown(self):
         self.client.close()
-        server._DOMAIN_STORE = None
-        server._DOMAIN_STORE_PATH = None
-        server._DOMAIN_RECOVERED_PATH = None
+        shared._DOMAIN_STORE = None
+        shared._DOMAIN_STORE_PATH = None
+        shared._DOMAIN_RECOVERED_PATH = None
         self.env.stop()
         self.temp.cleanup()
 

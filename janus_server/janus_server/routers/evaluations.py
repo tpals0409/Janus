@@ -1,4 +1,4 @@
-"""Janus evaluations 라우터 — server.py에서 분리되었다."""
+"""Janus evaluations 라우터 — shared.py에서 분리되었다."""
 
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
 from .. import domain as D
-from .. import evaluation, runtime, server
-from ..server import (
+from .. import evaluation, runtime, shared
+from ..shared import (
     _evaluation_comparison_json,
     _publish_change,
     get_domain_store,
@@ -107,8 +107,8 @@ def _run_evaluation_job(experiment_id: str) -> None:
         _publish_change(
             "evaluation", "running", experiment_id=experiment_id, status="running",
         )
-        with server._EVALUATION_JOBS_LOCK:
-            cancelled_before_start = experiment_id in server._EVALUATION_CANCELLED
+        with shared._EVALUATION_JOBS_LOCK:
+            cancelled_before_start = experiment_id in shared._EVALUATION_CANCELLED
         if cancelled_before_start:
             store.finish_evaluation_experiment(
                 experiment_id, status="cancelled", error="cancelled by user"
@@ -135,8 +135,8 @@ def _run_evaluation_job(experiment_id: str) -> None:
             command, cwd=project_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True,
         )
-        with server._EVALUATION_JOBS_LOCK:
-            server._EVALUATION_PROCESSES[experiment_id] = process
+        with shared._EVALUATION_JOBS_LOCK:
+            shared._EVALUATION_PROCESSES[experiment_id] = process
         output, _ = process.communicate()
         (root / f"{experiment_id}.log").write_text(output[-200_000:], encoding="utf-8")
         result_path = output_dir / "result.json"
@@ -144,8 +144,8 @@ def _run_evaluation_job(experiment_id: str) -> None:
             json.loads(result_path.read_text(encoding="utf-8"))
             if result_path.is_file() else None
         )
-        with server._EVALUATION_JOBS_LOCK:
-            cancelled = experiment_id in server._EVALUATION_CANCELLED
+        with shared._EVALUATION_JOBS_LOCK:
+            cancelled = experiment_id in shared._EVALUATION_CANCELLED
         if cancelled:
             store.finish_evaluation_experiment(
                 experiment_id, status="cancelled", report=report,
@@ -187,21 +187,21 @@ def _run_evaluation_job(experiment_id: str) -> None:
         )
         profile_path = _evaluation_root() / f".{experiment_id}-profile.json"
         profile_path.unlink(missing_ok=True)
-        with server._EVALUATION_JOBS_LOCK:
-            server._EVALUATION_PROCESSES.pop(experiment_id, None)
-            server._EVALUATION_CANCELLED.discard(experiment_id)
-            if server._EVALUATION_JOBS.get(experiment_id) is threading.current_thread():
-                server._EVALUATION_JOBS.pop(experiment_id, None)
+        with shared._EVALUATION_JOBS_LOCK:
+            shared._EVALUATION_PROCESSES.pop(experiment_id, None)
+            shared._EVALUATION_CANCELLED.discard(experiment_id)
+            if shared._EVALUATION_JOBS.get(experiment_id) is threading.current_thread():
+                shared._EVALUATION_JOBS.pop(experiment_id, None)
 
 
 
 def _start_evaluation_job(experiment_id: str) -> None:
-    with server._EVALUATION_JOBS_LOCK:
+    with shared._EVALUATION_JOBS_LOCK:
         thread = threading.Thread(
             target=_run_evaluation_job, args=(experiment_id,),
             name=f"janus-evaluation-{experiment_id}", daemon=True,
         )
-        server._EVALUATION_JOBS[experiment_id] = thread
+        shared._EVALUATION_JOBS[experiment_id] = thread
         thread.start()
 
 
@@ -273,9 +273,9 @@ def cancel_evaluation_experiment(experiment_id: str):
     item = get_domain_store().get_evaluation_experiment(experiment_id)
     if item["status"] not in {"queued", "running"}:
         raise D.Conflict(f"취소할 수 없는 Evaluation 상태: {item['status']}")
-    with server._EVALUATION_JOBS_LOCK:
-        server._EVALUATION_CANCELLED.add(experiment_id)
-        process = server._EVALUATION_PROCESSES.get(experiment_id)
+    with shared._EVALUATION_JOBS_LOCK:
+        shared._EVALUATION_CANCELLED.add(experiment_id)
+        process = shared._EVALUATION_PROCESSES.get(experiment_id)
     if process is not None and process.poll() is None:
         process.send_signal(signal.SIGINT)
     return {"id": experiment_id, "cancellation_requested": True}

@@ -1,4 +1,4 @@
-"""Janus workspaces 라우터 — server.py에서 분리되었다."""
+"""Janus workspaces 라우터 — shared.py에서 분리되었다."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from pathlib import Path
 from fastapi import APIRouter
 
 from .. import domain as D
-from .. import server
-from ..server import (
+from .. import shared
+from ..shared import (
     _delegation_base_ref,
     _publish_change,
     _workspace_job_active,
@@ -62,15 +62,15 @@ def _run_workspace_preparation(workspace_id: str) -> None:
         except D.DomainError:
             pass
     finally:
-        with server._WORKSPACE_JOBS_LOCK:
-            if server._WORKSPACE_JOBS.get(workspace_id) is threading.current_thread():
-                server._WORKSPACE_JOBS.pop(workspace_id, None)
+        with shared._WORKSPACE_JOBS_LOCK:
+            if shared._WORKSPACE_JOBS.get(workspace_id) is threading.current_thread():
+                shared._WORKSPACE_JOBS.pop(workspace_id, None)
 
 
 
 def _start_workspace_preparation(workspace_id: str) -> None:
-    with server._WORKSPACE_JOBS_LOCK:
-        existing = server._WORKSPACE_JOBS.get(workspace_id)
+    with shared._WORKSPACE_JOBS_LOCK:
+        existing = shared._WORKSPACE_JOBS.get(workspace_id)
         if existing is not None and existing.is_alive():
             raise D.Conflict(f"Workspace 준비가 이미 진행 중입니다: {workspace_id}")
         thread = threading.Thread(
@@ -79,7 +79,7 @@ def _start_workspace_preparation(workspace_id: str) -> None:
             name=f"janus-workspace-{workspace_id}",
             daemon=True,
         )
-        server._WORKSPACE_JOBS[workspace_id] = thread
+        shared._WORKSPACE_JOBS[workspace_id] = thread
         thread.start()
 
 

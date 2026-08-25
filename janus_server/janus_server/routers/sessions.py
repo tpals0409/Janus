@@ -1,4 +1,4 @@
-"""Janus sessions 라우터 — server.py에서 분리되었다."""
+"""Janus sessions 라우터 — shared.py에서 분리되었다."""
 
 from __future__ import annotations
 
@@ -11,10 +11,10 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
-from .. import adaptive, recovery, runtime, self_improvement, server
+from .. import adaptive, recovery, runtime, self_improvement, shared
 from .. import domain as D
 from .. import scheduler as scheduler_mod
-from ..server import (
+from ..shared import (
     _agent_profile_json,
     _dispatch_json,
     _learning_json,
@@ -281,9 +281,9 @@ def _task_session_detail(store: D.DomainStore, session_id: str) -> dict:
 
 
 def _cancel_live_task_runtimes(task_id: str, *, except_session_id: str | None = None) -> None:
-    with server._TASK_RUNTIMES_LOCK:
+    with shared._TASK_RUNTIMES_LOCK:
         live = [
-            orch for session_id, orch in server._TASK_RUNTIMES.items()
+            orch for session_id, orch in shared._TASK_RUNTIMES.items()
             if session_id != except_session_id and orch.workspace_context.task_id == task_id
         ]
     for orch in live:
@@ -466,9 +466,9 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
         return
 
     loop = asyncio.get_running_loop()
-    pending_lock = server._PENDING_APPROVALS_LOCK
+    pending_lock = shared._PENDING_APPROVALS_LOCK
     with pending_lock:
-        pending = server._PENDING_APPROVALS.setdefault(session_id, {})
+        pending = shared._PENDING_APPROVALS.setdefault(session_id, {})
     approved_scopes: set[tuple[str, str]] = {
         (str(item["scope"]), str(item["workspace_id"]))
         for item in store.list_session_approval_scopes(session_id)
@@ -575,7 +575,7 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
             "node_id": node_id,
             "tool": tool,
             "args": args,
-            "deadline_epoch_ms": int((time.time() + server.APPROVAL_TIMEOUT) * 1000),
+            "deadline_epoch_ms": int((time.time() + shared.APPROVAL_TIMEOUT) * 1000),
             "rememberable": scope_key is not None,
             "approval_scope": scope_key[0] if scope_key is not None else None,
             **approval_context.identifiers(),
@@ -583,16 +583,16 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
         with pending_lock:
             pending[req_id] = [event, False, scope_key, request]
         send(request)
-        if not event.wait(timeout=server.APPROVAL_TIMEOUT):
+        if not event.wait(timeout=shared.APPROVAL_TIMEOUT):
             with pending_lock:
                 pending.pop(req_id, None)
                 if not pending:
-                    server._PENDING_APPROVALS.pop(session_id, None)
+                    shared._PENDING_APPROVALS.pop(session_id, None)
             return False
         with pending_lock:
             slot = pending.pop(req_id, None)
             if not pending:
-                server._PENDING_APPROVALS.pop(session_id, None)
+                shared._PENDING_APPROVALS.pop(session_id, None)
         return bool(slot and slot[1])
 
     def skill_loaded(skill_version_id: str, reason: str, prompt_tokens: int) -> None:
@@ -615,11 +615,11 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
                 on_skill_loaded=skill_loaded,
             )
             orch.session.events = [dict(item) for item in transcript_events]
-            with server._TASK_RUNTIMES_LOCK:
-                existing = server._TASK_RUNTIMES.get(session_id)
+            with shared._TASK_RUNTIMES_LOCK:
+                existing = shared._TASK_RUNTIMES.get(session_id)
                 if existing is not None and existing is not orch:
                     raise D.Conflict("AgentSession이 이미 다른 연결에서 실행 중입니다")
-                server._TASK_RUNTIMES[session_id] = orch
+                shared._TASK_RUNTIMES[session_id] = orch
         return orch
 
     def persist_transcript(current: runtime.Orchestration) -> None:
@@ -873,6 +873,6 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
         if turn_task and not turn_task.done():
             with suppress(asyncio.CancelledError):
                 await asyncio.shield(turn_task)
-        with server._TASK_RUNTIMES_LOCK:
-            if orch is not None and server._TASK_RUNTIMES.get(session_id) is orch:
-                server._TASK_RUNTIMES.pop(session_id, None)
+        with shared._TASK_RUNTIMES_LOCK:
+            if orch is not None and shared._TASK_RUNTIMES.get(session_id) is orch:
+                shared._TASK_RUNTIMES.pop(session_id, None)
