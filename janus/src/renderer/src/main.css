@@ -1,7 +1,7 @@
 @import 'tailwindcss';
 @import '@xyflow/react/dist/style.css';
 
-/* Janus graphite system. Legacy color names remain as migration aliases. */
+/* Janus graphite system — 색 토큰의 단일 원본. 별칭은 :root 참조로만 존재한다. */
 @theme {
   --color-bg: #0e0f10;
   --color-canvas: #171819;
@@ -36,28 +36,30 @@
   --color-node-end: #83a995;
 }
 
+/* 색의 원본은 위 @theme(--color-*) 하나다. 아래 별칭들은 값이 아니라
+   참조만 담는다 — 두 곳을 고치다 어긋나는 사고를 구조적으로 막는다. */
 :root {
-  --bg-base: #0e0f10;
-  --bg-canvas: #171819;
-  --bg-panel: #131415;
-  --bg-surface: #202223;
-  --bg-hover: #252728;
-  --bg-active: #2b2d2e;
-  --border-subtle: #242627;
-  --border-default: #303334;
-  --border-strong: #414445;
-  --focus-border: #526b5e;
-  --text-primary: #f0f1f1;
-  --text-secondary: #a3a7aa;
-  --text-muted: #686d71;
-  --text-disabled: #464a4d;
-  --accent: #83a995;
-  --accent-hover: #91b5a2;
-  --accent-muted: rgb(131 169 149 / 12%);
-  --success: #83a995;
-  --warning: #c1a36b;
-  --danger: #c97878;
-  --info: #7796ad;
+  --bg-base: var(--color-bg);
+  --bg-canvas: var(--color-canvas);
+  --bg-panel: var(--color-panel);
+  --bg-surface: var(--color-surface);
+  --bg-hover: var(--color-hover);
+  --bg-active: var(--color-active);
+  --border-subtle: var(--color-border);
+  --border-default: var(--color-border-strong);
+  --border-strong: var(--color-border-emphasis);
+  --focus-border: #52585d; /* 계약 §3: focus는 neutral — green은 시스템 생존 신호 전용 */
+  --text-primary: var(--color-fg);
+  --text-secondary: var(--color-muted);
+  --text-muted: var(--color-faint);
+  --text-disabled: var(--color-disabled);
+  --accent: var(--color-accent);
+  --accent-hover: var(--color-accent-fg);
+  --accent-muted: var(--color-accent-soft);
+  --success: var(--color-ok);
+  --warning: var(--color-warn);
+  --danger: var(--color-danger);
+  --info: var(--color-info);
   --diff-add-bg: rgb(100 160 120 / 10%);
   --diff-remove-bg: rgb(190 100 100 / 10%);
   --space-1: 4px;
