@@ -341,6 +341,41 @@ class TaskRuntimeTests(unittest.TestCase):
         self.assertEqual(["user", "assistant"], [event["kind"] for event in transcript])
         self.assertEqual("answer survived disconnect", transcript[-1]["content"])
 
+    def test_a_pending_approval_is_replayed_to_a_reconnected_client(self):
+        task = self.create_ready_task("Approval survives reconnect")
+        started = self.start(task["id"])
+        session_id = started["id"]
+        answered = threading.Event()
+        request = {
+            "type": "approval_request", "id": "req-1", "node_id": "w1-impl",
+            "tool": "edit_file", "args": {"path": "a.ts"}, "rememberable": True,
+            "approval_scope": "workspace_write",
+        }
+        server._PENDING_APPROVALS[session_id] = {
+            "req-1": [answered, False, ("workspace_write", started["workspace_id"]), request]
+        }
+        try:
+            with self.connect(task["id"], session_id) as ws:
+                # 재연결한 창은 대기 중인 승인을 다시 봐야 한다. 못 보면 워커는
+                # 답을 받을 길 없이 APPROVAL_TIMEOUT을 그대로 태운다.
+                seen = []
+                for _ in range(6):
+                    event = ws.receive_json()
+                    seen.append(event)
+                    if event["type"] == "approval_request":
+                        break
+                replayed = next(item for item in seen if item["type"] == "approval_request")
+                self.assertEqual("req-1", replayed["id"])
+                self.assertEqual("edit_file", replayed["tool"])
+
+                # 그리고 새 연결에서 답할 수 있어야 한다 — 승인 대기는 연결이 아니라
+                # 세션에 속하기 때문이다.
+                ws.send_json({"type": "approval_response", "id": "req-1", "approved": True})
+                self.assertTrue(answered.wait(timeout=5))
+                self.assertTrue(server._PENDING_APPROVALS[session_id]["req-1"][1])
+        finally:
+            server._PENDING_APPROVALS.pop(session_id, None)
+
     def test_selected_agent_profile_is_saved_on_dispatch_and_session(self):
         task = self.create_ready_task("Profile")
         profile = self.store.create_agent_profile(

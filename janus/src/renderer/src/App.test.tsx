@@ -189,6 +189,54 @@ describe('Janus renderer fixture', () => {
     expect(screen.queryByRole('dialog', { name: '워커 impl_worker' })).not.toBeInTheDocument()
   })
 
+  it('answers a worker approval from inside the worker modal', async () => {
+    window.history.replaceState({}, '', '/?fixture=task-runtime')
+    seedTaskRuntimeVisualFixture()
+    const fixtureEvent = useStore.getState().taskSessionEvents.at(-1)!
+    const respondTaskApproval = vi.fn()
+    useStore.setState({
+      taskConnected: true,
+      respondTaskApproval,
+      taskApprovals: [{
+        id: 'req-1',
+        node_id: 'w2',
+        tool: 'edit_file',
+        args: { path: 'Card.tsx' },
+        task_id: fixtureEvent.task_id,
+        workspace_id: fixtureEvent.workspace_id ?? '',
+        dispatch_id: fixtureEvent.dispatch_id,
+        rememberable: true,
+        approval_scope: 'workspace_write'
+      }],
+      taskSessionEvents: [
+        ...useStore.getState().taskSessionEvents,
+        {
+          ...fixtureEvent, seq: 30, kind: 'span_start',
+          payload: {
+            type: 'span_start',
+            span: { id: 'span-w2', node_id: 'w2', label: 'impl_worker', status: 'running' }
+          }
+        },
+        {
+          ...fixtureEvent, seq: 31, kind: 'agent_event',
+          payload: {
+            type: 'agent_event', kind: 'worker_state', worker_id: 'w2',
+            status: 'waiting_approval', tool: 'edit_file'
+          }
+        }
+      ]
+    })
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: '워커 impl_worker 상세' }))
+    const modal = screen.getByRole('dialog', { name: '워커 impl_worker' })
+    expect(within(modal).getByText('edit_file')).toBeVisible()
+    await user.click(within(modal).getByRole('button', { name: '이 세션에서 파일 수정 허용' }))
+    expect(respondTaskApproval).toHaveBeenCalledWith('req-1', true, 'session_workspace')
+  })
+
   it('gates implementation on explicit mockup approval', async () => {
     window.history.replaceState({}, '', '/?fixture=task-runtime')
     seedTaskRuntimeVisualFixture()
