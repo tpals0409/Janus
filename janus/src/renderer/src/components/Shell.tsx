@@ -22,6 +22,7 @@ export function AgentProfilePicker() {
 export function StatusBar({ mode }: { mode: string }) {
   const serverUp = useStore((s) => s.serverUp)
   const mlxUp = useStore((s) => s.mlxUp)
+  const serverVersion = useStore((s) => s.serverVersion)
   const backendStatus = useStore((s) => s.backendStatus)
   const projects = useStore((s) => s.projects)
   const projectId = useStore((s) => s.projectId)
@@ -69,7 +70,7 @@ export function StatusBar({ mode }: { mode: string }) {
         {mode === 'tasks' ? '작업 공간' : '프로젝트 루트'}:{' '}
         {mode === 'tasks' ? task?.workspace?.root_path ?? '준비 전' : project?.repo_path ?? '선택 안 됨'}
       </button>
-      <span className="ml-auto text-faint">Janus v1.0.0</span>
+      <span className="ml-auto text-faint">Janus{serverVersion ? ` v${serverVersion}` : ''}</span>
     </footer>
   )
 }

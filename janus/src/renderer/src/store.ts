@@ -36,6 +36,7 @@ interface State {
   authFailed: boolean
   backendFault: string | null
   mlxUp: boolean | null
+  serverVersion: string | null
   backendStatus: BackendStatus | null
   projects: Project[]
   tasks: Task[]
@@ -167,6 +168,7 @@ export const useStore = create<State>((set, get) => ({
   authFailed: false,
   backendFault: null,
   mlxUp: null,
+  serverVersion: null,
   backendStatus: null,
   projects: [],
   tasks: [],
@@ -223,6 +225,7 @@ export const useStore = create<State>((set, get) => ({
         authFailed: false,
         backendFault: typeof health.fault === 'string' ? health.fault : null,
         mlxUp: Boolean(health.mlx),
+        serverVersion: typeof health.version === 'string' ? health.version : null,
         backendStatus,
         projects,
         agentProfiles,
