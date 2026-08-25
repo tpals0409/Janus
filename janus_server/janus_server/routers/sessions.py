@@ -97,10 +97,22 @@ def _context_item(
 
 
 
+def _pending_review_feedback(store: D.DomainStore, task_id: str) -> list[dict]:
+    """최신 판정이 '변경 요청'일 때만 미해결 코멘트를 피드백으로 취급한다."""
+    decisions = store.list_review_decisions(task_id)
+    if not decisions or decisions[-1]["decision"] != "request_changes":
+        return []
+    return [
+        item for item in store.list_review_comments(task_id)
+        if item["resolved_at"] is None
+    ]
+
+
 def _task_context_snapshot(
     spec: dict, dispatch: dict, workspace: dict, skills: list[dict],
     events: list[dict] | None = None, task: dict | None = None,
     learnings: list[dict] | None = None,
+    review_feedback: list[dict] | None = None,
 ) -> dict:
     policy = D.normalize_context_policy(spec.get("context_policy"))
     items = [_context_item(
@@ -156,6 +168,24 @@ def _task_context_snapshot(
             detail={"stage": workflow_stage},
         ))
         preamble.append(workflow_prompt)
+
+    feedback = list(review_feedback or [])
+    if feedback:
+        def _anchor(item: dict) -> str:
+            line = item.get("new_line") or item.get("old_line")
+            return f"{item['file_path']}:{line}" if line else str(item["file_path"])
+
+        review_prompt = (
+            "REVIEW FEEDBACK: 사용자가 변경 검토에서 수정을 요청했습니다. "
+            "아래 항목을 각각 반영한 뒤 다시 검토를 요청하세요:\n" + "\n".join(
+                f"- {_anchor(item)} [{item['layer']}] {item['body']}" for item in feedback
+            )
+        )
+        items.append(_context_item(
+            "review_feedback", "변경 검토 피드백", "Review", review_prompt,
+            detail={"comments": len(feedback)},
+        ))
+        preamble.append(review_prompt)
 
     active_learnings = list(learnings or [])[:20]
     if active_learnings:
@@ -232,7 +262,10 @@ def _task_session_detail(store: D.DomainStore, session_id: str) -> dict:
     )
     task = store.get_task(session["task_id"])
     learnings = store.list_project_learnings(task["project_id"], active_only=True, limit=20)
-    context = _task_context_snapshot(spec, dispatch, workspace, skills, events, task, learnings)
+    context = _task_context_snapshot(
+        spec, dispatch, workspace, skills, events, task, learnings,
+        review_feedback=_pending_review_feedback(store, session["task_id"]),
+    )
     context.pop("preamble", None)
     return {
         **session,
@@ -424,6 +457,7 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
             spec, dispatch, workspace, spec["skills"], store.list_session_events(session_id),
             store.get_task(task_id),
             active_learnings,
+            review_feedback=_pending_review_feedback(store, task_id),
         )
         spec["context_preamble"] = context_snapshot["preamble"]
         store.mark_project_learnings_applied([item["id"] for item in active_learnings])

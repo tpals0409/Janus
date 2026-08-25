@@ -298,6 +298,45 @@ class TaskRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(409, denied.status_code)
 
+    def test_request_changes_comments_reach_the_next_turn_context(self):
+        task = self.create_ready_task("Review loop")
+        detail = self.start(task["id"])
+        session_id = detail["id"]
+        comment = self.store.create_review_comment(
+            task_id=task["id"], revision="rev-1", layer="unstaged",
+            file_path="src/auth.ts", old_line=None, new_line=42,
+            hunk_header="@@ -40,6 +40,8 @@", body="토큰 만료 검사를 추가하세요",
+        )
+        self.store.create_review_decision(
+            task_id=task["id"], revision="rev-1", decision="request_changes",
+            comment_ids=[comment["id"]],
+        )
+
+        shown = self.client.get(
+            f"/sessions/{session_id}", headers=self.headers
+        ).json()
+        feedback_items = [
+            item for item in shown["context"]["items"] if item["id"] == "review_feedback"
+        ]
+        self.assertEqual(1, len(feedback_items))
+        self.assertIn("src/auth.ts:42", feedback_items[0]["content"])
+
+        fake = FakeClient([{"text": "fixed"}])
+        with (
+            patch.object(runtime, "resolve_local_model", lambda name: name),
+            patch.object(runtime, "make_client", lambda: fake),
+            self.connect(task["id"], session_id) as ws,
+        ):
+            self.assertEqual("session_ready", ws.receive_json()["type"])
+            ws.send_json({"type": "message", "text": "리뷰 반영해줘"})
+            self.drain_turn(ws)
+
+        contents = "\n".join(
+            str(item["content"]) for item in fake.captured[0]["messages"]
+        )
+        self.assertIn("토큰 만료 검사를 추가하세요", contents)
+        self.assertIn("src/auth.ts:42", contents)
+
     def test_a_message_during_an_active_turn_runs_on_the_next_turn(self):
         task = self.create_ready_task("Queued steering")
         detail = self.start(task["id"])
