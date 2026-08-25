@@ -70,7 +70,7 @@ const serviceSpecs: Record<ServiceLabel, {
 }> = {
   server: {
     port: 8765,
-    command: 'uv run --frozen python -m janus_server.server',
+    command: 'uv run --frozen python -m janus_server',
     cwd: runtimePaths.backendRoot,
     environment: runtimePaths.backendEnvironment,
     logPath: join(runtimePaths.logRoot, 'janus-server.log')
