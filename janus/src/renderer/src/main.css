@@ -2778,6 +2778,49 @@ textarea:focus-visible {
   font-size: 11px;
 }
 
+.task-tool-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  overflow: hidden;
+  padding: 2px 0 2px 44px;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.task-tool-row__glyph {
+  flex: none;
+  color: var(--success);
+}
+
+.task-tool-row[data-status='active'] .task-tool-row__glyph {
+  animation: task-thinking-breathe 1.6s ease-in-out infinite;
+}
+
+.task-tool-row[data-status='failed'] .task-tool-row__glyph {
+  color: var(--danger);
+}
+
+.task-tool-row code {
+  flex: none;
+  color: var(--text-primary);
+}
+
+.task-tool-row__detail {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+}
+
+.task-tool-row__time {
+  margin-left: auto;
+  flex: none;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .task-thinking__mark {
   width: 15px;
   height: 15px;
@@ -2795,7 +2838,8 @@ textarea:focus-visible {
 
 /* 움직임을 줄이도록 설정한 사용자에겐 밝기만 바꾼다. */
 @media (prefers-reduced-motion: reduce) {
-  .task-thinking__mark {
+  .task-thinking__mark,
+  .task-tool-row[data-status='active'] .task-tool-row__glyph {
     animation: task-thinking-fade 2s ease-in-out infinite;
   }
   @keyframes task-thinking-fade {

@@ -58,7 +58,7 @@ describe('Janus renderer fixture', () => {
         ...useStore.getState().taskSessionEvents,
         {
           ...fixtureEvent,
-          seq: 6,
+          seq: 20,
           kind: 'agent_event',
           payload: {
             type: 'agent_event', kind: 'speculative_metrics',
@@ -68,7 +68,7 @@ describe('Janus renderer fixture', () => {
         },
         {
           ...fixtureEvent,
-          seq: 7,
+          seq: 21,
           kind: 'turn_end',
           payload: {
             type: 'turn_end',
@@ -87,6 +87,13 @@ describe('Janus renderer fixture', () => {
 
     const executionRail = screen.getByText('최근 실행')
     expect(executionRail).toBeVisible()
+    // 도구 실행이 대화 흐름 안에 행으로 보인다 (계약 §13)
+    const readRow = screen.getByText('read_file').closest('.task-tool-row')!
+    expect(readRow).toHaveAttribute('data-status', 'done')
+    expect(within(readRow as HTMLElement).getByText('janus_server/recovery.py')).toBeVisible()
+    const testRow = screen.getByText('run_bash').closest('.task-tool-row')!
+    expect(within(testRow as HTMLElement).getByText('17.6s')).toBeVisible()
+    expect(screen.getByText('도구 2회')).toBeVisible()
     expect(screen.getByText('모델 :8080 · MTP 활성')).toBeVisible()
     await user.click(executionRail)
     expect(screen.getByText(/구현은 끝났고 패키징 검증이 남았습니다/)).toBeVisible()

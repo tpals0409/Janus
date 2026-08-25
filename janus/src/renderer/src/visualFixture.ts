@@ -77,8 +77,23 @@ export function seedTaskRuntimeVisualFixture(): void {
       content: 'Implemented the persistent recovery gate. All Task runtime tests pass.'
     }),
     event(3, 'span_start', { type: 'span_start' }),
-    event(4, 'agent_event', { type: 'agent_event', kind: 'tool_result' }),
-    event(5, 'turn_end', { type: 'turn_end' })
+    event(4, 'agent_event', {
+      type: 'agent_event', kind: 'tool_start', call_id: 'call_read',
+      name: 'read_file', args: { path: 'janus_server/recovery.py' }, at_ms: 1000
+    }),
+    event(5, 'agent_event', {
+      type: 'agent_event', kind: 'tool_result', call_id: 'call_read',
+      name: 'read_file', value: {}, at_ms: 1400
+    }),
+    event(6, 'agent_event', {
+      type: 'agent_event', kind: 'tool_start', call_id: 'call_test',
+      name: 'run_bash', args: { command: 'python -m pytest tests/test_task_runtime.py' }, at_ms: 2000
+    }),
+    event(7, 'agent_event', {
+      type: 'agent_event', kind: 'tool_result', call_id: 'call_test',
+      name: 'run_bash', value: {}, at_ms: 19600
+    }),
+    event(8, 'turn_end', { type: 'turn_end' })
   ]
   session.events = events
   const task: Task = {
