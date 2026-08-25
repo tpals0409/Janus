@@ -154,6 +154,7 @@ interface State {
   cancelTaskTurn(): void
   stopTaskSession(): Promise<void>
   respondTaskApproval(id: string, approved: boolean, scope?: ApprovalResponseScope): void
+  dismissTaskApproval(id: string): void
   revokeTaskApprovalScope(scope: string): Promise<void>
   setSidebarTab(t: 'tasks' | 'files'): void
   setBottomTab(t: 'traces' | 'logs' | 'metrics'): void
@@ -1240,6 +1241,10 @@ export const useStore = create<State>((set, get) => ({
     const socket = get().taskWs
     if (!socket || socket.readyState !== WebSocket.OPEN) return
     socket.send(JSON.stringify({ type: 'approval_response', id, approved, scope }))
+    set({ taskApprovals: get().taskApprovals.filter((item) => item.id !== id) })
+  },
+
+  dismissTaskApproval(id) {
     set({ taskApprovals: get().taskApprovals.filter((item) => item.id !== id) })
   },
 

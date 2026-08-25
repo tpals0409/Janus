@@ -2847,3 +2847,14 @@ textarea:focus-visible {
     50% { opacity: 1; }
   }
 }
+
+.approval-timer {
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.approval-timer[data-urgent] {
+  color: var(--warning);
+}

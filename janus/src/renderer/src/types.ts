@@ -521,6 +521,8 @@ export interface ApprovalRequest {
   dispatch_id: string
   rememberable?: boolean
   approval_scope?: 'workspace_write' | 'workspace_shell' | null
+  /** 서버가 무응답을 거부로 처리하는 시각. 재연결 재전송에도 원래 마감이 유지된다. */
+  deadline_epoch_ms?: number
 }
 
 export type ApprovalResponseScope = 'once' | 'session_workspace'
