@@ -1092,8 +1092,14 @@ function TaskRuntimeCard({ task }: { task: Task }) {
             event.preventDefault()
             event.currentTarget.form?.requestSubmit()
           }}
-          disabled={!connected || active || !resumable}
-          placeholder={connected ? '다음 작업 지시 보내기…' : '계속하려면 세션을 재개하세요'}
+          disabled={!connected || !resumable}
+          placeholder={
+            !connected
+              ? '계속하려면 세션을 재개하세요'
+              : active
+                ? '지금 보내면 이 턴이 끝난 뒤 실행됩니다'
+                : '다음 작업 지시 보내기…'
+          }
         />
         <div className="janus-composer__footer">
           <div className="flex items-center gap-2">
@@ -1106,22 +1112,25 @@ function TaskRuntimeCard({ task }: { task: Task }) {
                 setMessage((current) => current.startsWith('/') ? current : `/${current}`)
                 requestAnimationFrame(() => messageRef.current?.focus())
               }}
-              disabled={!connected || active || !resumable}
+              disabled={!connected || !resumable}
             >
               <Plus size={20} />
             </button>
           </div>
           <div className="janus-composer__meta">
             <span><Zap size={13} /> {selectedProfile?.name ?? '로컬 에이전트'}</span>
-            {active ? (
+            {active && (
               <button type="button" onClick={cancelTurn} className="janus-composer__stop" aria-label="턴 취소">
                 <Square size={13} />
               </button>
-            ) : (
-              <button disabled={!connected || !message.trim() || !resumable} className="janus-composer__send" aria-label="보내기">
-                <ArrowUp size={17} />
-              </button>
             )}
+            <button
+              disabled={!connected || !message.trim() || !resumable}
+              className="janus-composer__send"
+              aria-label={active ? '다음 턴으로 보내기' : '보내기'}
+            >
+              <ArrowUp size={17} />
+            </button>
           </div>
         </div>
       </form>

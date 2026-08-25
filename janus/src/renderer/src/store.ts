@@ -1220,7 +1220,7 @@ export const useStore = create<State>((set, get) => ({
   sendTaskMessage(text) {
     const socket = get().taskWs
     const trimmed = text.trim()
-    if (!trimmed || !socket || socket.readyState !== WebSocket.OPEN || get().taskTurnActive) return
+    if (!trimmed || !socket || socket.readyState !== WebSocket.OPEN) return
     const session = get().taskSession
     if (!session) return
     const events = get().taskSessionEvents
