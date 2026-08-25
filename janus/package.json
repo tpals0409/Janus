@@ -1,6 +1,6 @@
 {
   "name": "janus",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Janus — Agent Development Environment",
   "author": "Janus contributors",
   "main": "./out/main/index.js",
