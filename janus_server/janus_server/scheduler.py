@@ -8,6 +8,7 @@ call path the same blocking lease contract.
 from __future__ import annotations
 
 import itertools
+import os
 import threading
 import time
 import uuid
@@ -24,8 +25,12 @@ class ResourceClass(StrEnum):
     VERIFICATION = "verification"
 
 
+# 오케스트레이터 1 + 워커 4 = 5가 동시에 생성할 수 있다. 가중치는 공유되지만 KV 캐시는
+# 스트림마다 따로 잡히므로, 스왑이 보이면 JANUS_MODEL_SLOTS를 낮춰 되돌린다.
+# ponytail: 고정 슬롯 수. 남은 메모리로 자동 산정이 필요해지면 그때 재보자.
+MODEL_GENERATION_SLOTS = max(1, int(os.environ.get("JANUS_MODEL_SLOTS", "5")))
 DEFAULT_CAPS: dict[ResourceClass, int] = {
-    ResourceClass.MODEL_GENERATION: 1,
+    ResourceClass.MODEL_GENERATION: MODEL_GENERATION_SLOTS,
     ResourceClass.CPU_TOOL: 2,
     ResourceClass.IO_TOOL: 8,
     ResourceClass.VERIFICATION: 1,
