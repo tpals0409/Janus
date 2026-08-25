@@ -24,6 +24,7 @@ export default function App() {
   const backendStatus = useStore((s) => s.backendStatus)
   const mlxUp = useStore((s) => s.mlxUp)
   const authFailed = useStore((s) => s.authFailed)
+  const backendFault = useStore((s) => s.backendFault)
   const task = useStore((s) => s.task)
   const projects = useStore((s) => s.projects)
   const projectId = useStore((s) => s.projectId)
@@ -52,6 +53,24 @@ export default function App() {
     const t = setInterval(pollHealth, 5000)
     return () => clearInterval(t)
   }, [serverUp, authFailed, boot, pollHealth, visualFixture])
+
+  if (backendFault) {
+    // 앱보다 새 DB 같은 거절은 기다려서 풀리지 않는다 — 스피너 대신 사실을 보여준다.
+    return (
+      <div className="grid h-full place-items-center px-8 text-center">
+        <div className="max-w-[560px]">
+          <ShieldAlert size={28} className="mx-auto mb-3 text-warn" />
+          <p className="mb-2 text-[14px]">데이터베이스를 열 수 없습니다</p>
+          <p className="text-[11px] leading-relaxed text-faint">{backendFault}</p>
+          <p className="mt-3 text-[11px] leading-relaxed text-faint">
+            더 새 버전의 Janus로 만든 데이터입니다. 최신 Janus로 실행하거나 백업에서 복원하세요.
+            <br />
+            Janus는 downgrade 마이그레이션을 하지 않습니다 — 데이터를 건드리기 전에 멈춥니다.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   if (authFailed) {
     // 서버는 살아 있는데 토큰/Origin이 거부됐다. 스피너를 돌리면 "곧 될 것"이라는

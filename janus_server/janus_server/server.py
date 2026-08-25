@@ -390,9 +390,18 @@ def health():
             mlx = True
     except OSError:
         pass
+    try:
+        schema_version = get_domain_store().schema_version()
+    except D.DomainError as error:
+        # DB가 앱보다 새 버전인 경우는 예상된 거절이다 — 500 + 트레이스백으로 흘리면
+        # 폴링마다 로그를 채우고 화면에는 "백엔드 시작 중"이라는 거짓말이 남는다.
+        return {
+            "ok": False, "version": app.version, "mlx": mlx,
+            "schema_version": None, "fault": str(error),
+        }
     return {
         "ok": True, "version": app.version, "mlx": mlx,
-        "schema_version": get_domain_store().schema_version(),
+        "schema_version": schema_version,
     }
 
 

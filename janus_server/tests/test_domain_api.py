@@ -409,6 +409,23 @@ class DomainApiTests(unittest.TestCase):
             self.assertEqual("manual", modes["compact"])
 
 
+    def test_health_reports_a_database_newer_than_the_app_without_a_500(self):
+        with domain_api() as (client, path):
+            client.get("/health", headers=HEADERS)  # 스키마를 만든다
+            server._DOMAIN_STORE = None
+            server._DOMAIN_STORE_PATH = None
+            fault = domain.MigrationError(
+                "database schema v99은 이 Janus(v14)보다 새 버전입니다"
+            )
+            with patch.object(server, "get_domain_store", side_effect=fault):
+                response = client.get("/health", headers=HEADERS)
+            self.assertEqual(200, response.status_code, response.text)
+            body = response.json()
+            self.assertFalse(body["ok"])
+            self.assertIsNone(body["schema_version"])
+            self.assertIn("v99", body["fault"])
+
+
 class GracefulShutdownTest(unittest.TestCase):
     def test_main_bounds_graceful_shutdown_under_supervisor_grace(self):
         """SIGTERM 뒤 5초(supervisor grace) 안에 끝나야 SIGKILL을 안 맞는다."""

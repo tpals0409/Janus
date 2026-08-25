@@ -15,7 +15,7 @@ from typing import Callable
 DEFAULT_BUDGET = {
     "dispatch": {"token_limit": 262_144, "time_limit_ms": 3_600_000, "step_limit": 60},
     "worker": {"token_limit": 49_152, "time_limit_ms": 300_000, "step_limit": 8},
-    "workers": {"total_limit": 4, "concurrent_limit": 2},
+    "workers": {"total_limit": 4, "concurrent_limit": 4},
     "queue": {"timeout_ms": 300_000, "priority": 0},
 }
 
@@ -183,3 +183,10 @@ class BudgetCancel:
         return bool(self.external and self.external.is_set()) or any(
             not tracker.available() for tracker in self.trackers
         )
+
+    def set(self) -> None:
+        """Event 프로토콜의 나머지 절반. 호출부는 이것을 Event로 보고 취소를 건다 —
+        읽기만 구현하면 scheduler.close()가 종료 도중 AttributeError로 죽는다."""
+        if self.external is None:
+            self.external = threading.Event()
+        self.external.set()

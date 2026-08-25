@@ -297,7 +297,7 @@ def decide(
                     if task_class == "multi_component_build"
                     else min(4, max(1, cap + 1))
                 ),
-                "concurrent_limit": min(2, cap),
+                "concurrent_limit": min(4, cap, base_budget["workers"]["total_limit"]),
             },
         }
         reasons.append(

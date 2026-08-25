@@ -148,6 +148,35 @@ def worker_spawn_pressure(snapshot: dict, *, max_model_queue: int =
     return None
 
 
+# 억제에는 두 종류가 있다. 일시적인 것(슬롯이 잠깐 찼다, 같은 일이 이미 돌고 있다)에
+# "직접 하라"고 시키면 위임이 조용히 사라진다 — 워커 격리를 두는 이유 자체가 무너진다.
+# 정책이 구조적으로 워커를 금지할 때만 오케스트레이터가 직접 한다.
+TEMPORARY_SUPPRESSIONS = frozenset({"model_queue_backpressure", "duplicate_worker_running"})
+
+
+def suppression_guidance(rejection: str) -> str:
+    """스폰이 억제됐을 때 오케스트레이터에게 돌려줄 지침."""
+    if rejection == "model_queue_backpressure":
+        follow_up = (
+            "This is temporary. Do not implement the work yourself. Call wait_worker "
+            "for the running worker, then create this worker again once the slot frees."
+        )
+    elif rejection == "duplicate_worker_running":
+        follow_up = (
+            "The same subtask is already running. Do not implement it again yourself. "
+            "Call wait_worker and integrate its result."
+        )
+    else:
+        follow_up = (
+            "This worker policy structurally forbids another worker, so complete the "
+            "task directly, then explicitly report that the worker request was suppressed."
+        )
+    return (
+        f"WORKER NOT CREATED: spawn suppressed ({rejection}). "
+        "Do not say that this worker was created, deployed, or started. " + follow_up
+    )
+
+
 def worker_spawn_fit(
     policy: str, user_task: str | None, *, allow_autonomous_workers: bool = False,
 ) -> str | None:
@@ -832,13 +861,7 @@ class Orchestration:
                 }:
                     previous = next(iter(self.worker_requests.values()), None)
                     prior = str((previous or {}).get("result") or "").strip()
-                    guidance = (
-                        f"WORKER NOT CREATED: spawn suppressed ({rejection}). "
-                        "Do not say that this worker was created, deployed, or started. "
-                        "Do not call create_worker again. Inspect the current workspace and "
-                        "complete/integrate the task directly, then explicitly report that the "
-                        "worker request was suppressed."
-                    )
+                    guidance = suppression_guidance(rejection)
                     if prior:
                         guidance = prior + "\n\n" + guidance
                     return {

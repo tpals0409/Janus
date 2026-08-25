@@ -133,6 +133,62 @@ describe('Janus renderer fixture', () => {
     expect(composer).toHaveValue('/debug ')
   })
 
+  it('opens a worker as a chat modal with its state badge and elapsed time', async () => {
+    window.history.replaceState({}, '', '/?fixture=task-runtime')
+    seedTaskRuntimeVisualFixture()
+    const fixtureEvent = useStore.getState().taskSessionEvents.at(-1)!
+    const started = new Date(Date.now() - 90_000).toISOString()
+    useStore.setState({
+      taskConnected: true,
+      taskSessionEvents: [
+        ...useStore.getState().taskSessionEvents,
+        {
+          ...fixtureEvent, seq: 20, kind: 'span_start', created_at: started,
+          payload: {
+            type: 'span_start',
+            span: { id: 'span-w2', node_id: 'w2', label: 'impl_worker', status: 'running' }
+          }
+        },
+        {
+          ...fixtureEvent, seq: 21, kind: 'agent_event',
+          payload: {
+            type: 'agent_event', kind: 'reasoning_delta', worker_id: 'w2',
+            text: '호출부를 먼저 찾는다.'
+          }
+        },
+        {
+          ...fixtureEvent, seq: 22, kind: 'agent_event',
+          payload: {
+            type: 'agent_event', kind: 'tool_start', worker_id: 'w2',
+            name: 'grep', args: { pattern: 'BudgetCancel' }
+          }
+        },
+        {
+          ...fixtureEvent, seq: 23, kind: 'agent_event',
+          payload: {
+            type: 'agent_event', kind: 'assistant', worker_id: 'w2',
+            content: '세 곳을 고쳤습니다.'
+          }
+        }
+      ]
+    })
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    // 워커 활동은 대화창에서 걸러진다 — 모달을 열기 전에는 보이면 안 된다.
+    expect(screen.queryByText('호출부를 먼저 찾는다.')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '워커 impl_worker 상세' }))
+    const modal = screen.getByRole('dialog', { name: '워커 impl_worker' })
+    expect(within(modal).getByText('호출부를 먼저 찾는다.')).toBeVisible()
+    expect(within(modal).getByText('grep')).toBeVisible()
+    expect(within(modal).getByText('세 곳을 고쳤습니다.')).toBeVisible()
+    expect(within(modal).getByText(/실행 중/)).toBeVisible()
+    expect(within(modal).getByText(/1분 3[0-9]초/)).toBeVisible()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: '워커 impl_worker' })).not.toBeInTheDocument()
+  })
+
   it('gates implementation on explicit mockup approval', async () => {
     window.history.replaceState({}, '', '/?fixture=task-runtime')
     seedTaskRuntimeVisualFixture()

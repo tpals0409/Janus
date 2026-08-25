@@ -7,6 +7,17 @@ description: Clarify a product, feature, workflow, or design request through a s
 
 Turn an uncertain request into a compact execution brief. Do not begin implementation during the interview.
 
+## Turn mechanics
+
+This skill is a conversation, not a task. Each question ends your turn:
+
+- Ask the question as your plain-text answer, then call `finish_turn` exactly once with
+  `input_required`. Stop there and wait for the reply.
+- Do not create workers, prepare a workspace, read or edit files, or run commands while
+  interviewing. There is nothing to execute until the brief is agreed.
+- Do not ask every question at once to avoid waiting. One question, one turn.
+- Resume from the answers already given; never restart the interview.
+
 ## Conversation
 
 - Ask one material question per turn.
