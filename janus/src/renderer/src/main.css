@@ -1018,6 +1018,11 @@ button {
   padding: 40px 24px 22px;
 }
 
+.new-chat-composer {
+  position: relative;
+  width: min(100%, 800px);
+}
+
 .new-chat-intro {
   margin-bottom: 28px;
   text-align: center;
