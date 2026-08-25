@@ -1257,6 +1257,37 @@ const REV_BY_LAYER: Record<ChangeLayer, string> = {
   committed: 'head', staged: 'index', unstaged: 'worktree', untracked: 'worktree'
 }
 
+// Monaco는 FileView와 같은 지연 청크를 공유한다 — 실패나 미지원 언어는 plain으로 남는다.
+let monacoSetupPromise: Promise<typeof import('../monacoSetup')> | null = null
+
+async function colorizeDiffLines(
+  lines: DiffRow[], path: string
+): Promise<Map<number, string> | null> {
+  if (import.meta.env.MODE === 'test') return null
+  try {
+    monacoSetupPromise ??= import('../monacoSetup')
+    const { monaco, languageIdFor } = await monacoSetupPromise
+    const language = languageIdFor(path)
+    if (language === 'plaintext') return null
+    monaco.editor.setTheme('janus-ide')
+    const rows = lines.filter(
+      (item) => !item.header && (item.oldLine !== null || item.newLine !== null)
+    )
+    if (rows.length === 0) return null
+    const html = await monaco.editor.colorize(
+      rows.map((item) => item.text.slice(1)).join('\n'), language, { tabSize: 2 }
+    )
+    const parts = html.split(/<br\/?>/)
+    const map = new Map<number, string>()
+    rows.forEach((item, position) => {
+      if (parts[position] !== undefined) map.set(item.index, parts[position])
+    })
+    return map
+  } catch {
+    return null
+  }
+}
+
 function ChangeSetCard() {
   const changeSet = useStore((state) => state.changeSet)
   const refresh = useStore((state) => state.inspectWorkspace)
@@ -1275,6 +1306,16 @@ function ChangeSetCard() {
   const hunks = lines.filter((item) => item.header)
   const gaps = useMemo(() => buildGaps(lines), [lines])
   const emphasis = useMemo(() => wordEmphasis(lines), [lines])
+  const [syntax, setSyntax] = useState<Map<number, string> | null>(null)
+  useEffect(() => {
+    setSyntax(null)
+    if (!selected?.diff || selected.binary) return
+    let cancelled = false
+    void colorizeDiffLines(lines, selected.path).then((map) => {
+      if (!cancelled) setSyntax(map)
+    })
+    return () => { cancelled = true }
+  }, [lines, selected?.path, selected?.binary, selected?.diff])
   const comments = review?.comments.filter(
     (item) => item.layer === layer && item.file_path === selected?.path
   ) ?? []
@@ -1555,6 +1596,12 @@ function ChangeSetCard() {
                                 {item.text.slice(span[0], span[1])}
                               </span>
                               {item.text.slice(span[1])}
+                            </>
+                          ) : !item.header && syntax?.has(item.index) ? (
+                            <>
+                              {item.text.slice(0, 1)}
+                              {/* Monaco tokenizer 출력 — 원문을 escape해 토큰 span만 담는다 */}
+                              <span dangerouslySetInnerHTML={{ __html: syntax.get(item.index)! }} />
                             </>
                           ) : (item.text || ' ')}
                         </button>
