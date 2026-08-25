@@ -16,6 +16,7 @@ os.environ.setdefault("JANUS_AUTH_TOKEN", "test-token")
 from fastapi.testclient import TestClient
 
 from janus_server import server
+from janus_server.routers import workspaces
 
 
 def git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -192,7 +193,6 @@ class WorkspaceApiTests(unittest.TestCase):
         task = self.create_task(title="Background")
         started = threading.Event()
         release = threading.Event()
-        fake_root = self.worktrees / "fake"
 
         class BlockingService:
             def validate_repo(_self, repo_path, base_ref):
@@ -204,7 +204,7 @@ class WorkspaceApiTests(unittest.TestCase):
                     "commit": self.main_head,
                 }
 
-        with patch.object(server, "get_workspace_service", return_value=BlockingService()):
+        with patch.object(workspaces, "get_workspace_service", return_value=BlockingService()):
             response = self.client.post(
                 f"/tasks/{task['id']}/workspace/prepare", headers=self.headers
             )

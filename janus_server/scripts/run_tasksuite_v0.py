@@ -15,24 +15,26 @@ import threading
 import time
 import traceback
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
 
-from janus_server import runtime  # noqa: E402
-from janus_server import verification  # noqa: E402
+from janus_server import (  # noqa: E402
+    runtime,  # noqa: E402
+    verification,  # noqa: E402
+)
 from janus_server.workspace import WorkspaceContext  # noqa: E402
-from scripts.p0_smoke_27b import ModelServer, SmokeFailure  # noqa: E402
+from scripts.p0_smoke_27b import ModelServer  # noqa: E402
 
 POLICIES = ("none", "fixed_one", "autonomous")
 IGNORED_PARTS = {"__pycache__", ".pytest_cache", ".git"}
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def file_hashes(root: Path) -> dict[str, str]:

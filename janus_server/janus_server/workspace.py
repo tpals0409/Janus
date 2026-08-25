@@ -32,7 +32,7 @@ class WorkspaceContext:
         if self.dispatch_id is not None and not str(self.dispatch_id).strip():
             raise ValueError("dispatch_id는 빈 문자열일 수 없습니다")
 
-    def for_dispatch(self, dispatch_id: str) -> "WorkspaceContext":
+    def for_dispatch(self, dispatch_id: str) -> WorkspaceContext:
         """Return the same Task/Workspace ownership bound to one Dispatch."""
         if not str(dispatch_id).strip():
             raise ValueError("dispatch_id가 필요합니다")

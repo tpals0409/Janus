@@ -13,7 +13,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 SCHEMA_VERSION = 2
 
@@ -61,7 +61,7 @@ class ExecutionTelemetry:
         self.session_id = session_id or _id("session")
         self.clock = clock
         self.origin_ns = clock()
-        self.started_at = datetime.now(timezone.utc).isoformat()
+        self.started_at = datetime.now(UTC).isoformat()
         self.lock = threading.Lock()
         self.events: list[dict] = []
         self.intervals: list[dict] = []
@@ -164,7 +164,7 @@ class ExecutionTelemetry:
                 category, _ = pair
                 self._open[(category, operation_id)] = (now, dict(event))
             elif operation_id:
-                for start_kind, (category, end_kinds) in self._PAIRS.items():
+                for _, (category, end_kinds) in self._PAIRS.items():
                     if kind not in end_kinds:
                         continue
                     opened = self._open.pop((category, operation_id), None)

@@ -181,13 +181,14 @@ class SchedulerTests(unittest.TestCase):
             acquired = threading.Event()
 
             def wait_for_same_resource(selected: ResourceClass = resource) -> None:
+                # 루프 변수는 같은 반복 안에서만 소비된다 — 스레드 start/join이 반복 내부.
                 with scheduler.acquire(selected):
-                    acquired.set()
+                    acquired.set()  # noqa: B023
 
             waiting = threading.Thread(target=wait_for_same_resource)
             waiting.start()
             wait_until(
-                lambda: scheduler.snapshot()["resources"][resource.value]["queued"] == 1
+                lambda: scheduler.snapshot()["resources"][resource.value]["queued"] == 1  # noqa: B023
             )
             self.assertFalse(acquired.is_set())
             held.release()

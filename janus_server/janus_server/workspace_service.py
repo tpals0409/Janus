@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import re
-import subprocess
 import hashlib
 import json
+import re
+import subprocess
 import unicodedata
-from datetime import datetime, timezone
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -373,7 +373,7 @@ class WorkspaceService:
         ).hexdigest()
         return {
             "source": "git",
-            "derived_at": datetime.now(timezone.utc).isoformat(),
+            "derived_at": datetime.now(UTC).isoformat(),
             "base_ref": base_ref,
             "base_commit": base_commit,
             "merge_base": merge_base,

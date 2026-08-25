@@ -19,8 +19,8 @@ PROJECT_DIR = Path(__file__).resolve().parents[1]
 if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
 
-from janus_server.domain import DomainStore
-from janus_server.recovery import create_database_backup, database_integrity
+from janus_server.domain import DomainStore  # noqa: E402
+from janus_server.recovery import create_database_backup, database_integrity  # noqa: E402
 
 
 def run(duration_seconds: float, minimum_cycles: int, root: Path) -> dict:

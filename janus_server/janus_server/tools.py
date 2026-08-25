@@ -20,8 +20,8 @@ import shutil
 import subprocess
 import unicodedata
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from .workspace import WorkspaceContext
 
@@ -424,10 +424,11 @@ def demo():
         context = WorkspaceContext(
             root=Path(d), task_id="task_demo", workspace_id="workspace_demo"
         ).for_dispatch("dispatch_demo")
-        approved = lambda *_: True
-        invoke = lambda name, args, **kwargs: dispatch(
-            name, args, context=context, **kwargs
-        )
+        def approved(*_args: object) -> bool:
+            return True
+
+        def invoke(name, args, **kwargs):
+            return dispatch(name, args, context=context, **kwargs)
         # dispatch가 위험 도구를 기본 거부한다 — 모든 노드의 마지막 방어선.
         assert "승인하지 않음" in invoke(
             "run_bash", {"command": "echo should-not-run"})["error"]

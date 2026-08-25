@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -13,9 +12,9 @@ from unittest.mock import patch
 os.environ.setdefault("JANUS_AUTH_TOKEN", "test-token")
 os.environ.setdefault("JANUS_ALLOWED_ORIGINS", "http://localhost:5173")
 
-from janus_server import agent, runtime, server
+from janus_server import agent, runtime
 from janus_server.workspace import WorkspaceContext
-from tests.fakes import FakeClient, text_chunk
+from tests.fakes import FakeClient
 
 ORIGIN = "http://localhost:5173"
 SPEC = {"name": "Orch", "model": "qwen3.8-27b", "system_prompt": "orchestrate",

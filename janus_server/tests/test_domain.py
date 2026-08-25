@@ -11,11 +11,11 @@ from pathlib import Path
 
 from janus_server.domain import (
     CURRENT_SCHEMA_VERSION,
+    MIGRATION_1,
+    MIGRATIONS,
     Conflict,
     DomainStore,
     InvalidTransition,
-    MIGRATION_1,
-    MIGRATIONS,
     MigrationError,
 )
 

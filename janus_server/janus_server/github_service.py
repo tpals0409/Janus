@@ -11,7 +11,6 @@ import re
 import subprocess
 from pathlib import Path
 
-
 MAX_FAILED_LOG_CHARS = 40_000
 
 

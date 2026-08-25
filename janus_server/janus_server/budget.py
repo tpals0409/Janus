@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import threading
 import time
-from copy import deepcopy
+from collections.abc import Callable
 from contextlib import ExitStack
-from typing import Callable
-
+from copy import deepcopy
 
 # dispatch 예산은 한 턴이 아니라 **세션 전체**에 누적된다. 실측으로 5턴짜리 대화가
 # 모델 호출 11회에 26k~34k 토큰을 썼다 — 예전 32,768은 대화 하나를 못 버텼다.
@@ -59,7 +58,7 @@ def empty_usage() -> dict:
     }
 
 
-def claim_step_all(trackers: list["BudgetTracker"]) -> bool:
+def claim_step_all(trackers: list[BudgetTracker]) -> bool:
     """Atomically charge one step to every applicable budget scope."""
     ordered = sorted(trackers, key=id)
     with ExitStack() as stack:

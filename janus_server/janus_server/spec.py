@@ -78,7 +78,8 @@ def validate(spec: Any) -> None:
         errs.append("max_steps는 1~100 사이 정수여야 합니다")
 
     if errs:
-        raise SpecError("스펙 오류 %d건:\n  - %s" % (len(errs), "\n  - ".join(errs)))
+        joined = "\n  - ".join(errs)
+        raise SpecError(f"스펙 오류 {len(errs)}건:\n  - {joined}")
 
 
 # ─────────────────────────── self-check ───────────────────────────

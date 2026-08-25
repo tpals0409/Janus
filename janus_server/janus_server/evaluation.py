@@ -262,11 +262,14 @@ def export_markdown(comparison: dict) -> str:
     ]
     for row in comparison["rows"]:
         before, after = row["baseline"], row["candidate"]
-        value = lambda item: "—" if item is None else f"{item:+.2f}%"
+
+        def format_delta(item: float | None) -> str:
+            return "—" if item is None else f"{item:+.2f}%"
+
         lines.append(
             f"| {row['task_id']} | {before['successes']}/{before['runs']} → "
-            f"{after['successes']}/{after['runs']} | {value(row['wall_delta_pct'])} | "
-            f"{value(row['wall_p95_delta_pct'])} | {value(row['token_delta_pct'])} | "
+            f"{after['successes']}/{after['runs']} | {format_delta(row['wall_delta_pct'])} | "
+            f"{format_delta(row['wall_p95_delta_pct'])} | {format_delta(row['token_delta_pct'])} | "
             f"{row['intervention_delta']:+.2f} |"
         )
     if comparison["condition_mismatches"]:

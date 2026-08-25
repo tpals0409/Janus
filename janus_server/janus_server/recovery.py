@@ -6,9 +6,8 @@ import hashlib
 import os
 import sqlite3
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-
 
 MAX_FAILURE_CHARS = 4_000
 
@@ -84,7 +83,7 @@ def create_database_backup(
     if not 1 <= int(retain) <= 50:
         raise ValueError("backup retain은 1~50이어야 합니다")
     root.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
     destination = root / f"janus-{stamp}.sqlite3"
     fd, temporary_name = tempfile.mkstemp(prefix=".janus-backup-", suffix=".tmp", dir=root)
     os.close(fd)
@@ -114,7 +113,7 @@ def create_database_backup(
         expired.unlink()
     digest = hashlib.sha256(destination.read_bytes()).hexdigest()
     return {
-        "path": str(destination), "created_at": datetime.now(timezone.utc).isoformat(),
+        "path": str(destination), "created_at": datetime.now(UTC).isoformat(),
         "size_bytes": destination.stat().st_size, "sha256": digest,
         "integrity": integrity, "retained": min(len(backups), int(retain)),
     }
@@ -128,7 +127,7 @@ def list_database_backups(backup_root: str | Path) -> list[dict]:
         {
             "name": item.name, "size_bytes": item.stat().st_size,
             "modified_at": datetime.fromtimestamp(
-                item.stat().st_mtime, tz=timezone.utc
+                item.stat().st_mtime, tz=UTC
             ).isoformat(),
         }
         for item in sorted(root.glob("janus-*.sqlite3"), reverse=True)

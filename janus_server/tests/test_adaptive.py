@@ -5,8 +5,7 @@ from __future__ import annotations
 import unittest
 
 from janus_server import adaptive
-from janus_server.budget import normalize_budget
-from janus_server.budget import DEFAULT_BUDGET
+from janus_server.budget import DEFAULT_BUDGET, normalize_budget
 
 
 def scheduler(*, cap: int = 1, active: int = 0, queued: int = 0, closed: bool = False) -> dict:

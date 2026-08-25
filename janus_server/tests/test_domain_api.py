@@ -6,8 +6,8 @@ import json
 import os
 import subprocess
 import sys
-import types
 import tempfile
+import types
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
@@ -18,7 +18,6 @@ os.environ.setdefault("JANUS_AUTH_TOKEN", "test-token")
 from fastapi.testclient import TestClient
 
 from janus_server import domain, server
-
 
 HEADERS = {"x-janus-token": server.AUTH_TOKEN}
 

@@ -6,7 +6,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "check_versions.py"
 SPEC = importlib.util.spec_from_file_location("check_versions", SCRIPT)
 assert SPEC and SPEC.loader

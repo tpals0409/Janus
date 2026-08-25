@@ -6,7 +6,6 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 os.environ["JANUS_AUTH_TOKEN"] = "test-token"
 os.environ["JANUS_ALLOWED_ORIGINS"] = "http://localhost:5173"
@@ -14,16 +13,13 @@ os.environ["JANUS_DB_FILE"] = str(
     Path(tempfile.gettempdir()) / f"janus-test-domain-{os.getpid()}.sqlite3"
 )
 
-import json
 
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from janus_server import runtime, server
-from janus_server import spec as S
+from janus_server import server
 from janus_server import tools as T
 from janus_server.workspace import WorkspaceContext
-from tests.fakes import FakeClient
 
 
 class DispatchApprovalTests(unittest.TestCase):
