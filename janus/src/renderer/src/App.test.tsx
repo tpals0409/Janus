@@ -454,4 +454,34 @@ describe('Janus renderer fixture', () => {
     await user.click(within(card as HTMLElement).getByRole('button', { name: '닫기' }))
     expect(useStore.getState().taskApprovals).toHaveLength(0)
   })
+
+  it('shows elapsed and remembered duration while the model loads', async () => {
+    window.history.replaceState({}, '', '/?fixture=task-runtime')
+    seedTaskRuntimeVisualFixture()
+    localStorage.setItem('janus.model-load-seconds', '74')
+    useStore.setState({
+      taskConnected: true,
+      serverUp: true,
+      mlxUp: false,
+      backendStatus: {
+        server: {
+          phase: 'up', attempts: 0, retryInMs: 0, lastError: null,
+          logPath: '/logs/server.log'
+        },
+        mlx: {
+          phase: 'starting', attempts: 1, retryInMs: 0, lastError: null,
+          logPath: '/logs/mlx.log',
+          acceleration: {
+            policy: 'required', configured: true, active: false, kind: 'mtp',
+            draftModelPath: '/models/mtp', lastError: null
+          }
+        }
+      }
+    })
+
+    render(<App />)
+
+    expect(screen.getByText(/모델·MTP 로딩 중 · 0초 \(지난번 74초\)/)).toBeVisible()
+    localStorage.removeItem('janus.model-load-seconds')
+  })
 })
