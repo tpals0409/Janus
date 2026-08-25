@@ -39,10 +39,10 @@ class DomainApiTests(unittest.TestCase):
     def test_skill_library_import_and_agent_activation_api(self):
         with domain_api() as (client, path):
             root = path.parent / "skill-pack"
-            skill = root / "skills" / "review"
+            skill = root / "skills" / "handover"
             skill.mkdir(parents=True)
             (skill / "SKILL.md").write_text(
-                "---\nname: review\ndescription: Review changes\nallowed-tools: Read, Grep\n---\nReview $ARGUMENTS.\n",
+                "---\nname: handover\ndescription: Hand work over\nallowed-tools: Read, Grep\n---\nHand over $ARGUMENTS.\n",
                 encoding="utf-8",
             )
 
@@ -57,7 +57,7 @@ class DomainApiTests(unittest.TestCase):
 
             library = client.get("/skills", headers=HEADERS).json()
             self.assertCountEqual(
-                ["clear", "compact", "interview", "review"],
+                ["clear", "compact", "debug", "handover", "interview", "review"],
                 [item["name"] for item in library],
             )
             activated = client.put(
@@ -68,12 +68,12 @@ class DomainApiTests(unittest.TestCase):
             assigned = client.get(
                 "/profiles/agents/agent_default/skills", headers=HEADERS,
             ).json()
-            review = next(item for item in assigned if item["name"] == "review")
+            handover = next(item for item in assigned if item["name"] == "handover")
             interview = next(item for item in assigned if item["name"] == "interview")
             clear = next(item for item in assigned if item["name"] == "clear")
             compact = next(item for item in assigned if item["name"] == "compact")
-            self.assertEqual("auto", review["activation_mode"])
-            self.assertEqual(created["id"], review["skill_version_id"])
+            self.assertEqual("auto", handover["activation_mode"])
+            self.assertEqual(created["id"], handover["skill_version_id"])
             self.assertEqual("manual", interview["activation_mode"])
             self.assertTrue(interview["compiled"]["activation"]["user_invocable"])
             self.assertEqual("manual", clear["activation_mode"])
@@ -384,7 +384,7 @@ class DomainApiTests(unittest.TestCase):
                 f"/profiles/agents/{created.json()['id']}/skills", headers=HEADERS,
             ).json()
             self.assertEqual(
-                ["clear", "compact", "interview"],
+                ["clear", "compact", "debug", "interview", "review"],
                 sorted(item["name"] for item in listed),
             )
             self.assertEqual({"manual"}, {item["activation_mode"] for item in listed})
