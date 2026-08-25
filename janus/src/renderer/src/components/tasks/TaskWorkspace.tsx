@@ -34,6 +34,29 @@ import ContextInspector from './ContextInspector'
 import { Button, ConfirmDialog, EmptyState, Status } from '../ui'
 import { taskStatusMeta } from '../../taskStatus'
 
+interface TranscriptItem {
+  key: string
+  role: string
+  content: string
+  streaming?: boolean
+  tool?: { name: string; callId: string; status: 'active' | 'done' | 'failed'; startedAtMs: number | null; durationMs?: number }
+}
+
+const toMs = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null
+
+const TOOL_ARG_KEYS = ['path', 'file_path', 'command', 'pattern', 'query', 'url']
+
+function toolDetail(args: unknown): string {
+  if (!args || typeof args !== 'object') return ''
+  const record = args as Record<string, unknown>
+  const value = TOOL_ARG_KEYS.map((key) => record[key]).find((v) => typeof v === 'string' && v)
+    ?? Object.values(record).find((v) => typeof v === 'string' && v)
+  if (typeof value !== 'string') return ''
+  return value.length > 72 ? `${value.slice(0, 71)}…` : value
+}
+
+
 const TaskDevelopmentSurface = lazy(() => import('./TaskDevelopmentSurface'))
 const FileView = lazy(() => import('../FileView'))
 // 마크다운 렌더러는 초기 번들 예산을 넘긴다 — 첫 답변이 올 때 받아온다.
@@ -478,6 +501,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
       const kind = String(event.payload.kind ?? '')
       return kind === 'user' || kind === 'assistant'
         || kind === 'reasoning_delta' || kind === 'text_delta'
+        || kind === 'tool_start' || kind === 'tool_result'
     })
     const confirmedUsers = new Set(
       live
@@ -488,11 +512,38 @@ function TaskRuntimeCard({ task }: { task: Task }) {
       event.kind === 'optimistic_transcript' &&
       confirmedUsers.has(String(event.payload.content ?? event.payload.text ?? ''))
     ))
-    const items: { key: string; role: string; content: string; streaming?: boolean }[] = []
+    const items: TranscriptItem[] = []
     const ROLES: Record<string, string> = { reasoning_delta: 'reasoning', text_delta: 'assistant' }
     for (const event of [...persisted, ...visibleLive]) {
       const payload = event.payload
       const raw = String(payload.kind ?? 'event')
+      if (raw === 'tool_start' || raw === 'tool_result') {
+        const callId = String(payload.call_id ?? event.seq)
+        if (raw === 'tool_start') {
+          items.push({
+            key: `tool-${callId}-${event.seq}`, role: 'tool', content: toolDetail(payload.args),
+            tool: { name: String(payload.name ?? 'tool'), callId, status: 'active', startedAtMs: toMs(payload.at_ms) }
+          })
+          continue
+        }
+        const failed = !!payload.value && typeof payload.value === 'object'
+          && 'error' in (payload.value as Record<string, unknown>)
+        const open = items.find((item) => item.tool?.callId === callId && item.tool.status === 'active')
+        if (open?.tool) {
+          open.tool.status = failed ? 'failed' : 'done'
+          const endedAtMs = toMs(payload.at_ms)
+          if (open.tool.startedAtMs !== null && endedAtMs !== null) {
+            open.tool.durationMs = endedAtMs - open.tool.startedAtMs
+          }
+        } else {
+          // 재개 직후처럼 start를 못 본 result도 행으로 남긴다.
+          items.push({
+            key: `tool-${callId}-${event.seq}`, role: 'tool', content: '',
+            tool: { name: String(payload.name ?? 'tool'), callId, status: failed ? 'failed' : 'done', startedAtMs: null }
+          })
+        }
+        continue
+      }
       const role = ROLES[raw] ?? raw
       const streaming = raw.endsWith('_delta')
       const content = String(payload.content ?? payload.text ?? '')
@@ -562,8 +613,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
     }
   }, [events])
   const executionSummary = useMemo(() => {
-    const agentEvents = events.filter((event) => event.kind === 'agent_event')
-    const toolRuns = agentEvents.filter((event) => String(event.payload.kind ?? '').startsWith('tool_')).length
+    const toolRuns = transcript.filter((item) => item.role === 'tool').length
     const reasoningChars = transcript
       .filter((item) => item.role === 'reasoning')
       .reduce((total, item) => total + item.content.length, 0)
@@ -572,7 +622,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
       reasoningChars,
       elapsedSeconds: Math.round((usage?.active_time_ms ?? 0) / 1000)
     }
-  }, [events, transcript, usage?.active_time_ms])
+  }, [transcript, usage?.active_time_ms])
   const skillCommand = useSkillCommand(message, session?.skills)
   const chooseSkill = (name: string) => {
     setMessage(`/${name} `)
@@ -798,7 +848,19 @@ function TaskRuntimeCard({ task }: { task: Task }) {
                 : '프로필을 선택하고 시도를 시작하세요. 실행 로그는 재시작 후에도 남습니다.'}
             </div>
           ) : transcript.map((item) => (
-            item.role === 'reasoning' ? (
+            item.role === 'tool' && item.tool ? (
+              <div key={item.key} className="task-tool-row" data-status={item.tool.status}>
+                <span className="task-tool-row__glyph" aria-hidden="true">
+                  {item.tool.status === 'active' ? '◉' : item.tool.status === 'failed' ? '×' : '✓'}
+                </span>
+                <span className="sr-only">{item.tool.status === 'active' ? '실행 중' : item.tool.status === 'failed' ? '실패' : '완료'}</span>
+                <code>{item.tool.name}</code>
+                {item.content && <span className="task-tool-row__detail">{item.content}</span>}
+                {item.tool.durationMs !== undefined && item.tool.durationMs >= 100 && (
+                  <span className="task-tool-row__time">{(item.tool.durationMs / 1000).toFixed(1)}s</span>
+                )}
+              </div>
+            ) : item.role === 'reasoning' ? (
               <details key={item.key} className="task-reasoning">
                 <summary>사고 과정</summary>
                 <p>{item.content}</p>
