@@ -14,7 +14,7 @@ from typing import Callable
 # 호출당 약 2,600 토큰을 기준으로 100회 남짓 버티도록 잡았다.
 DEFAULT_BUDGET = {
     "dispatch": {"token_limit": 262_144, "time_limit_ms": 3_600_000, "step_limit": 60},
-    "worker": {"token_limit": 16_384, "time_limit_ms": 300_000, "step_limit": 8},
+    "worker": {"token_limit": 49_152, "time_limit_ms": 300_000, "step_limit": 8},
     "workers": {"total_limit": 4, "concurrent_limit": 2},
     "queue": {"timeout_ms": 300_000, "priority": 0},
 }

@@ -48,6 +48,7 @@ describe('Janus renderer fixture', () => {
           skill_version_id: 'skill-version-review',
           name: 'review',
           namespace: 'local',
+          description: 'Review changes',
           activation_mode: 'manual',
           version: 1,
           loaded_at: null
@@ -95,8 +96,10 @@ describe('Janus renderer fixture', () => {
     await user.click(screen.getByRole('button', { name: '파일 수정 권한 취소' }))
     expect(revokeTaskApprovalScope).toHaveBeenCalledWith('workspace_write')
     const composer = screen.getByRole('textbox', { name: '작업 지시' })
-    await user.type(composer, '/rev')
-    await user.click(screen.getByRole('option', { name: '/review · 수동' }))
+    await user.type(composer, '/')
+    expect(screen.getByRole('listbox', { name: '사용 가능한 스킬' })).toBeVisible()
+    expect(screen.getByText('Review changes')).toBeVisible()
+    await user.keyboard('{Enter}')
     expect(composer).toHaveValue('/review ')
   })
 
@@ -258,14 +261,19 @@ describe('Janus renderer fixture', () => {
 
     await user.click(screen.getByRole('button', { name: '에이전트' }))
     expect(screen.getByRole('tablist', { name: '에이전트 프로필' })).toBeVisible()
-    expect(screen.getByRole('heading', { name: 'Janus Local' })).toBeVisible()
+    expect(screen.getByRole('tab', { name: '대시보드' })).toBeVisible()
+    expect(screen.getByLabelText('에이전트 운영 현황')).toBeVisible()
     expect(screen.getByText('실행 방식')).toBeVisible()
-    expect(screen.getByLabelText('에이전트 실행 흐름')).toBeVisible()
+    expect(screen.queryByText('작업 하나를 완료하는 방법')).not.toBeInTheDocument()
     await user.click(screen.getByRole('tab', { name: '지침' }))
-    expect(screen.getByRole('heading', { name: '시스템 프롬프트' })).toBeVisible()
+    expect(screen.queryByRole('heading', { name: '지침' })).not.toBeInTheDocument()
+    expect((screen.getByLabelText('코딩 규칙') as HTMLTextAreaElement).value).toContain('# Coding Rules')
 
-    await user.click(screen.getByRole('button', { name: '모니터' }))
-    expect(screen.getByRole('heading', { name: '운영' })).toBeVisible()
+    await user.click(screen.getByRole('tab', { name: '스킬' }))
+    expect(screen.getByText('설치된 스킬이 없습니다')).toBeVisible()
+    expect(screen.getByText('0개 활성', { selector: '.ui-status span:last-child' })).toBeVisible()
+
+    expect(screen.queryByRole('button', { name: '모니터' })).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: '작업' }))
     await user.click(screen.getByRole('tab', { name: /작업/ }))

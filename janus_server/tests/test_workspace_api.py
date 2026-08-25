@@ -77,7 +77,7 @@ class WorkspaceApiTests(unittest.TestCase):
             f"/projects/{self.project_id}/tasks", headers=self.headers,
             json={
                 "title": title,
-                "objective": "Create an isolated worktree",
+                "objective": "Work in the project checkout",
                 "acceptance_command": "git status --short",
                 "base_ref": base_ref,
             },
@@ -104,8 +104,7 @@ class WorkspaceApiTests(unittest.TestCase):
         self.assertEqual(self.main_head, git(self.repo, "rev-parse", "HEAD").stdout.strip())
         self.assertEqual("", git(self.repo, "status", "--porcelain").stdout.strip())
 
-    def test_deleting_a_task_releases_its_worktree_and_keeps_the_branch(self):
-        """목록에서 감춘 Task의 worktree는 다시 닿을 수 없다 — 같이 놓아준다."""
+    def test_deleting_a_task_preserves_the_project_checkout(self):
         task = self.create_task()
         self.client.post(f"/tasks/{task['id']}/workspace/prepare", headers=self.headers)
         ready = self.wait_workspace(task["id"], "ready")
@@ -116,11 +115,9 @@ class WorkspaceApiTests(unittest.TestCase):
         deleted = self.client.delete(f"/tasks/{task['id']}", headers=self.headers)
         self.assertEqual(200, deleted.status_code, deleted.text)
         self.assertIsNotNone(deleted.json()["archived_at"])
-        self.assertFalse(root.exists())
-        # 브랜치는 남는다 — 감추는 것이지 작업을 버리는 게 아니다.
-        self.assertEqual(
-            0, git(self.repo, "rev-parse", "--verify", branch, check=False).returncode
-        )
+        self.assertEqual(self.repo.resolve(), root.resolve())
+        self.assertTrue(root.exists())
+        self.assertEqual("main", branch)
         self.assert_main_unchanged()
 
     def test_uncommitted_work_survives_a_task_delete(self):
@@ -136,7 +133,7 @@ class WorkspaceApiTests(unittest.TestCase):
         self.assertIsNotNone(deleted.json()["archived_at"])
         self.assertTrue((root / "wip.txt").is_file())
 
-    def test_real_prepare_safe_archive_and_separate_branch_delete(self):
+    def test_real_prepare_uses_project_checkout_and_blocks_removal(self):
         task = self.create_task()
         response = self.client.post(
             f"/tasks/{task['id']}/workspace/prepare", headers=self.headers
@@ -145,42 +142,21 @@ class WorkspaceApiTests(unittest.TestCase):
         ready = self.wait_workspace(task["id"], "ready")
         self.assertEqual("ready", ready["progress"])
         root = Path(ready["root_path"])
-        self.assertTrue(root.is_dir())
+        self.assertEqual(self.repo.resolve(), root.resolve())
+        self.assertFalse(ready["owned"])
         self.assert_main_unchanged()
 
         status = self.client.get(
             f"/tasks/{task['id']}/workspace/status", headers=self.headers
         ).json()
         self.assertFalse(status["git_status"]["dirty"])
-        (root / "untracked.txt").write_text("do not lose", encoding="utf-8")
         denied = self.client.post(
             f"/tasks/{task['id']}/workspace/archive", headers=self.headers,
             json={"confirm_workspace_id": ready["id"]},
         )
         self.assertEqual(409, denied.status_code)
-        (root / "untracked.txt").unlink()
-
-        archived = self.client.post(
-            f"/tasks/{task['id']}/workspace/archive", headers=self.headers,
-            json={"confirm_workspace_id": ready["id"]},
-        )
-        self.assertEqual(200, archived.status_code, archived.text)
-        self.assertTrue(archived.json()["result"]["branch_preserved"])
-        self.assertFalse(root.exists())
-        self.assertEqual(
-            0,
-            git(
-                self.repo, "show-ref", "--verify", "--quiet",
-                f"refs/heads/{ready['branch_name']}", check=False,
-            ).returncode,
-        )
-
-        deleted = self.client.request(
-            "DELETE", f"/tasks/{task['id']}/workspace/branch",
-            headers=self.headers, json={"confirm_workspace_id": ready["id"]},
-        )
-        self.assertEqual(200, deleted.status_code, deleted.text)
-        self.assertTrue(deleted.json()["deleted"])
+        self.assertIn("소유하지 않은", denied.json()["detail"])
+        self.assertTrue(root.exists())
         self.assert_main_unchanged()
 
     def test_failure_can_retry_after_base_ref_is_corrected(self):
@@ -208,8 +184,8 @@ class WorkspaceApiTests(unittest.TestCase):
             "DELETE", f"/tasks/{task['id']}/workspace/force",
             headers=self.headers, json={"confirm_workspace_id": ready["id"]},
         )
-        self.assertEqual(200, removed.status_code, removed.text)
-        self.assertTrue(removed.json()["result"]["branch_preserved"])
+        self.assertEqual(409, removed.status_code, removed.text)
+        self.assertIn("소유하지 않은", removed.json()["detail"])
         self.assert_main_unchanged()
 
     def test_prepare_returns_while_background_job_is_still_running(self):
@@ -219,14 +195,13 @@ class WorkspaceApiTests(unittest.TestCase):
         fake_root = self.worktrees / "fake"
 
         class BlockingService:
-            def prepare(_self, **kwargs):
-                kwargs["progress"]("validating", {})
+            def validate_repo(_self, repo_path, base_ref):
                 started.set()
                 release.wait(timeout=5)
-                fake_root.mkdir(parents=True, exist_ok=True)
                 return {
-                    "root_path": str(fake_root),
-                    "branch_name": "janus/background-test",
+                    "repo_path": str(self.repo),
+                    "base_ref": base_ref,
+                    "commit": self.main_head,
                 }
 
         with patch.object(server, "get_workspace_service", return_value=BlockingService()):
@@ -265,7 +240,10 @@ class WorkspaceApiTests(unittest.TestCase):
             f"/tasks/{task['id']}/changeset", headers=self.headers
         )
         self.assertEqual(2, second.json()["counts"]["untracked"])
-        self.assert_main_unchanged()
+        self.assertEqual(
+            {"first.txt", "second.txt"},
+            set(git(self.repo, "ls-files", "--others", "--exclude-standard").stdout.splitlines()),
+        )
 
 
 if __name__ == "__main__":

@@ -31,8 +31,8 @@ describe('CommandPalette', () => {
     render(<CommandPalette onNavigate={vi.fn()} />)
 
     await user.keyboard('{Control>}k{/Control}')
-    await user.type(screen.getByRole('textbox', { name: '명령 검색' }), '모니터')
-    expect(screen.getByRole('option', { name: /모니터 열기/ })).toBeVisible()
+    await user.type(screen.getByRole('textbox', { name: '명령 검색' }), '에이전트')
+    expect(screen.getByRole('option', { name: /에이전트 열기/ })).toBeVisible()
     expect(screen.queryByRole('option', { name: /작업 열기/ })).not.toBeInTheDocument()
 
     await user.keyboard('{Escape}')

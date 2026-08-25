@@ -232,12 +232,12 @@ class VerificationApiTests(unittest.TestCase):
                 "confirm_discard": self.task_id,
             },
         )
-        self.assertEqual(200, discarded.status_code, discarded.text)
-        self.assertEqual("todo", discarded.json()["task"]["status"])
-        self.assertFalse((root / "review.txt").exists())
-        self.assertFalse((root / "discard-me.txt").exists())
+        self.assertEqual(409, discarded.status_code, discarded.text)
+        self.assertIn("소유 저장 루트 밖", discarded.json()["detail"])
+        self.assertTrue((root / "review.txt").exists())
+        self.assertTrue((root / "discard-me.txt").exists())
 
-    def test_task_create_run_verify_review_commit_push_e2e_keeps_main_untouched(self):
+    def test_task_create_run_verify_review_commit_push_e2e_uses_main_checkout(self):
         main_head = git(self.repo, "rev-parse", "HEAD").stdout.strip()
         session = self.client.post(
             f"/tasks/{self.task_id}/sessions", headers=self.headers,
@@ -275,7 +275,8 @@ class VerificationApiTests(unittest.TestCase):
         commit_sha = committed.json()["result"]["commit_sha"]
         self.assertEqual(commit_sha, git(root, "rev-parse", "HEAD").stdout.strip())
         self.assertEqual("main", git(self.repo, "branch", "--show-current").stdout.strip())
-        self.assertEqual(main_head, git(self.repo, "rev-parse", "HEAD").stdout.strip())
+        self.assertNotEqual(main_head, git(self.repo, "rev-parse", "HEAD").stdout.strip())
+        self.assertEqual(commit_sha, git(self.repo, "rev-parse", "HEAD").stdout.strip())
 
         self.assertEqual("", git(self.repo, "status", "--porcelain").stdout.strip())
 
@@ -311,9 +312,8 @@ class VerificationApiTests(unittest.TestCase):
         handoff = self.client.get(
             f"/tasks/{self.task_id}/ship/handoff", headers=self.headers
         ).json()
-        self.assertFalse(handoff["executed"])
-        self.assertIn(commit_sha, handoff["local_apply_command"])
-        self.assertIn("cherry-pick", handoff["local_apply_command"])
+        self.assertTrue(handoff["executed"])
+        self.assertIsNone(handoff["local_apply_command"])
         shipments = self.client.get(
             f"/tasks/{self.task_id}/shipments", headers=self.headers
         ).json()
@@ -382,7 +382,7 @@ class VerificationApiTests(unittest.TestCase):
             f"/tasks/{self.task_id}/workspace", headers=self.headers
         ).json()["state"])
         self.assertEqual(0, git(self.repo, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}").returncode)
-        self.assertEqual(main_head, git(self.repo, "rev-parse", "HEAD").stdout.strip())
+        self.assertEqual(commit_sha, git(self.repo, "rev-parse", "HEAD").stdout.strip())
 
     def test_pull_request_auth_failure_is_persisted_for_recovery(self):
         store = server.get_domain_store()
@@ -411,8 +411,7 @@ class VerificationApiTests(unittest.TestCase):
         self.assertIn("authentication required", persisted["error"])
         self.assertEqual(workspace["branch_name"], persisted["head_branch"])
 
-    def test_two_task_e2e_changes_and_commits_remain_isolated(self):
-        main_head = git(self.repo, "rev-parse", "HEAD").stdout.strip()
+    def test_two_tasks_share_the_project_checkout(self):
         second = self.client.post(
             f"/projects/{self.project_id}/tasks", headers=self.headers, json={
                 "title": "Second", "objective": "Independent second task",
@@ -436,8 +435,9 @@ class VerificationApiTests(unittest.TestCase):
         first_workspace = self.client.get(
             f"/tasks/{self.task_id}/workspace", headers=self.headers
         ).json()
-        self.assertNotEqual(first_workspace["root_path"], second_workspace["root_path"])
-        self.assertNotEqual(first_workspace["branch_name"], second_workspace["branch_name"])
+        self.assertEqual(first_workspace["root_path"], second_workspace["root_path"])
+        self.assertEqual(self.repo.resolve(), Path(first_workspace["root_path"]).resolve())
+        self.assertEqual(first_workspace["branch_name"], second_workspace["branch_name"])
 
         for task_id in (self.task_id, second["id"]):
             started = self.client.post(
@@ -457,50 +457,13 @@ class VerificationApiTests(unittest.TestCase):
         second_changes = self.client.get(
             f"/tasks/{second['id']}/changeset", headers=self.headers
         ).json()
+        expected = {"first-only.txt", "second-only.txt"}
         self.assertEqual(
-            {"first-only.txt"}, {item["path"] for item in first_changes["sections"]["untracked"]}
-        )
-        self.assertEqual(
-            {"second-only.txt"}, {item["path"] for item in second_changes["sections"]["untracked"]}
-        )
-
-        for task_id in (self.task_id, second["id"]):
-            self.client.post(
-                f"/tasks/{task_id}/verifications", headers=self.headers, json={}
-            )
-        self.assertEqual("passed", self._wait_runs(1, self.task_id)[0]["status"])
-        self.assertEqual("passed", self._wait_runs(1, second["id"])[0]["status"])
-
-        commits: dict[str, str] = {}
-        for task_id, changes in (
-            (self.task_id, first_changes), (second["id"], second_changes)
-        ):
-            accepted = self.client.post(
-                f"/tasks/{task_id}/review/decision", headers=self.headers,
-                json={"revision": changes["revision"], "decision": "accept"},
-            )
-            self.assertEqual(200, accepted.status_code, accepted.text)
-            committed = self.client.post(
-                f"/tasks/{task_id}/ship/commit", headers=self.headers,
-                json={"revision": changes["revision"], "message": f"feat: finish {task_id}"},
-            )
-            self.assertEqual(200, committed.status_code, committed.text)
-            commits[task_id] = committed.json()["result"]["commit_sha"]
-
-        self.assertEqual(
-            "first\n", git(Path(first_workspace["root_path"]), "show", f"{commits[self.task_id]}:first-only.txt").stdout
+            expected, {item["path"] for item in first_changes["sections"]["untracked"]}
         )
         self.assertEqual(
-            "second\n", git(Path(second_workspace["root_path"]), "show", f"{commits[second['id']]}:second-only.txt").stdout
+            expected, {item["path"] for item in second_changes["sections"]["untracked"]}
         )
-        self.assertNotEqual(
-            0, subprocess.run(
-                ["git", "-C", first_workspace["root_path"], "cat-file", "-e",
-                 f"{commits[self.task_id]}:second-only.txt"], capture_output=True,
-            ).returncode,
-        )
-        self.assertEqual(main_head, git(self.repo, "rev-parse", "HEAD").stdout.strip())
-        self.assertEqual("", git(self.repo, "status", "--porcelain").stdout.strip())
 
 
 if __name__ == "__main__":

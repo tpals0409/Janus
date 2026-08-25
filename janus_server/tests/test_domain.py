@@ -48,6 +48,9 @@ class DomainStoreTests(unittest.TestCase):
         self.assertEqual(["agent_default"], [item["id"] for item in agents])
         self.assertEqual("4-bit MLX", models[0]["quantization"])
         self.assertIn("run_bash", json.loads(agents[0]["tools_json"]))
+        self.assertEqual("", agents[0]["system_prompt"])
+        self.assertEqual("Janus local coding orchestrator", agents[0]["description"])
+        self.assertEqual(49_152, json.loads(agents[0]["budget_json"])["worker"]["token_limit"])
 
     def test_new_task_is_direct_unless_mockup_is_explicit(self):
         self.assertEqual("direct", self.task["workflow_stage"])
@@ -108,17 +111,27 @@ class DomainStoreTests(unittest.TestCase):
         self.store.grant_session_approval_scope(
             session["id"], self.workspace["id"], "workspace_write",
         )
+        self.store.grant_session_approval_scope(
+            session["id"], self.workspace["id"], "workspace_shell",
+        )
         self.assertEqual(
-            ["workspace_write"],
+            ["workspace_shell", "workspace_write"],
             [item["scope"] for item in self.store.list_session_approval_scopes(session["id"])],
         )
         self.assertTrue(self.store.revoke_session_approval_scope(
             session["id"], self.workspace["id"], "workspace_write",
         ))
-        self.assertEqual([], self.store.list_session_approval_scopes(session["id"]))
+        self.assertEqual(
+            ["workspace_shell"],
+            [item["scope"] for item in self.store.list_session_approval_scopes(session["id"])],
+        )
         self.assertFalse(self.store.revoke_session_approval_scope(
             session["id"], self.workspace["id"], "workspace_write",
         ))
+        self.assertTrue(self.store.revoke_session_approval_scope(
+            session["id"], self.workspace["id"], "workspace_shell",
+        ))
+        self.assertEqual([], self.store.list_session_approval_scopes(session["id"]))
         snapshot = self.store.snapshot_session_skills(session["id"])
         self.assertEqual([second["id"]], [item["skill_version_id"] for item in snapshot])
 
@@ -153,6 +166,13 @@ class DomainStoreTests(unittest.TestCase):
         )
         still_frozen = self.store.snapshot_session_skills(session["id"])
         self.assertEqual([second["id"]], [item["skill_version_id"] for item in still_frozen])
+        self.assertEqual(1, self.store.sync_session_profile_skills(session["id"]))
+        refreshed = self.store.snapshot_session_skills(session["id"])
+        self.assertEqual(
+            [second["id"], another["id"]],
+            [item["skill_version_id"] for item in refreshed],
+        )
+        self.assertEqual(0, self.store.sync_session_profile_skills(session["id"]))
 
     def test_version_one_database_migrates_workspace_progress(self):
         old_path = Path(self.temp.name) / "version-one.sqlite3"

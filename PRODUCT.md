@@ -157,24 +157,25 @@ Project
 
 등록된 저장소와 기본 정책.
 
-- `id`, `name`, `repo_path`, `default_ref`
-- 기본 agent profile과 권한 정책
-- worktree 보관 위치와 setup 명령
+- `id`, `name`, `repo_path`
+- 기본 agent profile과 검증 명령 목록
+- worktree는 Janus 소유 저장 루트(`~/.janus/workspaces`)에 둔다
 
 ### Task
 
 사용자가 완료하려는 독립된 작업.
 
-- `id`, `project_id`, `title`, `objective`, `acceptance`
-- `status`: `todo | preparing | working | needs-input | blocked | review | completed | failed | archived`
-- `priority`, `created_at`, `updated_at`
+- `id`, `project_id`, `title`, `objective`, `acceptance_command`, `base_ref`
+- `status`: `todo | preparing | working | needs_you | review | failed`
+- 소프트 삭제는 `archived_at` 타임스탬프로 기록한다
+- `created_at`, `updated_at`
 
 ### Workspace
 
 Task의 파일·프로세스 실행 경계.
 
 - MVP에서는 Git worktree 하나와 branch 하나
-- `base_ref`, `branch`, `path`, `lifecycle_status`
+- `base_ref`, `branch_name`, `root_path`, `state`(`preparing | ready | failed | archived`)
 - 현재 범위는 로컬 worktree이며, 강한 격리가 필요하면 로컬 컨테이너를 별도 검토
 
 ### AgentProfile
@@ -197,7 +198,7 @@ Task의 파일·프로세스 실행 경계.
 로컬 runtime과 이어지는 하나의 지속 대화.
 
 - 입력·출력·상태·resume 정보
-- `working | needs-input | idle | completed | failed | stopped`
+- `created | running | idle | stopped | failed`
 - 세션은 Task가 아니며 한 Task에 여러 세션이 있을 수 있다.
 
 ### Dispatch
@@ -237,14 +238,13 @@ Workspace의 `base_ref...HEAD + working tree`에서 파생한 변경 결과.
 
 ```text
 todo
-  → preparing       worktree/setup 생성
+  → preparing       worktree 준비
   → working         dispatch 실행
-  → needs-input     승인·질문 대기
+  → needs_you       승인·질문·목업 검토 대기
   → review          에이전트 종료 + ChangeSet 준비
-  → completed       사람이 결과 수락
-  → archived        실행 환경 정리
 
-어느 단계에서든 blocked / failed가 될 수 있으며 복구 동작을 함께 제시한다.
+어느 단계에서든 failed가 될 수 있으며 복구 동작을 함께 제시한다.
+작업 목록에서의 제거는 archive(soft delete)로 기록되고 대화·브랜치는 보존된다.
 ```
 
 Task 상태는 단순히 마지막 이벤트로 추측하지 않는다. Workspace, Dispatch, Session, Review 상태를

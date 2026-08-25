@@ -11,6 +11,7 @@ import {
 import type { Span } from '../types'
 import { ORCH_ID, useStore } from '../store'
 import TraceNodeCard from './nodes/TraceNode'
+import { Status } from './ui'
 
 const nodeTypes = { trace: TraceNodeCard }
 
@@ -92,7 +93,9 @@ export default function Canvas() {
 
   const workerCount = nodes.length - 1
   return (
-    <ReactFlow
+    <section className="workspace-surface">
+      <div className="min-h-0 flex-1">
+      <ReactFlow
       nodes={nodes}
       edges={edges}
       nodeTypes={nodeTypes}
@@ -107,13 +110,15 @@ export default function Canvas() {
       <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="var(--border-subtle)" />
       <Controls showInteractive={false} />
       <Panel position="top-left" className="graph-overlay m-4">
-        <div className="font-mono text-[10px] tracking-wider text-faint">RUNTIME OWNERSHIP</div>
+        <div className="flex items-center gap-2"><span className="font-mono text-[10px] tracking-wider text-faint">RUNTIME OWNERSHIP</span><Status tone={sessionMatches ? 'success' : 'muted'}>{sessionMatches ? '최근 실행' : '실행 전'}</Status></div>
         <div className="mt-1 text-[10px] text-muted">프로필 루트 1 · 실행 워커 {workerCount}</div>
       </Panel>
       <Panel position="top-right" className="graph-overlay m-4 max-w-[270px] text-[10px] leading-relaxed text-faint">
         워커는 영속 설정이 아닙니다. Task 실행 중 오케스트레이터가 생성·종료한 실제 span만 표시합니다.
         {session && !sessionMatches && <div className="mt-1.5 text-warn">최근 세션은 다른 프로필의 실행입니다.</div>}
       </Panel>
-    </ReactFlow>
+      </ReactFlow>
+      </div>
+    </section>
   )
 }

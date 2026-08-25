@@ -94,11 +94,13 @@ Janus memory peak, budget 소진율, generation/tool/verification 흔적을 2초
 
 ## 현재 검증
 
-2026-08-23 현재 체크아웃에서 직접 확인:
+2026-08-23 현재 체크아웃에서 직접 확인(테스트 수는 2026-08-25 기준):
 
-- Python 테스트 166개 통과(과거 schema migration subtest 16개 포함)
-- Electron main-process 테스트 25개 통과(실제 분리 프로세스 그룹 start/stop 포함)
-- Electron renderer 테스트 10개 통과
+- Python 테스트 통과 — 2026-08-25: 182 passed + 39 subtests(당시 166개, schema
+  migration subtest 16개 포함)
+- Electron main-process 테스트 통과 — 2026-08-25: 28개(당시 25개, 실제 분리 프로세스
+  그룹 start/stop 포함)
+- Electron renderer 테스트 통과 — 2026-08-25: 13개(당시 10개)
 - 공식 Janus 아이콘을 포함한 unsigned macOS `Janus.app` 패키징 통과
 - 도구 자체 검사 통과
 - 오케스트레이터 spec 검사 통과
@@ -378,3 +380,33 @@ pnpm dev
 - [x] TypeScript 13.31MB 등 Monaco worker bundle 제거
 - [x] lazy 개발 화면 7.72MB → 5.16MB, 약 33% 감소
 - [x] initial renderer 1.30MB, 개발 화면 5.50MB 상한과 worker 재유입 금지 bundle gate 추가
+
+---
+
+## 2026-08-25 정리 — 레거시 제거와 화면 축소
+
+전수 조사로 확인된 이중 구현·정합성 어긋남을 해소했다.
+
+### 제거한 것
+
+- 레거시 에이전트 시스템: `/agents` CRUD, `/runs/*`, WS `/run/{agent_id}`,
+  `janus_server/agents/*.yaml`, `runs/` 실행 기록 저장. UI는 오래 전부터 AgentProfile만
+  사용했고 스토어의 레거시 액션·상태(spans/pastRuns/ws 등)도 함께 지웠다.
+- 전역 워크스페이스 API: `GET/POST /workspace`, `/workspace/tree|file` 과
+  `~/.janus/state.json` 영속화. Task-owned workspace가 유일한 경로다.
+- 미연결 orchestration 계열: `workflow.py`, `pipeline.py`, `workflow_workspace.py`,
+  `workflow_template.py`, `model_router.py`, `airgap.py`, `orchestration_bundle.py`와
+  해당 테스트·verify 스크립트. server/runtime 어디서도 import되지 않았다.
+- 죽은 프론트 코드: ApprovalCard, yaml.ts, 빈 evaluations/·operations/ 디렉토리,
+  TaskSidebar↔TaskWorkspace에 이중 정의된 Task 상태 맵(`taskStatus.ts` 단일 소스로 통합).
+
+### 남기고 명시한 것
+
+- Evaluation Lab·Operations Monitor는 백엔드 API(`/evaluations/*`,
+  `/operations/dashboard`)만 유지하고 화면은 없다. CHECKLIST §19에 각주로 명시했다.
+- 세션 WebSocket은 인증 게이트 통과 즉시 accept하도록 바꿨다 — 도메인 검증 실패는
+  accept 뒤 1008로 닫힌다.
+- `library_skills/`와 `policies/`를 git 추적에 넣어 패키징 누락 위험을 제거했고,
+  `forgeboard-*` 로컬 산출물을 .gitignore에 추가했다.
+- 남은 비대칭: runtime `WORKER_ROLES`의 `researcher`(scout 별칭)는 TS union에 없지만
+  adaptive가 해당 역할을 반환하지 않으므로 불일치는 발생하지 않는다.

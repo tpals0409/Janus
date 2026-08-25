@@ -30,7 +30,7 @@ def copy_source(destination: Path) -> None:
     shutil.copytree(
         ROOT / "janus_server", destination / "janus_server",
         ignore=shutil.ignore_patterns(
-            ".venv", "artifacts", "__pycache__", ".pytest_cache", "runs", "workspace",
+            ".venv", "artifacts", "__pycache__", ".pytest_cache",
         ),
     )
     model = destination / "qwen3.8mlx"

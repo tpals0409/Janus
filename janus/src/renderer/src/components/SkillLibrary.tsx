@@ -24,9 +24,6 @@ function sourceLabel(skill: SkillSummary): string {
 }
 
 export default function SkillLibrary() {
-  const profiles = useStore((state) => state.agentProfiles)
-  const profileId = useStore((state) => state.selectedAgentProfileId)
-  const selectProfile = useStore((state) => state.selectAgentProfile)
   const skills = useStore((state) => state.skills)
   const assignments = useStore((state) => state.agentProfileSkills)
   const busy = useStore((state) => state.skillBusy)
@@ -75,29 +72,6 @@ export default function SkillLibrary() {
 
   return (
     <section className="workspace-surface">
-      <header className="workspace-toolbar">
-        <div className="workspace-toolbar__icon">
-          <PackageOpen size={16} strokeWidth={1.5} />
-        </div>
-        <div className="workspace-toolbar__title">
-          <h2>스킬 보관함</h2>
-          <p>변환된 스킬을 프로필에 활성화</p>
-        </div>
-        <div className="workspace-toolbar__actions">
-          <Select
-            value={profileId}
-            onChange={(event) => selectProfile(event.target.value)}
-            aria-label="실행 프로필"
-            className="workspace-profile-select"
-          >
-            {profiles.map((profile) => (
-              <option key={profile.id} value={profile.id}>{profile.name}</option>
-            ))}
-          </Select>
-          <Status tone={activeCount ? 'success' : 'muted'}>{activeCount}개 활성</Status>
-        </div>
-      </header>
-
       <div className="skill-import-bar">
         <form onSubmit={submitGithub} className="skill-import-form">
           <Github size={13} className="ml-3 shrink-0 text-faint" />
@@ -123,6 +97,7 @@ export default function SkillLibrary() {
         >
           <FolderPlus size={13} strokeWidth={1.5} /> 폴더 추가
         </Button>
+        <Status tone={activeCount ? 'success' : 'muted'}>{activeCount}개 활성</Status>
       </div>
 
       {error && (
@@ -278,7 +253,7 @@ export default function SkillLibrary() {
         <aside className="workspace-inspector">
           {selected ? (
             <>
-              <Section label="스킬">
+              <Section label="스킬 정보">
                 <div className="mb-2 flex items-center gap-2">
                   <Bot size={14} className="text-muted" strokeWidth={1.5} />
                   <span className="font-mono text-[10px] text-faint">{selected.namespace}:{selected.name}</span>
@@ -297,14 +272,14 @@ export default function SkillLibrary() {
               </dl>
               </Section>
 
-              <Section label="필요 능력">
+              <Section label="필요한 도구">
                 <div className="mb-2 flex items-center gap-1.5 text-[10px] text-faint"><Cpu size={12} strokeWidth={1.5} /> runtime capability</div>
                 <div className="flex flex-wrap gap-1">
                   {(selected.compiled.capabilities?.required ?? []).length ? (
                     selected.compiled.capabilities?.required?.map((capability) => (
                       <span key={capability} className="technical-tag">{capability}</span>
                     ))
-                  ) : <span className="text-[10px] text-faint">추가 능력 없음</span>}
+                  ) : <span className="text-[10px] text-faint">추가 스킬 없음</span>}
                 </div>
               </Section>
 

@@ -1,27 +1,21 @@
 import { useStore } from '../store'
+import { Bot, ChevronDown } from 'lucide-react'
 import { Status } from './ui'
 
 export function AgentProfilePicker() {
   const profiles = useStore((state) => state.agentProfiles)
   const selectedId = useStore((state) => state.selectedAgentProfileId)
-  const assignments = useStore((state) => state.agentProfileSkills)
   const selectProfile = useStore((state) => state.selectAgentProfile)
 
-  const selected = profiles.find((profile) => profile.id === selectedId)
-  const activeSkills = assignments.filter((skill) => skill.activation_mode !== 'off').length
   return <div className="agent-profile-picker">
+    <Bot size={14} strokeWidth={1.5} aria-hidden="true" />
     <div className="agent-profile-picker__identity">
-      <span>에이전트</span>
       <select value={selectedId} onChange={(event) => selectProfile(event.target.value)} aria-label="에이전트 프로필 선택">
         {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
       </select>
     </div>
-    <div className="agent-profile-picker__meta">
-      <Status tone="success">모델 준비</Status>
-      <span>{selected?.worker_policy === 'autonomous' ? '워커 자동 배치' : '제한된 워커'}</span>
-      <span>{activeSkills}개 능력</span>
-      <em>저장하면 다음 작업부터 적용</em>
-    </div>
+    <span className="agent-profile-picker__ready" aria-label="모델 준비" />
+    <ChevronDown size={12} strokeWidth={1.5} aria-hidden="true" />
   </div>
 }
 

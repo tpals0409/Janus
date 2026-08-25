@@ -38,3 +38,7 @@ out/
 /.serena/
 # QA용 일회성 저장소 — 자체 git 저장소이고 버려도 되는 산출물이다.
 /janus-qa-fixture/
+
+# 로컬 벤치마크/상태 산출물 — 커밋하지 않는다
+/forgeboard-janus-state/
+/forgeboard-benchmark/

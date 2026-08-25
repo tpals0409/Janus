@@ -15,6 +15,7 @@ import json
 import os
 import threading
 import uuid
+from pathlib import Path
 from typing import Callable
 
 from openai import OpenAI
@@ -40,15 +41,9 @@ DEFAULT_CONTEXT_MAX_CHARS = 24_000
 DEFAULT_CONTEXT_RECENT_BLOCKS = 8
 MAX_PROJECT_SUMMARY_CHARS = 4_000
 
-PONYTAIL_RULES = """Minimal implementation policy:
-Before writing code, use the first option that solves the task: skip unnecessary
-work; otherwise reuse existing code, then the standard library, then a native
-platform feature, then an installed dependency, and only then write the minimum
-new code that works. Read and trace the affected flow before choosing.
-Do not add unrequested abstractions, dependencies, boilerplate, or files. Never
-simplify away validation, data-loss prevention, security, accessibility, or an
-explicit request. Plan at most once in no more than 10 short lines, then act.
-Do not repeatedly reconsider a sound choice without new contrary evidence."""
+CODING_RULES = (
+    Path(__file__).parent / "policies" / "coding-rules.md"
+).read_text(encoding="utf-8").strip()
 
 
 class Session:
@@ -226,7 +221,7 @@ def build_system_prompt(base: str, tool_names: list[str],
     language = (
         "Write your final answer in the same language as the request you were given."
     )
-    policy = f"{base}\n\n{PONYTAIL_RULES}"
+    policy = f"{base}\n\n---\n\n{CODING_RULES}"
     if not tool_names:
         return f"{policy}\n\nYou have no tools. Answer directly.\n\n{language}"
     return (
@@ -367,6 +362,8 @@ def run(
     trackers = list(budget_trackers or [])
     effective_cancel = budget_mod.BudgetCancel(cancel, trackers)
     emitted_budget_reasons: set[str] = set()
+    partial_recovery_limits: dict[str, int] | None = None
+    partial_recovery_lock = threading.Lock()
 
     def emit_budget_exhaustion() -> bool:
         exhausted = False
@@ -552,6 +549,15 @@ def run(
                     "error": f"tool {name!r} is not available to this agent node",
                     "reason": "tool_not_in_node_subset",
                 }
+            if partial_recovery_limits is not None and name in {"read_file", "run_bash"}:
+                with partial_recovery_lock:
+                    remaining = partial_recovery_limits[name]
+                    if remaining <= 0:
+                        return name, {
+                            "error": "부분 결과 검증 한도를 이미 사용했습니다. 반복 탐색을 멈추고 finish_turn을 호출하세요.",
+                            "reason": "partial_recovery_limit",
+                        }
+                    partial_recovery_limits[name] = remaining - 1
             operation_id = uuid.uuid4().hex[:16]
             resource_class = T.resource_class_for(name, registry=reg)
             emit("resource_queue_enter", resource=resource_class, operation_id=operation_id,
@@ -645,6 +651,25 @@ def run(
                     return last_text, session.events
             else:
                 fail_streak[name] = 0
+
+            worker_views = value.get("workers", []) if isinstance(value, dict) else []
+            if isinstance(value, dict) and value.get("status") == "completed_partial":
+                worker_views = [value]
+            if partial_recovery_limits is None and any(
+                isinstance(item, dict) and item.get("status") == "completed_partial"
+                for item in worker_views
+            ):
+                partial_recovery_limits = {"read_file": 1, "run_bash": 1}
+
+            tool = reg.get(name) or {}
+            if tool.get("terminal") and "error" not in value:
+                final_content = str(value.get("summary") or last_text).strip()
+                if final_content and final_content != last_text:
+                    session.append("assistant", content=final_content)
+                    last_text = final_content
+                    emit("assistant", content=final_content)
+                emit("done", reason=f"terminal_tool:{name}")
+                return last_text, session.events
 
         if any(not tracker.available() for tracker in trackers):
             emit_budget_exhaustion()

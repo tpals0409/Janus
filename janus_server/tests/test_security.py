@@ -10,9 +10,6 @@ from unittest.mock import patch
 
 os.environ["JANUS_AUTH_TOKEN"] = "test-token"
 os.environ["JANUS_ALLOWED_ORIGINS"] = "http://localhost:5173"
-os.environ["JANUS_STATE_FILE"] = str(
-    Path(tempfile.gettempdir()) / f"janus-test-state-{os.getpid()}.json"
-)
 os.environ["JANUS_DB_FILE"] = str(
     Path(tempfile.gettempdir()) / f"janus-test-domain-{os.getpid()}.sqlite3"
 )
@@ -65,6 +62,21 @@ class DispatchApprovalTests(unittest.TestCase):
 
 
 class ServerBoundaryTests(unittest.TestCase):
+    def test_session_approval_scopes_keep_shell_and_file_access_separate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            context = WorkspaceContext(
+                root=Path(tmp), task_id="task-1", workspace_id="workspace-1",
+            )
+            self.assertEqual(
+                ("workspace_shell", "workspace-1"),
+                server._session_approval_key("run_bash", context),
+            )
+            self.assertEqual(
+                ("workspace_write", "workspace-1"),
+                server._session_approval_key("edit_file", context),
+            )
+            self.assertIsNone(server._session_approval_key("http_get", context))
+
     client = TestClient(server.app)
     origin = "http://localhost:5173"
 
@@ -119,16 +131,10 @@ class ServerBoundaryTests(unittest.TestCase):
         self.assertEqual(200, patch_preflight.status_code)
 
     def test_websocket_accepts_only_authenticated_renderer(self):
-        with self.client.websocket_connect(
-            "/run/not-started",
-            headers={"origin": self.origin},
-            subprotocols=["janus", "test-token"],
-        ) as ws:
-            self.assertEqual("janus", ws.accepted_subprotocol)
-
+        # 인증 실패는 accept 전에 끊긴다 — 더미 ID라도 저장소 접근 전에 거부된다.
         with self.assertRaises(WebSocketDisconnect):
             with self.client.websocket_connect(
-                "/run/not-started",
+                "/tasks/not-a-task/sessions/not-a-session",
                 headers={"origin": self.origin},
                 subprotocols=["janus", "wrong-token"],
             ):
@@ -137,140 +143,18 @@ class ServerBoundaryTests(unittest.TestCase):
         self.assertFalse(server._origin_allowed("https://attacker.example"))
         self.assertFalse(server._token_valid("wrong-token"))
 
-    def test_parallel_tools_emit_two_independent_approval_requests(self):
-        # 오케스트레이터가 한 턴에 위험 도구를 2번 호출 — 승인 요청 2건이 독립 왕복한다
-        spec = {"name": "parallel-approval", "model": "qwen3.8-27b",
-                "system_prompt": "write files", "tools": ["write_file"],
-                "approval": "ask", "max_steps": 4}
-        fake = FakeClient([
-            {"calls": [
-                ("write_file", json.dumps({"path": "a.txt", "content": "A"})),
-                ("write_file", json.dumps({"path": "b.txt", "content": "B"})),
-            ]},
-            {"text": "done"},
-        ])
+        # 올바른 토큰·오리진이면 핸드셰이크는 수락된다(서브프로토콜 janus).
+        # 이후 도메인 검증에서 닫히는 것까지가 정상 — 여기선 인증 게이트만 본다.
+        accepted = False
+        try:
+            with self.client.websocket_connect(
+                "/tasks/not-a-task/sessions/not-a-session",
+                headers={"origin": self.origin},
+                subprotocols=["janus", "test-token"],
+            ) as ws:
+                accepted = True
+                self.assertEqual("janus", ws.accepted_subprotocol)
+        except Exception:
+            pass
+        self.assertTrue(accepted)
 
-        previous_workspace = server._get_legacy_workspace()
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            agents = root / "agents"
-            runs = root / "runs"
-            workspace = root / "workspace"
-            agents.mkdir()
-            workspace.mkdir()
-            (agents / "parallel.yaml").write_text(S.dumps(spec), encoding="utf-8")
-            server._set_legacy_workspace(workspace)
-            try:
-                with (
-                    patch.object(server, "AGENTS_DIR", agents),
-                    patch.object(server, "RUNS_DIR", runs),
-                    patch.object(runtime, "resolve_local_model", lambda n: n),
-                    patch.object(runtime, "make_client", lambda: fake),
-                    self.client.websocket_connect(
-                        "/run/parallel",
-                        headers={"origin": self.origin},
-                        subprotocols=["janus", "test-token"],
-                    ) as ws,
-                ):
-                    ws.send_json({"type": "message", "text": "write both"})
-                    approvals = []
-                    while len(approvals) < 2:
-                        message = ws.receive_json()
-                        if message["type"] == "run_error":
-                            self.fail(message["error"])
-                        if message["type"] == "approval_request":
-                            approvals.append(message)
-
-                    self.assertEqual(2, len({r["id"] for r in approvals}))
-                    self.assertEqual({"write_file"}, {r["tool"] for r in approvals})
-                    self.assertEqual(1, len({r["task_id"] for r in approvals}))
-                    self.assertEqual(1, len({r["workspace_id"] for r in approvals}))
-                    self.assertEqual(1, len({r["dispatch_id"] for r in approvals}))
-                    self.assertTrue(approvals[0]["dispatch_id"].startswith("dispatch_"))
-                    for request in approvals:
-                        ws.send_json(
-                            {"type": "approval_response", "id": request["id"], "approved": True}
-                        )
-
-                    while True:
-                        message = ws.receive_json()
-                        if message["type"] == "run_error":
-                            self.fail(message["error"])
-                        if message["type"] == "turn_end":
-                            break
-
-                self.assertEqual("A", (workspace / "a.txt").read_text(encoding="utf-8"))
-                self.assertEqual("B", (workspace / "b.txt").read_text(encoding="utf-8"))
-            finally:
-                server._set_legacy_workspace(previous_workspace)
-
-    def test_workspace_write_approval_can_be_remembered_for_the_session(self):
-        spec = {
-            "name": "remember-write-approval", "model": "qwen3.8-27b",
-            "system_prompt": "write files", "tools": ["write_file", "edit_file"],
-            "approval": "ask", "max_steps": 4,
-        }
-        fake = FakeClient([
-            {"calls": [("write_file", json.dumps({"path": "a.txt", "content": "A"}))]},
-            {"calls": [("edit_file", json.dumps({
-                "path": "a.txt", "old_string": "A", "new_string": "B",
-            }))]},
-            {"text": "done"},
-        ])
-
-        previous_workspace = server._get_legacy_workspace()
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            agents = root / "agents"
-            runs = root / "runs"
-            workspace = root / "workspace"
-            agents.mkdir()
-            workspace.mkdir()
-            (agents / "remember.yaml").write_text(S.dumps(spec), encoding="utf-8")
-            server._set_legacy_workspace(workspace)
-            try:
-                with (
-                    patch.object(server, "AGENTS_DIR", agents),
-                    patch.object(server, "RUNS_DIR", runs),
-                    patch.object(runtime, "resolve_local_model", lambda n: n),
-                    patch.object(runtime, "make_client", lambda: fake),
-                    self.client.websocket_connect(
-                        "/run/remember",
-                        headers={"origin": self.origin},
-                        subprotocols=["janus", "test-token"],
-                    ) as ws,
-                ):
-                    ws.send_json({"type": "message", "text": "write then edit"})
-                    approval = None
-                    while approval is None:
-                        message = ws.receive_json()
-                        if message["type"] == "run_error":
-                            self.fail(message["error"])
-                        if message["type"] == "approval_request":
-                            approval = message
-
-                    self.assertTrue(approval["rememberable"])
-                    self.assertEqual("workspace_write", approval["approval_scope"])
-                    ws.send_json({
-                        "type": "approval_response", "id": approval["id"],
-                        "approved": True, "scope": "session_workspace",
-                    })
-
-                    extra_approvals = []
-                    while True:
-                        message = ws.receive_json()
-                        if message["type"] == "run_error":
-                            self.fail(message["error"])
-                        if message["type"] == "approval_request":
-                            extra_approvals.append(message)
-                        if message["type"] == "turn_end":
-                            break
-
-                self.assertEqual([], extra_approvals)
-                self.assertEqual("B", (workspace / "a.txt").read_text(encoding="utf-8"))
-            finally:
-                server._set_legacy_workspace(previous_workspace)
-
-
-if __name__ == "__main__":
-    unittest.main()

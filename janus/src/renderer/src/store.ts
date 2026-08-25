@@ -1,10 +1,10 @@
 import { create } from 'zustand'
 import type {
-  AgentEvent, AgentProfile, AgentProfileSkill, AgentSessionDetail, AgentSummary, ApprovalRequest, ApprovalResponseScope, ChangeSet,
-  BackendStatus, ModelProfile, Project, RunDetail, RunSummary, SessionEvent, Span,
-  OperationsSnapshot, ProjectLearning, PullRequestSnapshot, ReviewSnapshot, ShipHandoff, Spec,
-  SkillActivationMode, SkillImportPreview, SkillSummary, Task, TaskShipment, ToolInfo, TreeEntry,
-  VerificationCommand, VerificationRun,
+  AgentProfile, AgentProfileSkill, AgentSessionDetail, ApprovalRequest, ApprovalResponseScope, ChangeSet,
+  BackendStatus, ModelProfile, Project, SessionEvent,
+  ProjectLearning, PullRequestSnapshot, ReviewSnapshot, ShipHandoff,
+  SkillActivationMode, SkillImportPreview, SkillSummary, Task, TaskShipment,
+  TreeEntry, VerificationCommand, VerificationRun,
   WorkspaceInspection
 } from './types'
 import {
@@ -12,7 +12,6 @@ import {
   janusAuthToken, readBackendStatus, websocketUrl,
 } from './api'
 
-let openAgentSequence = 0
 let openProjectSequence = 0
 let openTaskSequence = 0
 
@@ -37,10 +36,6 @@ interface State {
   authFailed: boolean
   mlxUp: boolean | null
   backendStatus: BackendStatus | null
-  workspace: string | null
-  agents: AgentSummary[]
-  tools: ToolInfo[]
-  models: { name: string; provider: string }[]
   projects: Project[]
   tasks: Task[]
   projectId: string | null
@@ -65,8 +60,6 @@ interface State {
   taskPullRequest: PullRequestSnapshot | null
   projectLearnings: ProjectLearning[]
   learningError: string | null
-  operations: OperationsSnapshot | null
-  operationsError: string | null
   taskBusy: boolean
   taskActionError: string | null
   taskSession: AgentSessionDetail | null
@@ -79,43 +72,13 @@ interface State {
   taskApprovals: ApprovalRequest[]
   pendingDelegation: { taskId: string; objective: string } | null
 
-  agentId: string | null
-  spec: Spec | null
-  yaml: string
-  errors: string[]
-  dirty: boolean
-
-  view: 'graph' | 'yaml' | 'file'
-
   /** IDE성 상태 — 워크스페이스 파일 트리와 열어본 파일 */
   sidebarTab: 'tasks' | 'files'
   tree: Record<string, TreeEntry[]>
   openedFile: { path: string; content: string } | null
-  recentFolders: string[]
 
   /** 하단 패널 탭 — 캔버스 클릭이 Traces로 끌어와야 해서 스토어에 있다 */
   bottomTab: 'traces' | 'logs' | 'metrics'
-
-  /** WS가 열려 있고 대화가 살아 있다 */
-  connected: boolean
-  /** 오케스트레이터 턴이 도는 중 (컴포저 잠금) */
-  turnActive: boolean
-  /** 이 대화의 첫 메시지 — 재실행과 RUN INPUTS 표시의 기준 */
-  firstMessage: string | null
-  spans: Span[]
-  /** 아직 끝나지 않은 노드의 세션 — span_end 전까지 여기서 자란다 */
-  liveEvents: Record<string, AgentEvent[]>
-  approvals: ApprovalRequest[]
-  /** 대화 WS. 메시지·승인 응답·취소를 여기로 보낸다. */
-  ws: WebSocket | null
-  selectedSpanId: string | null
-  runError: string | null
-  cancelled: boolean
-  /** 지난 실행 기록. viewingRunId가 있으면 spans는 과거 실행을 보는 중이다. */
-  pastRuns: RunSummary[]
-  viewingRunId: string | null
-  /** A를 덮어쓰지 않고 오른쪽에 나란히 보여줄 B 실행. */
-  comparisonRun: RunDetail | null
 
   boot(): Promise<void>
   pollHealth(): Promise<void>
@@ -162,7 +125,6 @@ interface State {
     title: string; body: string; base: string; draft: boolean
   }): Promise<void>
   refreshTaskPullRequest(): Promise<void>
-  loadOperations(): Promise<void>
   archiveWorkspace(force?: boolean): Promise<void>
   deleteWorkspaceBranch(): Promise<void>
   archiveTask(id?: string): Promise<void>
@@ -191,43 +153,12 @@ interface State {
   stopTaskSession(): Promise<void>
   respondTaskApproval(id: string, approved: boolean, scope?: ApprovalResponseScope): void
   revokeTaskApprovalScope(scope: string): Promise<void>
-  pickWorkspace(): Promise<void>
-  setWorkspaceTo(path: string): Promise<void>
   setSidebarTab(t: 'tasks' | 'files'): void
   setBottomTab(t: 'traces' | 'logs' | 'metrics'): void
   loadDir(rel: string): Promise<void>
   refreshTree(): void
   openFile(rel: string): Promise<void>
   closeFile(): void
-  openAgent(id: string, options?: { discardDirty?: boolean }): Promise<void>
-  createAgent(name: string): Promise<void>
-  deleteAgent(id: string): Promise<void>
-
-  patchSpec(patch: Partial<Spec>): void
-  save(): Promise<void>
-  setView(v: 'graph' | 'yaml' | 'file'): void
-
-  sendMessage(text: string): void
-  stopTurn(): void
-  stopWorker(nodeId: string): void
-  endSession(): void
-  respondApproval(id: string, approved: boolean, scope?: ApprovalResponseScope): void
-
-  loadRuns(): Promise<void>
-  loadRun(runId: string): Promise<void>
-  loadComparison(runId: string): Promise<void>
-  clearComparison(): void
-  rerun(): void
-  rerunRun(runId: string): Promise<void>
-  selectSpan(id: string | null): void
-  /** 캔버스 노드 클릭 — 해당 노드의 스팬을 선택하고 Traces 패널을 연다 */
-  selectNodeSpan(nodeId: string): void
-}
-
-function confirmDiscardChanges(nextName: string): boolean {
-  return window.confirm(
-    `저장되지 않은 변경이 있습니다. 변경을 버리고 ${nextName}(으)로 전환할까요?`
-  )
 }
 
 export const useStore = create<State>((set, get) => ({
@@ -235,10 +166,6 @@ export const useStore = create<State>((set, get) => ({
   authFailed: false,
   mlxUp: null,
   backendStatus: null,
-  workspace: null,
-  agents: [],
-  tools: [],
-  models: [],
   projects: [],
   tasks: [],
   projectId: null,
@@ -263,8 +190,6 @@ export const useStore = create<State>((set, get) => ({
   taskPullRequest: null,
   projectLearnings: [],
   learningError: null,
-  operations: null,
-  operationsError: null,
   taskBusy: false,
   taskActionError: null,
   taskSession: null,
@@ -276,56 +201,26 @@ export const useStore = create<State>((set, get) => ({
   taskRuntimeError: null,
   taskApprovals: [],
   pendingDelegation: null,
-  agentId: null,
-  spec: null,
-  yaml: '',
-  errors: [],
-  dirty: false,
-  view: 'graph',
   sidebarTab: 'tasks',
   tree: {},
   openedFile: null,
-  recentFolders: JSON.parse(localStorage.getItem('janus.recentFolders') ?? '[]'),
   bottomTab: 'traces',
-  connected: false,
-  turnActive: false,
-  firstMessage: null,
-  spans: [],
-  liveEvents: {},
-  approvals: [],
-  ws: null,
-  selectedSpanId: null,
-  runError: null,
-  cancelled: false,
-  pastRuns: [],
-  viewingRunId: null,
-  comparisonRun: null,
 
   async boot() {
-    const currentAgentId = get().agentId
-    const previousWorkspace = get().workspace
     try {
-      const [health, agents, tools, models, ws, backendStatus, projects, agentProfiles, modelProfiles, skills] = await Promise.all([
+      const [health, backendStatus, projects, agentProfiles, modelProfiles, skills] = await Promise.all([
         apiJson(`${BASE}/health`),
-        apiJson(`${BASE}/agents`),
-        apiJson(`${BASE}/tools`),
-        apiJson(`${BASE}/models`),
-        apiJson(`${BASE}/workspace`),
         readBackendStatus(),
         apiJson(`${BASE}/projects`),
         apiJson(`${BASE}/profiles/agents`),
         apiJson(`${BASE}/profiles/models`),
         apiJson(`${BASE}/skills`)
       ])
-      const workspaceChanged = previousWorkspace !== null && previousWorkspace !== ws.path
       set({
         serverUp: true,
         authFailed: false,
         mlxUp: Boolean(health.mlx),
         backendStatus,
-        agents,
-        tools,
-        models,
         projects,
         agentProfiles,
         modelProfiles,
@@ -333,29 +228,12 @@ export const useStore = create<State>((set, get) => ({
         selectedAgentProfileId:
           agentProfiles.some((profile: AgentProfile) => profile.id === get().selectedAgentProfileId)
             ? get().selectedAgentProfileId
-            : agentProfiles[0]?.id ?? 'agent_default',
-        workspace: ws.path,
-        ...(workspaceChanged
-          ? {
-              tree: {},
-              openedFile: null,
-              view: get().view === 'file' ? ('graph' as const) : get().view
-            }
-          : {})
+            : agentProfiles[0]?.id ?? 'agent_default'
       })
       const selectedProject =
         projects.find((project: Project) => project.id === get().projectId) ?? projects[0]
       if (selectedProject) await get().selectProject(selectedProject.id)
       await get().loadAgentProfileSkills(get().selectedAgentProfileId)
-      get().loadDir('')
-      const currentStillExists = currentAgentId && agents.some((a: AgentSummary) => a.id === currentAgentId)
-      if (currentStillExists) {
-        // 백엔드 재시작이 로컬 미저장 편집을 날리면 복구가 또 다른 손실이 된다.
-        if (!get().dirty) await get().openAgent(currentAgentId)
-        else get().loadRuns()
-      } else if (agents[0] && !get().dirty) {
-        await get().openAgent(agents[0].id)
-      }
     } catch (e) {
       // 401/403은 서버가 살아 있다는 뜻이다 — "백엔드 시작 중"으로 숨기면 거짓말이 된다.
       const authFailed = e instanceof ApiError && (e.status === 401 || e.status === 403)
@@ -898,15 +776,6 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  async loadOperations() {
-    try {
-      const operations = await apiJson(`${BASE}/operations/dashboard`) as OperationsSnapshot
-      set({ operations, operationsError: null })
-    } catch (error) {
-      set({ operationsError: errorMessage(error) })
-    }
-  },
-
   async archiveWorkspace(force = false) {
     const task = get().task
     const workspace = task?.workspace
@@ -1406,28 +1275,6 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  async pickWorkspace() {
-    // Electron 밖(브라우저)에서 열렸으면 다이얼로그가 없다 — 조용히 무시
-    const picked = await window.janus?.pickFolder()
-    if (picked) await get().setWorkspaceTo(picked)
-  },
-
-  async setWorkspaceTo(path) {
-    const r = await apiFetch(`${BASE}/workspace`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path })
-    })
-    if (!r.ok) return
-    const real = (await r.json()).path
-    const recents = [real, ...get().recentFolders.filter((f) => f !== real)].slice(0, 6)
-    localStorage.setItem('janus.recentFolders', JSON.stringify(recents))
-    // 워크스페이스가 바뀌면 이전 트리·열린 파일은 전부 무효다
-    set({ workspace: real, recentFolders: recents, tree: {}, openedFile: null })
-    if (get().view === 'file') set({ view: 'graph' })
-    get().loadDir('')
-  },
-
   setSidebarTab(t) {
     set({ sidebarTab: t })
   },
@@ -1468,282 +1315,14 @@ export const useStore = create<State>((set, get) => ({
     const d = await r.json()
     if (get().projectId !== projectId) return
     if (d.error) {
-      set({ openedFile: { path: rel, content: `(${d.error})` }, view: 'file' })
+      set({ openedFile: { path: rel, content: `(${d.error})` } })
       return
     }
-    set({ openedFile: { path: rel, content: d.content }, view: 'file' })
+    set({ openedFile: { path: rel, content: d.content } })
   },
 
   closeFile() {
-    set({ openedFile: null, view: 'graph' })
+    set({ openedFile: null })
   },
-
-  async openAgent(id, options) {
-    const current = get().agentId
-    if (id === current) return
-    if (get().dirty && !options?.discardDirty) {
-      const name = get().agents.find((agent) => agent.id === id)?.name ?? id
-      if (!confirmDiscardChanges(name)) return
-    }
-    const sequence = ++openAgentSequence
-    // 대화가 살아 있으면 끊는다 — 서버 finally가 워커까지 정리하고 저장한다
-    get().ws?.close()
-    set({ ws: null, connected: false, turnActive: false, approvals: [] })
-    const r = await apiJson(`${BASE}/agents/${id}`)
-    if (sequence !== openAgentSequence) return
-    set({
-      agentId: id,
-      spec: r.spec,
-      yaml: r.yaml,
-      errors: r.errors ?? [],
-      dirty: false,
-      view: r.spec ? get().view : 'yaml',
-      firstMessage: null,
-      spans: [],
-      liveEvents: {},
-      approvals: [],
-      selectedSpanId: null,
-      runError: null,
-      cancelled: false,
-      pastRuns: [],
-      viewingRunId: null,
-      comparisonRun: null
-    })
-    get().loadRuns()
-  },
-
-  async createAgent(name) {
-    if (get().dirty && !confirmDiscardChanges(`새 에이전트 “${name}”`)) return
-    const r = await apiFetch(`${BASE}/agents`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name })
-    }).then((x) => x.json())
-    const agents = await apiFetch(`${BASE}/agents`).then((x) => x.json())
-    set({ agents })
-    await get().openAgent(r.id, { discardDirty: true })
-  },
-
-  async deleteAgent(id) {
-    await apiFetch(`${BASE}/agents/${id}`, { method: 'DELETE' })
-    const agents = await apiFetch(`${BASE}/agents`).then((x) => x.json())
-    set({ agents })
-    if (get().agentId === id) {
-      if (agents[0]) await get().openAgent(agents[0].id, { discardDirty: true })
-      else set({ agentId: null, spec: null, yaml: '', errors: [], dirty: false })
-    }
-  },
-
-  patchSpec(patch) {
-    const spec = get().spec
-    if (!spec) return
-    set({ spec: { ...spec, ...patch }, dirty: true })
-  },
-
-  async save() {
-    const { agentId, spec } = get()
-    if (!agentId || !spec) return
-    const r = await apiFetch(`${BASE}/agents/${agentId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ spec })
-    }).then((x) => x.json())
-    // 저장 실패해도 편집 내용은 유지한다 — 고쳐야 하니까
-    set({ errors: r.errors ?? [], dirty: !r.saved, yaml: r.yaml ?? get().yaml })
-    if (r.saved) {
-      set({ agents: await apiFetch(`${BASE}/agents`).then((x) => x.json()) })
-    }
-  },
-
-  setView(v) {
-    set({ view: v })
-  },
-
-  sendMessage(text) {
-    const { agentId, errors, turnActive, ws } = get()
-    const trimmed = text.trim()
-    if (!agentId || errors.length > 0 || turnActive || !trimmed) return
-
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      // 이어지는 턴 — 같은 세션
-      ws.send(JSON.stringify({ type: 'message', text: trimmed }))
-      set({ turnActive: true, cancelled: false, runError: null })
-      return
-    }
-
-    // 새 대화 — 이전 스팬을 비우고 소켓을 연다. 첫 메시지가 곧 실행 시작이다.
-    set({
-      spans: [], liveEvents: {}, approvals: [], selectedSpanId: null,
-      runError: null, cancelled: false, viewingRunId: null,
-      turnActive: true, firstMessage: trimmed
-    })
-    const sock = new WebSocket(websocketUrl(`/run/${agentId}`), ['janus', janusAuthToken()])
-    set({ ws: sock, connected: false })
-
-    sock.onopen = () => {
-      if (get().ws !== sock) return
-      set({ connected: true })
-      sock.send(JSON.stringify({ type: 'message', text: trimmed }))
-    }
-
-    sock.onmessage = (m) => {
-      if (get().ws !== sock) return
-      const ev = JSON.parse(m.data)
-      if (ev.type === 'span_start') {
-        set({
-          spans: [...get().spans, ev.span],
-          // 오케스트레이터 스팬이 기본 선택 — 클릭 없이도 대화가 보인다
-          selectedSpanId: get().selectedSpanId ?? ev.span.id
-        })
-      } else if (ev.type === 'span_end') {
-        set({
-          spans: get().spans.map((s) => (s.id === ev.span.id ? ev.span : s)),
-          // 끝난 노드의 세션은 스팬이 들고 있으므로 live에서 뺀다
-          liveEvents: Object.fromEntries(
-            Object.entries(get().liveEvents).filter(([k]) => k !== ev.span.node_id)
-          )
-        })
-      } else if (ev.type === 'agent_event') {
-        const cur = get().liveEvents[ev.node_id] ?? []
-        set({ liveEvents: { ...get().liveEvents, [ev.node_id]: [...cur, ev] } })
-      } else if (ev.type === 'approval_request') {
-        if (!get().approvals.some((request) => request.id === ev.id)) {
-          set({ approvals: [...get().approvals, ev] })
-        }
-      } else if (ev.type === 'run_error') {
-        set({ runError: ev.error, turnActive: false, approvals: [] })
-      } else if (ev.type === 'turn_end') {
-        set({ turnActive: false, approvals: [] })
-        get().loadRuns()    // 서버가 저장을 마친 뒤 turn_end를 보낸다
-        get().refreshTree() // 에이전트가 파일을 만들었을 수 있다
-      }
-    }
-    sock.onerror = () => {
-      if (get().ws === sock) set({ runError: '서버에 연결할 수 없습니다', turnActive: false })
-    }
-    sock.onclose = () => {
-      if (get().ws !== sock) return
-      set({
-        connected: false,
-        turnActive: false,
-        approvals: [],
-        ws: null,
-        // 대화가 끝났다 — 아직 running인 스팬을 정리해 영원한 스피너를 막는다
-        spans: get().spans.map((s) =>
-          s.status === 'running' ? { ...s, status: get().cancelled ? 'error' : 'success' } : s
-        )
-      })
-    }
-  },
-
-  stopTurn() {
-    get().ws?.send(JSON.stringify({ type: 'cancel' }))
-    set({ approvals: [], cancelled: true })
-  },
-
-  stopWorker(nodeId) {
-    const ws = get().ws
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'stop_worker', node_id: nodeId }))
-    }
-  },
-
-  endSession() {
-    get().ws?.close()
-  },
-
-  respondApproval(id, approved, scope = 'once') {
-    const { approvals, ws } = get()
-    if (!approvals.some((request) => request.id === id) || !ws || ws.readyState !== WebSocket.OPEN) return
-    ws.send(JSON.stringify({ type: 'approval_response', id, approved, scope }))
-    set({ approvals: approvals.filter((request) => request.id !== id) })
-  },
-
-  async loadRuns() {
-    const { agentId } = get()
-    if (!agentId) return
-    try {
-      const runs = await apiFetch(`${BASE}/runs/${agentId}`).then((r) => r.json())
-      if (get().agentId === agentId) set({ pastRuns: runs })
-    } catch {
-      /* 히스토리는 있으면 좋은 것 — 실패해도 조용히 */
-    }
-  },
-
-  async loadRun(runId) {
-    const { agentId, turnActive } = get()
-    if (!agentId || turnActive) return
-    get().ws?.close() // 과거 실행을 보는 건 현재 대화를 닫는다는 뜻이다
-    const r = (await apiJson(`${BASE}/runs/${agentId}/${runId}`)) as RunDetail
-    set({
-      spans: r.spans, liveEvents: {}, approvals: [],
-      cancelled: Boolean(r.cancelled), viewingRunId: runId,
-      selectedSpanId: r.spans[0]?.id ?? null, runError: null,
-      firstMessage: r.inputs?.task ?? null
-    })
-  },
-
-  async loadComparison(runId) {
-    const { agentId, comparisonRun } = get()
-    if (!agentId) return
-    if (comparisonRun?.id === runId) {
-      set({ comparisonRun: null })
-      return
-    }
-    const run = (await apiJson(`${BASE}/runs/${agentId}/${runId}`)) as RunDetail
-    set({ comparisonRun: run })
-  },
-
-  clearComparison() {
-    set({ comparisonRun: null })
-  },
-
-  /** 현재 스팬을 B에 고정하고, 같은 첫 메시지로 새 대화를 시작한다. */
-  rerun() {
-    const state = get()
-    if (state.turnActive || !state.agentId || !state.firstMessage) return
-    const source = state.pastRuns.find((r) => r.id === state.viewingRunId)
-    if (state.spans.length) {
-      const duration = state.spans.reduce(
-        (max, span) => Math.max(max, span.started_ms + (span.duration_ms ?? 0)),
-        0
-      )
-      set({
-        comparisonRun: {
-          id: state.viewingRunId ?? 'previous',
-          at: source?.at ?? '방금 전',
-          cancelled: state.cancelled,
-          duration_ms: duration,
-          node_count: state.spans.length,
-          summary: source?.summary ?? '',
-          inputs: { task: state.firstMessage },
-          spans: state.spans
-        }
-      })
-    }
-    state.ws?.close()
-    set({ ws: null, connected: false })
-    get().sendMessage(state.firstMessage)
-  },
-
-  async rerunRun(runId) {
-    const { agentId, turnActive } = get()
-    if (!agentId || turnActive) return
-    const run = (await apiJson(`${BASE}/runs/${agentId}/${runId}`)) as RunDetail
-    const first = run.inputs?.task
-    if (!first) return
-    set({ comparisonRun: run })
-    get().ws?.close()
-    set({ ws: null, connected: false })
-    get().sendMessage(first)
-  },
-
-  selectSpan(id) {
-    set({ selectedSpanId: id })
-  },
-
-  selectNodeSpan(nodeId) {
-    const span = get().spans.find((s) => s.node_id === nodeId)
-    set({ selectedSpanId: span?.id ?? null, bottomTab: 'traces' })
-  }
 }))
+
