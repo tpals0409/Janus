@@ -2983,3 +2983,11 @@ textarea:focus-visible {
   justify-content: flex-end;
   gap: 8px;
 }
+
+.diff-emphasis-add {
+  background: rgb(100 160 120 / 28%);
+}
+
+.diff-emphasis-remove {
+  background: rgb(190 100 100 / 28%);
+}
