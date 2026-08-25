@@ -27,6 +27,7 @@ import {
   X,
   Zap
 } from 'lucide-react'
+import { janusApi } from '../../api'
 import { useStore } from '../../store'
 import { useDomainEvent } from '../../domainEvents'
 import type { ApprovalRequest, ChangeLayer, ChangeSetFile, Project, Span, Task } from '../../types'
@@ -1165,17 +1166,21 @@ function diffStat(diff: string | null): { add: number; del: number } {
   return { add, del }
 }
 
-function diffLines(diff: string | null) {
+export function diffLines(diff: string | null) {
   let oldLine = 0
   let newLine = 0
   let hunk: string | null = null
   return (diff ?? '').split('\n').map((text, index) => {
-    const header = text.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
+    const header = text.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/)
     if (header) {
       oldLine = Number(header[1])
-      newLine = Number(header[2])
+      newLine = Number(header[3])
       hunk = text
-      return { index, text, oldLine: null, newLine: null, hunk, header: true }
+      return {
+        index, text, oldLine: null, newLine: null, hunk, header: true,
+        oldStart: Number(header[1]), oldCount: Number(header[2] ?? 1),
+        newStart: Number(header[3]), newCount: Number(header[4] ?? 1)
+      }
     }
     if (text.startsWith('+') && !text.startsWith('+++')) {
       return { index, text, oldLine: null, newLine: newLine++, hunk, header: false }
@@ -1188,6 +1193,68 @@ function diffLines(diff: string | null) {
     }
     return { index, text, oldLine: null, newLine: null, hunk, header: false }
   })
+}
+
+type DiffRow = ReturnType<typeof diffLines>[number]
+
+interface DiffGap { key: string; beforeIndex: number; oldStart: number; newStart: number; count: number | null }
+
+/** 접힌 컨텍스트 구간 — hunk 사이·앞뒤의 변경 없는 줄 범위. count null은 파일 끝까지. */
+export function buildGaps(lines: DiffRow[]): DiffGap[] {
+  const headers = lines.filter((item) => item.header)
+  if (headers.length === 0) return []
+  const gaps: DiffGap[] = []
+  let prevOldEnd = 0
+  let prevNewEnd = 0
+  for (const header of headers) {
+    const count = (header.oldStart ?? 1) - prevOldEnd - 1
+    if (count > 0) {
+      gaps.push({
+        key: `gap-${header.index}`, beforeIndex: header.index,
+        oldStart: prevOldEnd + 1, newStart: prevNewEnd + 1, count
+      })
+    }
+    prevOldEnd = (header.oldStart ?? 1) + (header.oldCount ?? 1) - 1
+    prevNewEnd = (header.newStart ?? 1) + (header.newCount ?? 1) - 1
+  }
+  gaps.push({
+    key: 'gap-tail', beforeIndex: Number.POSITIVE_INFINITY,
+    oldStart: prevOldEnd + 1, newStart: prevNewEnd + 1, count: null
+  })
+  return gaps
+}
+
+/** 짝지어진 -/+ 줄의 공통 앞뒤를 제외한 실제 변경 구간. 한 글자 변경을 놓치지 않게 한다. */
+export function wordEmphasis(lines: DiffRow[]): Map<number, [number, number]> {
+  const spans = new Map<number, [number, number]>()
+  let i = 0
+  while (i < lines.length) {
+    if (lines[i].text.startsWith('-') && !lines[i].text.startsWith('---')) {
+      const removed: DiffRow[] = []
+      while (i < lines.length && lines[i].text.startsWith('-') && !lines[i].text.startsWith('---')) removed.push(lines[i++])
+      const added: DiffRow[] = []
+      while (i < lines.length && lines[i].text.startsWith('+') && !lines[i].text.startsWith('+++')) added.push(lines[i++])
+      for (let pair = 0; pair < Math.min(removed.length, added.length); pair += 1) {
+        const a = removed[pair].text.slice(1)
+        const b = added[pair].text.slice(1)
+        if (a === b) continue
+        let prefix = 0
+        while (prefix < a.length && prefix < b.length && a[prefix] === b[prefix]) prefix += 1
+        let suffix = 0
+        while (
+          suffix < a.length - prefix && suffix < b.length - prefix
+          && a[a.length - 1 - suffix] === b[b.length - 1 - suffix]
+        ) suffix += 1
+        spans.set(removed[pair].index, [prefix + 1, a.length - suffix + 1])
+        spans.set(added[pair].index, [prefix + 1, b.length - suffix + 1])
+      }
+    } else i += 1
+  }
+  return spans
+}
+
+const REV_BY_LAYER: Record<ChangeLayer, string> = {
+  committed: 'head', staged: 'index', unstaged: 'worktree', untracked: 'worktree'
 }
 
 function ChangeSetCard() {
@@ -1203,16 +1270,91 @@ function ChangeSetCard() {
   const files = changeSet?.sections[layer] ?? []
   const selected: ChangeSetFile | undefined =
     files.find((item) => item.path === selectedPath) ?? files[0]
+  const task = useStore((state) => state.task)
   const lines = useMemo(() => diffLines(selected?.diff ?? null), [selected?.diff])
   const hunks = lines.filter((item) => item.header)
+  const gaps = useMemo(() => buildGaps(lines), [lines])
+  const emphasis = useMemo(() => wordEmphasis(lines), [lines])
   const comments = review?.comments.filter(
     (item) => item.layer === layer && item.file_path === selected?.path
   ) ?? []
+  const [expandedGaps, setExpandedGaps] = useState<Set<string>>(new Set())
+  const [fileContents, setFileContents] = useState<Record<string, string[] | null>>({})
+  const contentKey = selected ? `${layer}:${selected.path}` : null
+  const contentLines = contentKey ? fileContents[contentKey] : undefined
+
+  const reviewedKey = changeSet ? `janus.reviewed.${changeSet.revision}` : null
+  const [viewed, setViewed] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    if (!reviewedKey) return
+    try {
+      setViewed(new Set(JSON.parse(localStorage.getItem(reviewedKey) ?? '[]') as string[]))
+    } catch {
+      setViewed(new Set())
+    }
+  }, [reviewedKey])
+  const toggleViewed = (key: string) => {
+    setViewed((previous) => {
+      const next = new Set(previous)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      if (reviewedKey) localStorage.setItem(reviewedKey, JSON.stringify([...next]))
+      return next
+    })
+  }
+  const totalFiles = CHANGE_LAYERS.reduce(
+    (total, item) => total + (changeSet?.counts[item] ?? 0), 0
+  )
+
+  const expandGap = (gap: DiffGap) => {
+    setExpandedGaps((previous) => new Set(previous).add(gap.key))
+    if (!task || !selected || !contentKey || fileContents[contentKey] !== undefined) return
+    void janusApi<{ content: string }>(
+      `/tasks/${task.id}/development/file?path=${encodeURIComponent(selected.path)}&rev=${REV_BY_LAYER[layer]}`
+    ).then(
+      (data) => setFileContents((previous) => ({ ...previous, [contentKey]: String(data.content).split('\n') })),
+      () => setFileContents((previous) => ({ ...previous, [contentKey]: null }))
+    )
+  }
+
+  // 리뷰 키보드 — j/k 파일, n/p 변경 구간, v 확인 표시. 입력 중에는 개입하지 않는다.
+  const hunkCursor = useRef(-1)
+  useEffect(() => { hunkCursor.current = -1 }, [selected?.path, layer])
+  useEffect(() => {
+    const handler = (event: globalThis.KeyboardEvent) => {
+      const origin = event.target as HTMLElement | null
+      if (origin?.closest('input, textarea, select, [contenteditable="true"]')) return
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      if (event.key === 'j' || event.key === 'k') {
+        if (files.length === 0) return
+        const currentIndex = files.findIndex((item) => item.path === selected?.path)
+        const next = files[Math.min(
+          files.length - 1,
+          Math.max(0, (currentIndex < 0 ? 0 : currentIndex) + (event.key === 'j' ? 1 : -1))
+        )]
+        if (next) setSelectedPath(next.path)
+      } else if (event.key === 'n' || event.key === 'p') {
+        if (hunks.length === 0) return
+        hunkCursor.current = Math.min(
+          hunks.length - 1, Math.max(0, hunkCursor.current + (event.key === 'n' ? 1 : -1))
+        )
+        document.getElementById(`diff-${layer}-${hunks[hunkCursor.current].index}`)
+          ?.scrollIntoView({ block: 'center' })
+      } else if (event.key === 'v') {
+        if (selected) toggleViewed(`${layer}:${selected.path}`)
+      } else return
+      event.preventDefault()
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  })
 
   useEffect(() => {
     setSelectedPath(null)
     setCommentLine(null)
     setCommentBody('')
+    setExpandedGaps(new Set())
+    setFileContents({})
   }, [layer, changeSet?.head_commit, changeSet?.derived_at])
 
   // 비어 있는 레이어를 보여주며 시작하지 않는다 — 변경이 있는 첫 레이어로 이동.
@@ -1233,9 +1375,14 @@ function ChangeSetCard() {
             {changeSet.base_ref}…{changeSet.head_commit.slice(0, 8)} · Git에서 파생됨
           </div>
         </div>
-        <button onClick={() => void refresh()} className="task-quiet-action">
-          <RefreshCw size={12} /> diff 새로고침
-        </button>
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-[10px] text-faint">
+            확인 {viewed.size}/{totalFiles} · j/k 파일 · n/p 구간 · v 확인
+          </span>
+          <button onClick={() => void refresh()} className="task-quiet-action">
+            <RefreshCw size={12} /> diff 새로고침
+          </button>
+        </div>
       </div>
       {changeSet.unmerged.length > 0 && (
         <div className="error-strip mt-3">
@@ -1260,30 +1407,52 @@ function ChangeSetCard() {
       </div>
       <div className="grid min-h-[240px] grid-cols-[220px_minmax(0,1fr)] border-x border-b border-border">
         <div className="border-r border-border bg-raised/40 p-2">
-          {files.map((file) => (
-            <button
-              key={`${file.status}:${file.old_path ?? ''}:${file.path}`}
-              onClick={() => setSelectedPath(file.path)}
-              className="mb-1 flex w-full items-start gap-2 rounded px-2 py-1.5 text-left hover:bg-panel"
-              style={{ background: selected?.path === file.path ? 'var(--color-accent-soft)' : undefined }}
-            >
-              <span className="w-7 shrink-0 font-mono text-[10px] text-secondary">{file.status}</span>
-              <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted" title={file.path}>
-                {file.old_path ? `${file.old_path} → ${file.path}` : file.path}
-              </span>
-              {(() => {
-                const stat = diffStat(file.diff)
-                if (stat.add === 0 && stat.del === 0) return null
-                return (
-                  <span className="shrink-0 font-mono text-[9.5px]">
-                    {stat.add > 0 && <span className="text-ok">+{stat.add}</span>}
-                    {stat.add > 0 && stat.del > 0 && ' '}
-                    {stat.del > 0 && <span className="text-danger">−{stat.del}</span>}
+          {files.map((file) => {
+            const fileKey = `${layer}:${file.path}`
+            const isViewed = viewed.has(fileKey)
+            return (
+              <div
+                key={`${file.status}:${file.old_path ?? ''}:${file.path}`}
+                className="mb-1 flex items-start gap-1 rounded hover:bg-panel"
+                style={{
+                  background: selected?.path === file.path ? 'var(--color-accent-soft)' : undefined,
+                  opacity: isViewed ? 0.55 : undefined
+                }}
+              >
+                <button
+                  onClick={() => setSelectedPath(file.path)}
+                  className="flex min-w-0 flex-1 items-start gap-2 px-2 py-1.5 text-left"
+                >
+                  <span className="w-7 shrink-0 font-mono text-[10px] text-secondary">{file.status}</span>
+                  <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted" title={file.path}>
+                    {file.old_path ? `${file.old_path} → ${file.path}` : file.path}
                   </span>
-                )
-              })()}
-            </button>
-          ))}
+                  {(() => {
+                    const stat = diffStat(file.diff)
+                    if (stat.add === 0 && stat.del === 0) return null
+                    return (
+                      <span className="shrink-0 font-mono text-[9.5px]">
+                        {stat.add > 0 && <span className="text-ok">+{stat.add}</span>}
+                        {stat.add > 0 && stat.del > 0 && ' '}
+                        {stat.del > 0 && <span className="text-danger">−{stat.del}</span>}
+                      </span>
+                    )
+                  })()}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleViewed(fileKey)}
+                  aria-pressed={isViewed}
+                  aria-label={`${file.path} 확인함 표시`}
+                  title="확인함 표시 (v)"
+                  className="shrink-0 px-1.5 py-1.5 font-mono text-[10px]"
+                  style={{ color: isViewed ? 'var(--success)' : 'var(--text-disabled)' }}
+                >
+                  ✓
+                </button>
+              </div>
+            )
+          })}
           {files.length === 0 && <div className="p-3 text-[10.5px] text-faint">{CHANGE_LAYER_LABEL[layer]} 변경이 없습니다.</div>}
         </div>
         <div className="min-w-0 overflow-auto bg-base p-3">
@@ -1309,31 +1478,91 @@ function ChangeSetCard() {
                   </div>
                 )}
                 <div className="min-w-max font-mono text-[10px] leading-4 text-muted">
-                  {lines.map((item) => (
-                    <button
-                      id={`diff-${layer}-${item.index}`}
-                      key={item.index}
-                      onClick={() => {
-                        if (item.oldLine || item.newLine) setCommentLine(item)
-                      }}
-                      className="block w-full whitespace-pre text-left hover:bg-hover"
-                      style={{
-                        background: item.text.startsWith('+') && !item.text.startsWith('+++')
-                          ? 'var(--diff-add-bg)'
-                          : item.text.startsWith('-') && !item.text.startsWith('---')
-                            ? 'var(--diff-remove-bg)'
-                            : undefined,
-                        color: (item.text.startsWith('+') && !item.text.startsWith('+++'))
-                          || (item.text.startsWith('-') && !item.text.startsWith('---'))
-                          ? 'var(--text-primary)'
-                          : undefined
-                      }}
-                    >
-                      <span className="mr-3 inline-block w-16 select-none text-right text-faint">
-                        {item.oldLine ?? '·'} {item.newLine ?? '·'}
-                      </span>{item.text || ' '}
-                    </button>
-                  ))}
+                  {(() => {
+                    const canExpand = !selected.binary && !selected.status.startsWith('D')
+                      && layer !== 'untracked' && contentLines !== null
+                    const renderContext = (gap: DiffGap) => {
+                      if (!contentLines) {
+                        return <div key={`${gap.key}-loading`} className="py-0.5 pl-16 text-faint">불러오는 중…</div>
+                      }
+                      const count = gap.count ?? Math.max(0, contentLines.length - gap.newStart + 1)
+                      return Array.from({ length: count }, (_, offset) => {
+                        const oldLine = gap.oldStart + offset
+                        const newLine = gap.newStart + offset
+                        const text = ` ${contentLines[gap.newStart - 1 + offset] ?? ''}`
+                        return (
+                          <button
+                            key={`${gap.key}-${offset}`}
+                            onClick={() => setCommentLine({
+                              index: -1, text, oldLine, newLine, hunk: null, header: false
+                            })}
+                            className="block w-full whitespace-pre text-left hover:bg-hover"
+                          >
+                            <span className="mr-3 inline-block w-16 select-none text-right text-faint">
+                              {oldLine} {newLine}
+                            </span>{text}
+                          </button>
+                        )
+                      })
+                    }
+                    const renderGap = (gap: DiffGap) => {
+                      if (!canExpand) return null
+                      if (expandedGaps.has(gap.key)) return renderContext(gap)
+                      return (
+                        <button
+                          key={gap.key}
+                          type="button"
+                          onClick={() => expandGap(gap)}
+                          className="block w-full border-y border-border-subtle py-0.5 pl-16 text-left text-faint hover:text-fg"
+                        >
+                          ⋯ {gap.count !== null ? `${gap.count}줄 펼치기` : '나머지 펼치기'}
+                        </button>
+                      )
+                    }
+                    const gapBefore = new Map(
+                      gaps.filter((gap) => Number.isFinite(gap.beforeIndex))
+                        .map((gap) => [gap.beforeIndex, gap])
+                    )
+                    const tail = gaps.find((gap) => !Number.isFinite(gap.beforeIndex))
+                    const rendered: ReactNode[] = []
+                    for (const item of lines) {
+                      const gap = gapBefore.get(item.index)
+                      if (gap) rendered.push(renderGap(gap))
+                      const added = item.text.startsWith('+') && !item.text.startsWith('+++')
+                      const removed = item.text.startsWith('-') && !item.text.startsWith('---')
+                      const span = emphasis.get(item.index)
+                      rendered.push(
+                        <button
+                          id={`diff-${layer}-${item.index}`}
+                          key={item.index}
+                          onClick={() => {
+                            if (item.oldLine || item.newLine) setCommentLine(item)
+                          }}
+                          className="block w-full whitespace-pre text-left hover:bg-hover"
+                          style={{
+                            background: added ? 'var(--diff-add-bg)'
+                              : removed ? 'var(--diff-remove-bg)' : undefined,
+                            color: added || removed ? 'var(--text-primary)' : undefined
+                          }}
+                        >
+                          <span className="mr-3 inline-block w-16 select-none text-right text-faint">
+                            {item.oldLine ?? '·'} {item.newLine ?? '·'}
+                          </span>
+                          {span && span[1] > span[0] ? (
+                            <>
+                              {item.text.slice(0, span[0])}
+                              <span className={added ? 'diff-emphasis-add' : 'diff-emphasis-remove'}>
+                                {item.text.slice(span[0], span[1])}
+                              </span>
+                              {item.text.slice(span[1])}
+                            </>
+                          ) : (item.text || ' ')}
+                        </button>
+                      )
+                    }
+                    if (tail) rendered.push(renderGap(tail))
+                    return rendered
+                  })()}
                 </div>
                 {commentLine && (
                   <div className="sticky bottom-0 mt-3 flex gap-2 border border-border-strong bg-panel p-2">

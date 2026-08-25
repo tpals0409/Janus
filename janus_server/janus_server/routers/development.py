@@ -62,8 +62,30 @@ def list_task_development_files(task_id: str, path: str = "."):
 
 
 @router.get("/tasks/{task_id}/development/file")
-def read_task_development_file(task_id: str, path: str):
+def read_task_development_file(task_id: str, path: str, rev: str = "worktree"):
     _workspace, root, target = _task_development_path(task_id, path)
+    if rev in {"head", "index"}:
+        # diff 컨텍스트 펼치기용 — 레이어에 맞는 판본을 준다 (committed→head, staged→index).
+        spec = f"HEAD:{target.relative_to(root).as_posix()}" if rev == "head" \
+            else f":0:{target.relative_to(root).as_posix()}"
+        result = subprocess.run(
+            ["git", "-C", str(root), "show", spec],
+            capture_output=True, timeout=30,
+        )
+        if result.returncode != 0:
+            raise D.NotFound(f"{rev}에 파일이 없습니다: {path}")
+        raw = result.stdout
+        if len(raw) > 2_000_000:
+            raise D.Conflict("editor는 2MB 이하 text file만 엽니다")
+        if b"\0" in raw[:8192]:
+            raise D.Conflict("binary file은 editor에서 열 수 없습니다")
+        return {
+            "path": str(target.relative_to(root)),
+            "content": raw.decode("utf-8", errors="replace"),
+            "size": len(raw), "mtime_ns": None,
+        }
+    if rev != "worktree":
+        raise D.Conflict("rev는 worktree/head/index 중 하나여야 합니다")
     if not target.is_file():
         raise D.NotFound(f"파일이 없습니다: {path}")
     size = target.stat().st_size
