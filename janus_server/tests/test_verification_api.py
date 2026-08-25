@@ -17,6 +17,7 @@ os.environ.setdefault("JANUS_AUTH_TOKEN", "test-token")
 from fastapi.testclient import TestClient
 
 from janus_server import github_service, scheduler, server
+from janus_server.routers import shipping
 
 
 def git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -398,7 +399,7 @@ class VerificationApiTests(unittest.TestCase):
                 )
 
         server._GITHUB_SERVICE = UnauthorizedGitHub()
-        with patch.object(server, "_pushed_task_head", return_value=(task, workspace, head)):
+        with patch.object(shipping, "_pushed_task_head", return_value=(task, workspace, head)):
             response = self.client.post(
                 f"/tasks/{self.task_id}/pull-request", headers=self.headers,
                 json={"title": "Recoverable PR", "body": "body", "base": "main"},

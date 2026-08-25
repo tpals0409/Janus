@@ -61,7 +61,7 @@ def _evaluation_profile_snapshot(profile_id: str) -> dict:
 
 
 def _evaluation_run_config(body: dict) -> dict:
-    manifest_path = Path(__file__).resolve().parents[1] / "tasksuite" / "v0" / "manifest.json"
+    manifest_path = Path(__file__).resolve().parents[2] / "tasksuite" / "v0" / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     available = {item["id"] for item in manifest["tasks"]}
     tasks = body.get("tasks") or sorted(available)
@@ -122,7 +122,7 @@ def _run_evaluation_job(experiment_id: str) -> None:
         profile_path.write_text(
             json.dumps(profile, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
-        project_dir = Path(__file__).resolve().parents[1]
+        project_dir = Path(__file__).resolve().parents[2]
         command = [
             sys.executable, str(project_dir / "scripts" / "run_tasksuite_v0.py"),
             "--label", item["label"], "--profile-json", str(profile_path),

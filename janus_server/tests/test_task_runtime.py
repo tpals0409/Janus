@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 
 from janus_server import domain, runtime, server
 from janus_server import scheduler as scheduler_mod
+from janus_server.routers import sessions
 from janus_server.scheduler import ResourceClass, ResourceScheduler
 from tests.fakes import FakeClient, text_chunk
 
@@ -422,7 +423,7 @@ class TaskRuntimeTests(unittest.TestCase):
         self.assertEqual(["scout"], decision["effective"]["worker_roles"])
         self.assertEqual(decision["effective"]["budget"], dispatch["budget"])
 
-        spec = server._task_runtime_spec(
+        spec = sessions._task_runtime_spec(
             self.store, "agent_default", budget=dispatch["budget"],
             adaptive_decision=decision,
         )

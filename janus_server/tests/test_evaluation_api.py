@@ -13,6 +13,7 @@ os.environ.setdefault("JANUS_AUTH_TOKEN", "test-token")
 from fastapi.testclient import TestClient
 
 from janus_server import server
+from janus_server.routers import evaluations
 
 
 def report(label: str, passed: list[bool], wall: int, tokens: int) -> dict:
@@ -122,7 +123,7 @@ class EvaluationApiTests(unittest.TestCase):
         )
 
     def test_runner_snapshots_profile_prompt_budget_model_and_task_config(self):
-        with patch.object(server, "_start_evaluation_job") as start:
+        with patch.object(evaluations, "_start_evaluation_job") as start:
             response = self.client.post(
                 "/evaluations/experiments/run", headers=self.headers, json={
                     "role": "candidate", "label": "profile-candidate",
@@ -144,7 +145,7 @@ class EvaluationApiTests(unittest.TestCase):
         start.assert_called_once_with(item["id"])
 
     def test_runner_job_persists_completed_report_without_losing_snapshot(self):
-        with patch.object(server, "_start_evaluation_job"):
+        with patch.object(evaluations, "_start_evaluation_job"):
             item = self.client.post(
                 "/evaluations/experiments/run", headers=self.headers, json={
                     "role": "baseline", "label": "runner-baseline",
@@ -173,8 +174,8 @@ class EvaluationApiTests(unittest.TestCase):
             def send_signal(self, _signal):
                 return None
 
-        with patch.object(server.subprocess, "Popen", FakeProcess):
-            server._run_evaluation_job(item["id"])
+        with patch.object(evaluations.subprocess, "Popen", FakeProcess):
+            evaluations._run_evaluation_job(item["id"])
 
         completed = self.client.get(
             f"/evaluations/experiments/{item['id']}", headers=self.headers
