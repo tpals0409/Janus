@@ -30,7 +30,6 @@ import { useStore } from '../../store'
 import { useDomainEvent } from '../../domainEvents'
 import type { ChangeLayer, ChangeSetFile, Project, Span, Task, TaskStatus } from '../../types'
 import ContextInspector from './ContextInspector'
-import TaskSidebar from './TaskSidebar'
 import { Button, ConfirmDialog, EmptyState, Status } from '../ui'
 
 const TaskDevelopmentSurface = lazy(() => import('./TaskDevelopmentSurface'))
@@ -1866,10 +1865,17 @@ function EmptyTaskState({ hasProject }: { hasProject: boolean }) {
   )
 }
 
-export default function TaskWorkspace({ onNavigate }: { onNavigate?: (destination: string) => void }) {
+export default function TaskWorkspace({
+  newConversation,
+  onNewConversationChange
+}: {
+  newConversation: boolean
+  onNewConversationChange: (value: boolean) => void
+}) {
   const projects = useStore((state) => state.projects)
   const projectId = useStore((state) => state.projectId)
   const task = useStore((state) => state.task)
+  const previousTaskId = useRef(task?.id)
   const sidebarTab = useStore((state) => state.sidebarTab)
   const openedFile = useStore((state) => state.openedFile)
   const refresh = useStore((state) => state.refreshSelectedTask)
@@ -1884,7 +1890,6 @@ export default function TaskWorkspace({ onNavigate }: { onNavigate?: (destinatio
   const mlxUp = useStore((state) => state.mlxUp)
   const startTaskSession = useStore((state) => state.startTaskSession)
   const resumeTaskSession = useStore((state) => state.resumeTaskSession)
-  const [newConversation, setNewConversation] = useState(false)
   const project = useMemo(
     () => projects.find((item) => item.id === projectId) ?? null,
     [projects, projectId]
@@ -1911,11 +1916,13 @@ export default function TaskWorkspace({ onNavigate }: { onNavigate?: (destinatio
     void resumeTaskSession()
   }, [pendingDelegation, session, taskSocket, connected, busy, mlxUp, runtimeError, resumeTaskSession])
 
-  useEffect(() => setNewConversation(false), [task?.id])
+  useEffect(() => {
+    if (previousTaskId.current !== task?.id) onNewConversationChange(false)
+    previousTaskId.current = task?.id
+  }, [task?.id, onNewConversationChange])
 
   return (
     <>
-      <TaskSidebar onNavigate={onNavigate} onNewConversation={() => { setNewConversation(true); useStore.getState().setSidebarTab('tasks') }} />
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="relative flex min-h-0 flex-1">
         {sidebarTab === 'files' && openedFile ? (

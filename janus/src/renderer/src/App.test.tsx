@@ -259,8 +259,9 @@ describe('Janus renderer fixture', () => {
     await user.click(screen.getByRole('button', { name: '에이전트' }))
     expect(screen.getByRole('tablist', { name: '에이전트 프로필' })).toBeVisible()
     expect(screen.getByRole('heading', { name: 'Janus Local' })).toBeVisible()
-    expect(screen.getByText('실행 계약')).toBeVisible()
-    await user.click(screen.getByRole('tab', { name: '프롬프트' }))
+    expect(screen.getByText('실행 방식')).toBeVisible()
+    expect(screen.getByLabelText('에이전트 실행 흐름')).toBeVisible()
+    await user.click(screen.getByRole('tab', { name: '지침' }))
     expect(screen.getByRole('heading', { name: '시스템 프롬프트' })).toBeVisible()
 
     await user.click(screen.getByRole('button', { name: '모니터' }))

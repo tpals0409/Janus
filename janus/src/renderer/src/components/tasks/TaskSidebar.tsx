@@ -115,10 +115,12 @@ function ProjectSwitcher() {
 
 export default function TaskSidebar({
   onNewConversation,
-  onNavigate
+  onNavigate,
+  activeNavigation = 'tasks'
 }: {
   onNewConversation?: () => void
   onNavigate?: (destination: string) => void
+  activeNavigation?: string
 }) {
   const tasks = useStore((state) => state.tasks)
   const taskId = useStore((state) => state.taskId)
@@ -139,6 +141,11 @@ export default function TaskSidebar({
   return (
     <aside className="resource-sidebar">
       <ProjectSwitcher />
+      <nav className="task-sidebar-nav" aria-label="기본 탐색">
+        <button aria-current={activeNavigation === 'tasks' ? 'page' : undefined} onClick={() => onNavigate?.('tasks')}><ListTodo size={14} /> 작업</button>
+        <button aria-current={activeNavigation === 'agents' ? 'page' : undefined} onClick={() => onNavigate?.('agents')}><Boxes size={14} /> 에이전트</button>
+        <button aria-current={activeNavigation === 'monitor' ? 'page' : undefined} onClick={() => onNavigate?.('monitor')}><ChartNoAxesColumn size={14} /> 모니터</button>
+      </nav>
       <div className="task-sidebar-actions">
         <button type="button" onClick={onNewConversation} disabled={!projectId} className="task-sidebar-new-chat">
           <MessageSquarePlus size={15} strokeWidth={1.5} />
@@ -146,11 +153,11 @@ export default function TaskSidebar({
         </button>
       </div>
       <div className="grid h-8 shrink-0 grid-cols-2 border-b border-border p-0.5" role="tablist" aria-label="프로젝트 리소스">
-        <button role="tab" aria-selected={sidebarTab === 'tasks'} onClick={() => setSidebarTab('tasks')} className="resource-mode-tab">
+        <button role="tab" aria-selected={sidebarTab === 'tasks'} onClick={() => { setSidebarTab('tasks'); onNavigate?.('tasks') }} className="resource-mode-tab">
           <ListTodo size={11} /> 작업
           <span className="font-mono text-[10px] text-faint">{tasks.length}</span>
         </button>
-        <button role="tab" aria-selected={sidebarTab === 'files'} onClick={() => setSidebarTab('files')} className="resource-mode-tab">
+        <button role="tab" aria-selected={sidebarTab === 'files'} onClick={() => { setSidebarTab('files'); onNavigate?.('tasks') }} className="resource-mode-tab">
           <Files size={11} /> 파일
         </button>
       </div>
@@ -159,7 +166,7 @@ export default function TaskSidebar({
         <div className="min-h-0 flex-1 overflow-y-auto">
           {tasks.map((task) => (
             <div key={task.id} className="group resource-row relative" aria-selected={task.id === taskId}>
-              <button onClick={() => selectTask(task.id)} className="w-full pr-7 text-left">
+              <button onClick={() => { void selectTask(task.id); onNavigate?.('tasks') }} className="w-full pr-7 text-left">
                 <div className="flex items-start gap-2">
                   <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: taskStatus(task).color }} />
                   <span className="line-clamp-2 text-[12px] font-medium leading-snug">{task.title}</span>
@@ -202,10 +209,6 @@ export default function TaskSidebar({
         />
       </div>
       )}
-      <nav className="task-sidebar-nav" aria-label="기본 탐색">
-        <button onClick={() => onNavigate?.('agents')}><Boxes size={14} /> 에이전트</button>
-        <button onClick={() => onNavigate?.('monitor')}><ChartNoAxesColumn size={14} /> 모니터</button>
-      </nav>
     </aside>
   )
 }

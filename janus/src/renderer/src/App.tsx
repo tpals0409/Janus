@@ -3,8 +3,9 @@ import { ReactFlowProvider } from '@xyflow/react'
 import { Loader2, ShieldAlert } from 'lucide-react'
 import { useStore } from './store'
 import Canvas from './components/Canvas'
-import { AgentProfileList, NavRail, StatusBar } from './components/Shell'
+import { AgentProfilePicker, StatusBar } from './components/Shell'
 import TaskWorkspace from './components/tasks/TaskWorkspace'
+import TaskSidebar from './components/tasks/TaskSidebar'
 import OperationsDashboard from './components/operations/OperationsDashboard'
 import PromptEditor from './components/PromptEditor'
 import SkillLibrary from './components/SkillLibrary'
@@ -13,7 +14,7 @@ import { BrandMark, Status, Tabs } from './components/ui'
 import CommandPalette from './components/CommandPalette'
 import AgentOverview from './components/AgentOverview'
 
-const DESIGN_TABS = ['개요', '프롬프트', '스킬', '컨텍스트 정책', '그래프'] as const
+const DESIGN_TABS = ['개요', '지침', '능력', '기억과 컨텍스트', '작업 흐름'] as const
 
 
 export default function App() {
@@ -31,6 +32,7 @@ export default function App() {
   const selectedAgentProfileId = useStore((s) => s.selectedAgentProfileId)
 
   const [nav, setNav] = useState('tasks')
+  const [newConversation, setNewConversation] = useState(false)
   const [tab, setTab] = useState<(typeof DESIGN_TABS)[number]>('개요')
   const selectedProfile = agentProfiles.find((profile) => profile.id === selectedAgentProfileId)
 
@@ -134,29 +136,42 @@ export default function App() {
       </header>
 
       <div className="flex min-h-0 flex-1">
+        <TaskSidebar
+          activeNavigation={nav}
+          onNavigate={(destination) => {
+            setNav(destination)
+            if (destination === 'tasks') setNewConversation(false)
+          }}
+          onNewConversation={() => {
+            setNav('tasks')
+            setNewConversation(true)
+          }}
+        />
         {nav === 'tasks' ? (
-          <TaskWorkspace onNavigate={setNav} />
+          <TaskWorkspace
+            newConversation={newConversation}
+            onNewConversationChange={setNewConversation}
+          />
         ) : nav === 'monitor' ? (
-          <><NavRail active={nav} onSelect={setNav} /><OperationsDashboard onOpenTask={() => setNav('tasks')} /></>
+          <OperationsDashboard onOpenTask={() => setNav('tasks')} />
         ) : nav !== 'agents' ? (
-          <><NavRail active={nav} onSelect={setNav} /><div className="grid flex-1 place-items-center text-[12px] text-faint">
+          <div className="grid flex-1 place-items-center text-[12px] text-faint">
             이 화면은 아직 구현되지 않았습니다
-          </div></>
+          </div>
         ) : (
           <>
-            <NavRail active={nav} onSelect={setNav} />
-            <AgentProfileList />
             <main className="flex min-w-0 flex-1 flex-col">
+              <AgentProfilePicker />
               <Tabs items={DESIGN_TABS} value={tab} onChange={setTab} label="에이전트 프로필" />
 
               <div className="min-h-0 flex-1">
                 {tab === '개요' ? (
                   <AgentOverview onOpen={setTab} />
-                ) : tab === '프롬프트' ? (
+                ) : tab === '지침' ? (
                   <PromptEditor />
-                ) : tab === '스킬' ? (
+                ) : tab === '능력' ? (
                   <SkillLibrary />
-                ) : tab === '컨텍스트 정책' ? (
+                ) : tab === '기억과 컨텍스트' ? (
                   <ContextPolicyEditor />
                 ) : (
                   <ReactFlowProvider>

@@ -1,83 +1,28 @@
-import {
-  Boxes,
-  ChartNoAxesColumn,
-  Home,
-  ListTodo
-} from 'lucide-react'
 import { useStore } from '../store'
 import { Status } from './ui'
 
-/** Task가 제품의 첫 화면, Agent는 재사용할 실행 프로파일이다. */
-const NAV: { id: string; label: string; Icon: typeof Home; wired?: boolean }[] = [
-  { id: 'tasks', label: '작업', Icon: ListTodo, wired: true },
-  { id: 'agents', label: '에이전트', Icon: Boxes, wired: true },
-  { id: 'monitor', label: '모니터', Icon: ChartNoAxesColumn, wired: true }
-]
-
-export function NavRail({
-  active,
-  onSelect
-}: {
-  active: string
-  onSelect: (id: string) => void
-}) {
-  return (
-    <nav className="nav-rail" aria-label="기본 탐색">
-      <div className="flex-1 space-y-1">
-        {NAV.map(({ id, label, Icon, wired }) => (
-          <button
-            key={id}
-            onClick={() => onSelect(id)}
-            title={wired ? label : `${label} — 아직 구현되지 않음`}
-            aria-label={label}
-            aria-current={active === id ? 'page' : undefined}
-            className="nav-rail__item"
-          >
-            <Icon size={17} strokeWidth={1.5} />
-            <span className="sr-only">{label}</span>
-          </button>
-        ))}
-      </div>
-    </nav>
-  )
-}
-
-export function AgentProfileList() {
+export function AgentProfilePicker() {
   const profiles = useStore((state) => state.agentProfiles)
   const selectedId = useStore((state) => state.selectedAgentProfileId)
   const assignments = useStore((state) => state.agentProfileSkills)
   const selectProfile = useStore((state) => state.selectAgentProfile)
 
-  return (
-    <aside className="resource-sidebar">
-      <div className="resource-sidebar__header">
-        <div className="resource-sidebar__label">에이전트 프로필</div>
-        <p className="resource-sidebar__description">프롬프트·스킬·컨텍스트를 실행 단위로 관리합니다.</p>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto py-1">
-        {profiles.map((profile) => (
-          <button
-            key={profile.id}
-            onClick={() => selectProfile(profile.id)}
-            className="resource-row"
-            aria-selected={selectedId === profile.id}
-          >
-            <div className="truncate text-[12px] font-medium">{profile.name}</div>
-            <div className="mt-0.5 line-clamp-1 text-[10px] text-faint">{profile.description || '일반 오케스트레이터'}</div>
-            <div className="mt-1.5 flex items-center gap-2 font-mono text-[10px] text-muted">
-              <Status tone="muted">{profile.worker_policy}</Status>
-              {selectedId === profile.id && (
-                <span>{assignments.filter((skill) => skill.activation_mode !== 'off').length}개 스킬</span>
-              )}
-            </div>
-          </button>
-        ))}
-      </div>
-      <div className="border-t border-border px-4 py-2 text-[10px] text-faint">
-        변경은 새 Task 시도부터 적용
-      </div>
-    </aside>
-  )
+  const selected = profiles.find((profile) => profile.id === selectedId)
+  const activeSkills = assignments.filter((skill) => skill.activation_mode !== 'off').length
+  return <div className="agent-profile-picker">
+    <div className="agent-profile-picker__identity">
+      <span>에이전트</span>
+      <select value={selectedId} onChange={(event) => selectProfile(event.target.value)} aria-label="에이전트 프로필 선택">
+        {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+      </select>
+    </div>
+    <div className="agent-profile-picker__meta">
+      <Status tone="success">모델 준비</Status>
+      <span>{selected?.worker_policy === 'autonomous' ? '워커 자동 배치' : '제한된 워커'}</span>
+      <span>{activeSkills}개 능력</span>
+      <em>저장하면 다음 작업부터 적용</em>
+    </div>
+  </div>
 }
 
 export function StatusBar({ mode }: { mode: string }) {

@@ -413,35 +413,6 @@ button {
   gap: var(--space-4);
 }
 
-.nav-rail {
-  display: flex;
-  width: 52px;
-  flex: none;
-  flex-direction: column;
-  border-right: 1px solid var(--border-subtle);
-  background: var(--bg-base);
-  padding: var(--space-2) 6px;
-}
-
-.nav-rail__item {
-  display: grid;
-  width: 40px;
-  height: 32px;
-  place-items: center;
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  transition: color var(--motion-fast) ease, background var(--motion-fast) ease;
-}
-
-.nav-rail__item:hover {
-  color: var(--text-secondary);
-}
-
-.nav-rail__item[aria-current='page'] {
-  background: rgb(255 255 255 / 5%);
-  color: var(--text-primary);
-}
-
 .resource-sidebar {
   display: flex;
   width: 270px;
@@ -477,29 +448,10 @@ button {
   color: var(--text-disabled);
 }
 
-.task-sidebar-nav {
-  display: grid;
-  flex: none;
-  gap: 2px;
-  border-top: 1px solid var(--border-subtle);
-  padding: 7px 10px;
-}
-
-.task-sidebar-nav button {
-  display: flex;
-  height: 30px;
-  align-items: center;
-  gap: 9px;
-  border-radius: var(--radius-sm);
-  padding: 0 10px;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.task-sidebar-nav button:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
+.task-sidebar-nav { display: grid; flex: none; gap: 2px; border-bottom: 1px solid var(--border-subtle); padding: 7px 10px; }
+.task-sidebar-nav button { display: flex; height: 30px; align-items: center; gap: 9px; border-radius: var(--radius-sm); padding: 0 10px; color: var(--text-muted); font-size: 11px; }
+.task-sidebar-nav button:hover { background: var(--bg-hover); color: var(--text-primary); }
+.task-sidebar-nav button[aria-current='page'] { background: rgb(255 255 255 / 5%); color: var(--text-primary); }
 
 .resource-sidebar__header {
   border-bottom: 1px solid var(--border-subtle);
@@ -1366,45 +1318,52 @@ button {
   font-size: 10px;
 }
 
-/* 에이전트 첫 화면 — 프롬프트 조각보다 실행 계약을 먼저 읽는다. */
-.agent-overview {
-  display: grid;
-  height: 100%;
-  min-height: 0;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  grid-template-rows: auto minmax(0, 1fr);
-  background: var(--bg-canvas);
-}
+/* 에이전트 작업대 — 설정 카드보다 실제 행동 흐름을 먼저 읽는다. */
+.agent-profile-picker { display: flex; min-height: 48px; flex: none; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--border-subtle); padding: 7px 20px; background: var(--bg-panel); }
+.agent-profile-picker__identity { display: flex; min-width: 0; align-items: center; gap: 10px; }
+.agent-profile-picker__identity > span { color: var(--text-faint); font-size: 10px; }
+.agent-profile-picker select { min-width: 180px; border: 0; background: transparent; color: var(--text-primary); font-size: 13px; font-weight: 550; outline: none; }
+.agent-profile-picker__meta { display: flex; align-items: center; gap: 13px; color: var(--text-muted); font-size: 10px; }
+.agent-profile-picker__meta > span + span { border-left: 1px solid var(--border-subtle); padding-left: 13px; }
+.agent-profile-picker__meta em { color: var(--text-faint); font-style: normal; }
+
+.agent-overview { height: 100%; min-height: 0; overflow: hidden; background: var(--bg-canvas); }
 
 .agent-overview__hero {
   display: flex;
   min-height: 92px;
-  grid-column: 1 / -1;
   align-items: center;
   gap: 14px;
   border-bottom: 1px solid var(--border-subtle);
   padding: 18px 24px;
 }
 
-.agent-overview__mark {
-  display: grid;
-  width: 40px;
-  height: 40px;
-  flex: none;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--bg-surface);
-  color: var(--accent);
-}
-
 .agent-overview__hero h2 { color: var(--text-primary); font-size: 17px; font-weight: 550; }
 .agent-overview__hero p { margin-top: 5px; color: var(--text-muted); font-size: 12px; }
-.agent-overview__body { min-height: 0; overflow-y: auto; padding: 24px; }
+.agent-overview__body { height: calc(100% - 92px); overflow-y: auto; padding: 22px 24px 32px; }
+
+.agent-execution-flow { max-width: 1080px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--bg-panel); }
+.agent-execution-flow > header { display: flex; height: 38px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding: 0 14px; color: var(--text-muted); font-size: 10.5px; }
+.agent-execution-flow > header button { color: var(--text-faint); }
+.agent-execution-flow > header button:hover { color: var(--text-primary); }
+.agent-execution-flow > div { display: flex; align-items: stretch; padding: 10px; }
+.agent-execution-flow__step { display: flex; min-width: 0; flex: 1; align-items: center; }
+.agent-execution-flow__step > button { display: flex; min-width: 0; flex: 1; align-items: flex-start; gap: 9px; border-radius: 7px; padding: 10px; text-align: left; }
+.agent-execution-flow__step > button:hover { background: var(--bg-hover); }
+.agent-execution-flow__step > button > svg { flex: none; color: var(--accent); }
+.agent-execution-flow__step span { min-width: 0; }
+.agent-execution-flow__step strong { display: block; color: var(--text-primary); font-size: 11px; font-weight: 550; }
+.agent-execution-flow__step small { display: block; overflow: hidden; margin-top: 4px; color: var(--text-faint); font-size: 9.5px; text-overflow: ellipsis; white-space: nowrap; }
+.agent-execution-flow__step > svg { flex: none; align-self: center; color: var(--text-disabled); }
+
+.agent-overview__columns { display: grid; max-width: 1080px; grid-template-columns: minmax(0, 1.35fr) minmax(260px, .65fr); gap: 12px; margin-top: 12px; }
 
 .agent-overview__role {
-  max-width: 760px;
-  border-left: 2px solid color-mix(in srgb, var(--accent) 58%, var(--border-default));
-  padding: 4px 0 4px 16px;
+  min-height: 190px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-panel);
+  padding: 17px;
 }
 
 .agent-overview__role p {
@@ -1419,49 +1378,16 @@ button {
   white-space: pre-wrap;
 }
 
-.agent-overview__role button { margin-top: 10px; color: var(--text-muted); font-size: 11px; }
+.agent-overview__role button { margin-top: 12px; color: var(--text-muted); font-size: 11px; }
 .agent-overview__role button:hover { color: var(--text-primary); }
 
-.agent-overview__summary {
-  display: grid;
-  max-width: 840px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1px;
-  margin-top: 26px;
-  overflow: hidden;
-  background: var(--border-subtle);
-}
-
-.agent-overview__summary > button {
-  display: grid;
-  min-height: 116px;
-  grid-template-columns: 26px minmax(0, 1fr);
-  gap: 10px;
-  background: var(--bg-panel);
-  padding: 16px;
-  text-align: left;
-}
-
-.agent-overview__summary > button:hover { background: var(--bg-hover); }
-.agent-overview__summary > button > span { color: var(--text-muted); }
-.agent-overview__summary small { display: block; color: var(--text-faint); font-size: 11px; }
-.agent-overview__summary strong { display: block; margin-top: 5px; color: var(--text-primary); font-size: 15px; font-weight: 550; }
-.agent-overview__summary p { overflow: hidden; margin-top: 5px; color: var(--text-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-
-.agent-overview__contract {
-  min-height: 0;
-  overflow-y: auto;
-  border-left: 1px solid var(--border-subtle);
-  background: #1b1c1c;
-  padding: 22px 18px;
-}
-
-.agent-overview__contract > div { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 12px; }
-.agent-overview__contract dl { margin-top: 18px; }
-.agent-overview__contract dl > div { display: flex; justify-content: space-between; gap: 14px; border-bottom: 1px solid var(--border-subtle); padding: 10px 0; font-size: 11px; }
-.agent-overview__contract dt { color: var(--text-faint); }
-.agent-overview__contract dd { max-width: 160px; overflow: hidden; color: var(--text-muted); font-family: var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
-.agent-overview__contract > p { margin-top: 18px; color: var(--text-faint); font-size: 10.5px; line-height: 1.6; }
+.agent-behavior { border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--bg-panel); padding: 17px; }
+.agent-behavior > header { display: flex; align-items: center; gap: 7px; color: var(--text-secondary); font-size: 11px; font-weight: 550; }
+.agent-behavior dl { margin-top: 10px; }
+.agent-behavior dl > div { display: flex; justify-content: space-between; gap: 14px; border-bottom: 1px solid var(--border-subtle); padding: 8px 0; font-size: 10.5px; }
+.agent-behavior dl > div:last-child { border-bottom: 0; }
+.agent-behavior dt { color: var(--text-faint); }
+.agent-behavior dd { color: var(--text-secondary); }
 
 /* 운영 화면 — 칸반의 가로 밀도를 버리고, 개입할 작업부터 세로로 읽는다. */
 .operations-header { border-bottom: 1px solid var(--border-subtle); padding: 18px 24px 14px; }
@@ -1501,7 +1427,7 @@ button {
 
 .task-development-surface__toolbar { display: flex; height: 42px; flex: none; align-items: center; border-bottom: 1px solid var(--border-subtle); padding: 0 12px; }
 
-.agent-learning { max-width: 840px; margin-top: 24px; border-top: 1px solid var(--border-subtle); padding-top: 16px; }
+.agent-learning { max-width: 1080px; margin-top: 20px; border-top: 1px solid var(--border-subtle); padding-top: 16px; }
 .agent-learning > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .agent-learning > header > div { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; }
 .agent-learning__description { margin-top: 5px; color: var(--text-faint); font-size: 10.5px; }
@@ -1517,9 +1443,10 @@ button {
 .agent-learning__empty { border: 1px dashed var(--border-subtle); border-radius: 8px; padding: 16px; text-align: center; color: var(--text-faint); font-size: 10.5px; }
 
 @media (max-width: 900px) {
-  .agent-overview { grid-template-columns: minmax(0, 1fr); }
-  .agent-overview__contract { display: none; }
-  .agent-overview__summary, .operations-attention { grid-template-columns: minmax(0, 1fr); }
+  .agent-profile-picker__meta em { display: none; }
+  .agent-overview__columns, .operations-attention { grid-template-columns: minmax(0, 1fr); }
+  .agent-execution-flow > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .agent-execution-flow__step > svg { display: none; }
   .operations-task-row { align-items: flex-start; flex-direction: column; gap: 10px; }
   .operations-task-row__telemetry { width: 100%; }
 }
