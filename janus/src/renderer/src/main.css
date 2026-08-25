@@ -1151,6 +1151,34 @@ button {
   color: var(--danger);
 }
 
+.worker-modal__approval {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--warning);
+  border-radius: 12px;
+  padding: 10px 12px;
+  gap: 10px;
+}
+
+.worker-modal__approval strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.worker-modal__approval small {
+  color: var(--text-faint);
+  font-size: 10.5px;
+}
+
+.worker-modal__approval-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .worker-modal__empty {
   color: var(--text-faint);
   font-size: 11.5px;

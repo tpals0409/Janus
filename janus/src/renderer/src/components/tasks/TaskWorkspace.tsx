@@ -1760,6 +1760,12 @@ function WorkerDetailModal({ worker, onClose }: { worker: RuntimeWorker, onClose
   )
   const elapsed = useElapsedLabel(worker)
   const meta = WORKER_STATE_META[worker.state]
+  // 승인을 기다리는 워커는 여기서 바로 풀 수 있어야 한다 — 대화 화면까지 돌아가
+  // 카드를 찾아야 한다면, 워커는 답 없이 APPROVAL_TIMEOUT을 그대로 태운다.
+  const respondApproval = useStore((state) => state.respondTaskApproval)
+  const pending = useStore((state) => state.taskApprovals).filter(
+    (item) => item.node_id === worker.id
+  )
   useEffect(() => {
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
@@ -1767,7 +1773,7 @@ function WorkerDetailModal({ worker, onClose }: { worker: RuntimeWorker, onClose
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
-  const empty = !reasoning && !answer && calls.length === 0 && !worker.error && !worker.reason
+  const empty = !reasoning && !answer && calls.length === 0 && !worker.error && !worker.reason && pending.length === 0
   return (
     <div className="worker-modal__backdrop" role="presentation" onClick={onClose}>
       <div
@@ -1791,6 +1797,27 @@ function WorkerDetailModal({ worker, onClose }: { worker: RuntimeWorker, onClose
           </button>
         </header>
         <div className="worker-modal__body">
+          {pending.map((approval) => (
+            <div key={approval.id} className="worker-modal__approval">
+              <div>
+                <strong><code>{approval.tool}</code> 실행 권한이 필요합니다</strong>
+                <small>이 워커가 답을 기다리는 중입니다.</small>
+              </div>
+              <div className="worker-modal__approval-actions">
+                <button type="button" onClick={() => respondApproval(approval.id, false)} className="task-quiet-action">거부</button>
+                <button type="button" onClick={() => respondApproval(approval.id, true, 'once')} className="task-primary-action">이번만 허용</button>
+                {approval.rememberable && (
+                  <button
+                    type="button"
+                    onClick={() => respondApproval(approval.id, true, 'session_workspace')}
+                    className="task-quiet-action"
+                  >
+                    {approval.approval_scope === 'workspace_shell' ? '이 세션에서 명령 허용' : '이 세션에서 파일 수정 허용'}
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
           {task && (
             <div className="worker-modal__turn worker-modal__turn--task">
               <small>지시</small>

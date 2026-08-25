@@ -84,6 +84,10 @@ _TASK_RUNTIMES: dict[str, runtime.Orchestration] = {}
 _VERIFICATION_JOBS_LOCK = threading.Lock()
 _VERIFICATION_JOBS: dict[str, threading.Thread] = {}
 _EVALUATION_JOBS_LOCK = threading.Lock()
+# 승인 대기는 연결이 아니라 세션에 속한다. 연결 지역 변수로 두면 재연결한 클라이언트가
+# 대기 중인 요청을 볼 수도, 답할 수도 없어 워커가 APPROVAL_TIMEOUT을 그대로 태운다.
+_PENDING_APPROVALS_LOCK = threading.Lock()
+_PENDING_APPROVALS: dict[str, dict[str, list]] = {}
 _SESSION_APPROVAL_SCOPES = {
     "write_file": "workspace_write",
     "edit_file": "workspace_write",
@@ -2816,8 +2820,9 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
         return
 
     loop = asyncio.get_running_loop()
-    pending: dict[str, list] = {}
-    pending_lock = threading.Lock()
+    pending_lock = _PENDING_APPROVALS_LOCK
+    with pending_lock:
+        pending = _PENDING_APPROVALS.setdefault(session_id, {})
     approved_scopes: set[tuple[str, str]] = {
         (str(item["scope"]), str(item["workspace_id"]))
         for item in store.list_session_approval_scopes(session_id)
@@ -2917,9 +2922,7 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
                 return True
         req_id = uuid.uuid4().hex[:12]
         event = threading.Event()
-        with pending_lock:
-            pending[req_id] = [event, False, scope_key]
-        send({
+        request = {
             "type": "approval_request",
             "id": req_id,
             "node_id": node_id,
@@ -2928,13 +2931,20 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
             "rememberable": scope_key is not None,
             "approval_scope": scope_key[0] if scope_key is not None else None,
             **approval_context.identifiers(),
-        })
+        }
+        with pending_lock:
+            pending[req_id] = [event, False, scope_key, request]
+        send(request)
         if not event.wait(timeout=APPROVAL_TIMEOUT):
             with pending_lock:
                 pending.pop(req_id, None)
+                if not pending:
+                    _PENDING_APPROVALS.pop(session_id, None)
             return False
         with pending_lock:
             slot = pending.pop(req_id, None)
+            if not pending:
+                _PENDING_APPROVALS.pop(session_id, None)
         return bool(slot and slot[1])
 
     def skill_loaded(skill_version_id: str, reason: str, prompt_tokens: int) -> None:
@@ -3096,6 +3106,12 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
         "resumed_events": transcript_count,
         "session_status": session["status"],
     }))
+
+    # 재연결한 클라이언트에게 아직 답이 없는 승인 요청을 다시 보여준다.
+    with pending_lock:
+        outstanding = [slot[3] for slot in pending.values() if len(slot) > 3]
+    for request in outstanding:
+        await _safe_send(request)
 
     try:
         while True:
