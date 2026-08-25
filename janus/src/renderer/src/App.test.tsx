@@ -103,6 +103,36 @@ describe('Janus renderer fixture', () => {
     expect(composer).toHaveValue('/review ')
   })
 
+  it('completes slash skill names on the new task composer', async () => {
+    window.history.replaceState({}, '', '/?fixture=task-runtime')
+    seedTaskRuntimeVisualFixture()
+    useStore.setState({
+      task: null,
+      taskId: null,
+      taskConnected: false,
+      agentProfileSkills: [{
+        skill_id: 'skill-debug',
+        skill_version_id: 'skill-version-debug',
+        name: 'debug',
+        namespace: 'janus',
+        description: 'Find the root cause first',
+        activation_mode: 'manual',
+        version: 1,
+        loaded_at: null
+      } as AgentProfileSkill]
+    })
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    const composer = screen.getByRole('textbox', { name: 'Janus에게 위임할 목표' })
+    await user.type(composer, '/')
+    expect(screen.getByRole('listbox', { name: '사용 가능한 스킬' })).toBeVisible()
+    expect(screen.getByText('Find the root cause first')).toBeVisible()
+    await user.keyboard('{Enter}')
+    expect(composer).toHaveValue('/debug ')
+  })
+
   it('gates implementation on explicit mockup approval', async () => {
     window.history.replaceState({}, '', '/?fixture=task-runtime')
     seedTaskRuntimeVisualFixture()

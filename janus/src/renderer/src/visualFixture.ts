@@ -146,6 +146,7 @@ export function seedTaskRuntimeVisualFixture(): void {
     task,
     agentProfiles: [profile],
     selectedAgentProfileId: profile.id,
+    agentProfileSkills: [],
     workspaceInspection: {
       ...workspace,
       git_status: {

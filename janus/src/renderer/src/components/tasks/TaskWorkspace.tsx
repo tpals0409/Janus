@@ -1,4 +1,4 @@
-import { FormEvent, Suspense, lazy, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { FormEvent, type KeyboardEvent, Suspense, lazy, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   AlertTriangle,
   Archive,
@@ -49,6 +49,105 @@ const STATE_LABEL: Record<string, string> = {
 }
 const stateLabel = (value: string) => STATE_LABEL[value.toLowerCase()] ?? value
 
+// `/이름` 자동완성은 새 작업 컴포저와 세션 컴포저가 함께 쓴다 — 한 곳에만 있으면 새 세션에서 스킬을 못 찾는다.
+type SkillCommand = ReturnType<typeof useSkillCommand>
+
+function useSkillCommand(value: string, sessionSkills?: { skill_id: string }[]) {
+  const profileSkills = useStore((state) => state.agentProfileSkills)
+  const [selection, setSelection] = useState(0)
+  const suggestions = useMemo(() => {
+    if (!value.startsWith('/') || value.slice(1).includes(' ')) return []
+    const needle = value.slice(1).toLowerCase()
+    const available = new Map(
+      profileSkills
+        .filter((skill) => skill.activation_mode !== 'off')
+        .map((skill) => [skill.skill_id, skill])
+    )
+    for (const skill of sessionSkills ?? []) available.set(skill.skill_id, skill as never)
+    return [...available.values()].filter((skill) =>
+      skill.name.toLowerCase().includes(needle)
+      || `${skill.namespace}:${skill.name}`.toLowerCase().includes(needle)
+    ).slice(0, 6)
+  }, [value, profileSkills, sessionSkills])
+  useEffect(() => {
+    setSelection(0)
+  }, [value])
+  return { suggestions, selection, setSelection }
+}
+
+function skillCommandKeyDown(
+  event: KeyboardEvent<HTMLTextAreaElement>,
+  command: SkillCommand,
+  handlers: { pick: (name: string) => void, clear: () => void },
+): boolean {
+  const { suggestions, selection, setSelection } = command
+  if (suggestions.length === 0) return false
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    setSelection((selection + 1) % suggestions.length)
+    return true
+  }
+  if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    setSelection((selection - 1 + suggestions.length) % suggestions.length)
+    return true
+  }
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    handlers.clear()
+    return true
+  }
+  if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+    event.preventDefault()
+    handlers.pick(suggestions[selection].name)
+    return true
+  }
+  return false
+}
+
+function skillCommandProps(command: SkillCommand) {
+  return {
+    'aria-haspopup': 'listbox' as const,
+    'aria-expanded': command.suggestions.length > 0,
+    'aria-controls': 'skill-command-menu',
+    'aria-activedescendant': command.suggestions.length > 0
+      ? `skill-command-${command.selection}` : undefined
+  }
+}
+
+function SkillCommandMenu(
+  { command, onPick }: { command: SkillCommand, onPick: (name: string) => void },
+) {
+  if (command.suggestions.length === 0) return null
+  return (
+    <div className="skill-command-menu" role="listbox" aria-label="사용 가능한 스킬" id="skill-command-menu">
+      <div className="skill-command-menu__header">
+        <span><Sparkles size={13} /> 스킬</span>
+        <small>{command.suggestions.length}개 사용 가능</small>
+      </div>
+      {command.suggestions.map((skill, index) => (
+        <button
+          key={skill.skill_version_id}
+          id={`skill-command-${index}`}
+          type="button"
+          role="option"
+          aria-selected={index === command.selection}
+          aria-label={`/${skill.name} · ${skill.activation_mode === 'manual' ? '수동' : '자동'}`}
+          onMouseEnter={() => command.setSelection(index)}
+          onClick={() => onPick(skill.name)}
+          className="skill-command-menu__item"
+        >
+          <span className="skill-command-menu__command">/{skill.name}</span>
+          <span className="skill-command-menu__description">{skill.description}</span>
+          <span className="skill-command-menu__mode">
+            {skill.activation_mode === 'manual' ? '수동' : '자동'}
+          </span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function StatusBadge({ task }: { task: Task }) {
   const status = task.status
   const meta = taskStatusMeta(task)
@@ -64,6 +163,12 @@ function DelegationBar({ project }: { project: Project }) {
   const busy = useStore((state) => state.taskBusy)
   const [objective, setObjective] = useState('')
   const [mockupFirst, setMockupFirst] = useState(false)
+  const objectiveRef = useRef<HTMLTextAreaElement>(null)
+  const skillCommand = useSkillCommand(objective)
+  const chooseSkill = (name: string) => {
+    setObjective(`/${name} `)
+    requestAnimationFrame(() => objectiveRef.current?.focus())
+  }
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -79,13 +184,20 @@ function DelegationBar({ project }: { project: Project }) {
         <h1>{project.name}에서 새 작업</h1>
         <p>목표를 말하면 Janus가 작업 계약과 격리된 실행 공간을 만듭니다.</p>
       </div>
+      <div className="new-chat-composer">
+      <SkillCommandMenu command={skillCommand} onPick={chooseSkill} />
       <form onSubmit={submit} className="janus-composer janus-composer--new">
         <textarea
           autoFocus
+          ref={objectiveRef}
           rows={3}
           value={objective}
+          {...skillCommandProps(skillCommand)}
           onChange={(event) => setObjective(event.target.value)}
           onKeyDown={(event) => {
+            if (skillCommandKeyDown(event, skillCommand, {
+              pick: chooseSkill, clear: () => setObjective('')
+            })) return
             if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
             event.preventDefault()
             event.currentTarget.form?.requestSubmit()
@@ -111,6 +223,7 @@ function DelegationBar({ project }: { project: Project }) {
           </div>
         </div>
       </form>
+      </div>
     </main>
   )
 }
@@ -332,7 +445,6 @@ function TaskRuntimeCard({ task }: { task: Task }) {
   const approveMockup = useStore((state) => state.approveTaskMockup)
   const rejectMockup = useStore((state) => state.rejectTaskMockup)
   const [message, setMessage] = useState('')
-  const [skillSelection, setSkillSelection] = useState(0)
   const [confirmNewAttempt, setConfirmNewAttempt] = useState(false)
   const messageRef = useRef<HTMLTextAreaElement>(null)
   const ready = task.workspace?.state === 'ready'
@@ -461,23 +573,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
       elapsedSeconds: Math.round((usage?.active_time_ms ?? 0) / 1000)
     }
   }, [events, transcript, usage?.active_time_ms])
-  const skillSuggestions = useMemo(() => {
-    if (!message.startsWith('/') || message.slice(1).includes(' ')) return []
-    const needle = message.slice(1).toLowerCase()
-    const available = new Map(
-      profileSkills
-        .filter((skill) => skill.activation_mode !== 'off')
-        .map((skill) => [skill.skill_id, skill])
-    )
-    for (const skill of session?.skills ?? []) available.set(skill.skill_id, skill)
-    return [...available.values()].filter((skill) =>
-      skill.name.toLowerCase().includes(needle)
-      || `${skill.namespace}:${skill.name}`.toLowerCase().includes(needle)
-    ).slice(0, 6)
-  }, [message, profileSkills, session?.skills])
-  useEffect(() => {
-    setSkillSelection(0)
-  }, [message])
+  const skillCommand = useSkillCommand(message, session?.skills)
   const chooseSkill = (name: string) => {
     setMessage(`/${name} `)
     requestAnimationFrame(() => messageRef.current?.focus())
@@ -875,65 +971,19 @@ function TaskRuntimeCard({ task }: { task: Task }) {
       </div>
 
       <div className="janus-composer-shell">
-        {skillSuggestions.length > 0 && (
-          <div className="skill-command-menu" role="listbox" aria-label="사용 가능한 스킬" id="skill-command-menu">
-            <div className="skill-command-menu__header">
-              <span><Sparkles size={13} /> 스킬</span>
-              <small>{skillSuggestions.length}개 사용 가능</small>
-            </div>
-            {skillSuggestions.map((skill, index) => (
-              <button
-                key={skill.skill_version_id}
-                id={`skill-command-${index}`}
-                type="button"
-                role="option"
-                aria-selected={index === skillSelection}
-                aria-label={`/${skill.name} · ${skill.activation_mode === 'manual' ? '수동' : '자동'}`}
-                onMouseEnter={() => setSkillSelection(index)}
-                onClick={() => chooseSkill(skill.name)}
-                className="skill-command-menu__item"
-              >
-                <span className="skill-command-menu__command">/{skill.name}</span>
-                <span className="skill-command-menu__description">{skill.description}</span>
-                <span className="skill-command-menu__mode">
-                  {skill.activation_mode === 'manual' ? '수동' : '자동'}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
+        <SkillCommandMenu command={skillCommand} onPick={chooseSkill} />
       <form onSubmit={submit} className="janus-composer janus-composer--session">
         <textarea
           ref={messageRef}
           rows={3}
           aria-label="작업 지시"
           value={message}
-          aria-haspopup="listbox"
-          aria-expanded={skillSuggestions.length > 0}
-          aria-controls="skill-command-menu"
-          aria-activedescendant={skillSuggestions.length > 0 ? `skill-command-${skillSelection}` : undefined}
+          {...skillCommandProps(skillCommand)}
           onChange={(event) => setMessage(event.target.value)}
           onKeyDown={(event) => {
-            if (skillSuggestions.length > 0 && event.key === 'ArrowDown') {
-              event.preventDefault()
-              setSkillSelection((current) => (current + 1) % skillSuggestions.length)
-              return
-            }
-            if (skillSuggestions.length > 0 && event.key === 'ArrowUp') {
-              event.preventDefault()
-              setSkillSelection((current) => (current - 1 + skillSuggestions.length) % skillSuggestions.length)
-              return
-            }
-            if (skillSuggestions.length > 0 && event.key === 'Escape') {
-              event.preventDefault()
-              setMessage('')
-              return
-            }
-            if (skillSuggestions.length > 0 && event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-              event.preventDefault()
-              chooseSkill(skillSuggestions[skillSelection].name)
-              return
-            }
+            if (skillCommandKeyDown(event, skillCommand, {
+              pick: chooseSkill, clear: () => setMessage('')
+            })) return
             if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
             event.preventDefault()
             event.currentTarget.form?.requestSubmit()
