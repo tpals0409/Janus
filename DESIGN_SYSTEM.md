@@ -114,19 +114,23 @@ Janus는 `IDE + system tool + modern desktop application`으로 보인다.
 
 Neutral 95% + state color 5%를 유지한다. 영역은 색 면보다 border와 spacing으로 구분한다.
 
+색의 단일 원본은 `janus/src/renderer/src/main.css`의 `@theme`(--color-*)다.
+`--bg-*`/`--text-*` 계열은 값이 아니라 `var()` 참조만 담는 별칭이다 — 두 곳을
+고치다 어긋나는 사고를 구조적으로 막는다. 아래 값이 현재 구현이자 계약이다.
+
 ```css
 :root {
-  --bg-base: #0c0d0e;
-  --bg-canvas: #101112;
-  --bg-panel: #131516;
-  --bg-surface: #17191b;
-  --bg-hover: #1c1f21;
-  --bg-active: #202326;
+  --bg-base: #0e0f10;
+  --bg-canvas: #171819;   /* workspace — 패널보다 한 단계 밝다. 중심이 앞으로 나온다 */
+  --bg-panel: #131415;
+  --bg-surface: #202223;
+  --bg-hover: #252728;
+  --bg-active: #2b2d2e;
 
-  --border-subtle: #1d2022;
-  --border-default: #282c2f;
-  --border-strong: #383d41;
-  --focus-border: #52585d;
+  --border-subtle: #242627;
+  --border-default: #303334;
+  --border-strong: #414445;
+  --focus-border: #52585d;  /* neutral — green은 시스템 생존 신호 전용 */
 
   --text-primary: #f0f1f1;
   --text-secondary: #a3a7aa;
@@ -241,15 +245,15 @@ Motion은 hover, menu, panel, execution state 변화에만 짧게 사용하며 `
 - 상태는 우측에 작은 inline signal로 표시한다.
 - 큰 브랜딩 영역으로 사용하지 않는다.
 
-### Navigation rail
+### Navigation
 
-- 폭 48–56px, icon only
-- icon 16–18px, 1.5px stroke, monochrome
-- active는 `rgba(255 255 255 / 5%)`와 primary text
+- 좌측 사이드바 상단의 icon+label 행 (14px icon, 1.5px stroke, monochrome)
+- active는 약한 neutral background와 primary text
 - accent를 selection에 사용하지 않는다.
 
-기본 항목은 `작업`, `에이전트`, `평가`, `모니터`다. 구현되지 않은 `배포`는 비활성 버튼으로
-상시 노출하지 않는다. `스킬`과 `컨텍스트 정책`은 AgentProfile 내부에 둔다.
+기본 항목은 `작업`, `에이전트`, `평가`다. 구현되지 않은 항목(`모니터`, `배포`)은
+비활성 버튼으로도 상시 노출하지 않는다. `스킬`과 `컨텍스트 정책`은 AgentProfile
+내부에, 리소스(작업/파일 트리)는 내비 아래 같은 사이드바에 둔다.
 
 ### Resource sidebar
 
@@ -347,9 +351,10 @@ Assistant                                      ● Ready
 General orchestrator
 ```
 
-탭은 `프롬프트`, `스킬`, `컨텍스트 정책`, `그래프`다.
+탭은 `대시보드`, `지침`, `스킬`, `컨텍스트`, `그래프`다.
 
-- 프롬프트: 실제 system prompt 편집
+- 대시보드: 실행 현황과 프로젝트에서 배운 내용
+- 지침: 실제 system prompt 편집
 - 스킬: 설치된 SkillVersion 활성화
 - 컨텍스트 정책: 고정 소스와 압축 한도
 - 그래프: 읽기 전용 runtime ownership
