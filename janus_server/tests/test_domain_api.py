@@ -56,7 +56,10 @@ class DomainApiTests(unittest.TestCase):
             self.assertEqual("native", created["compatibility"])
 
             library = client.get("/skills", headers=HEADERS).json()
-            self.assertEqual(["review"], [item["name"] for item in library])
+            self.assertCountEqual(
+                ["clear", "compact", "interview", "review"],
+                [item["name"] for item in library],
+            )
             activated = client.put(
                 f"/profiles/agents/agent_default/skills/{created['skill_id']}",
                 headers=HEADERS, json={"activation_mode": "auto"},
@@ -65,8 +68,16 @@ class DomainApiTests(unittest.TestCase):
             assigned = client.get(
                 "/profiles/agents/agent_default/skills", headers=HEADERS,
             ).json()
-            self.assertEqual("auto", assigned[0]["activation_mode"])
-            self.assertEqual(created["id"], assigned[0]["skill_version_id"])
+            review = next(item for item in assigned if item["name"] == "review")
+            interview = next(item for item in assigned if item["name"] == "interview")
+            clear = next(item for item in assigned if item["name"] == "clear")
+            compact = next(item for item in assigned if item["name"] == "compact")
+            self.assertEqual("auto", review["activation_mode"])
+            self.assertEqual(created["id"], review["skill_version_id"])
+            self.assertEqual("manual", interview["activation_mode"])
+            self.assertTrue(interview["compiled"]["activation"]["user_invocable"])
+            self.assertEqual("manual", clear["activation_mode"])
+            self.assertEqual("manual", compact["activation_mode"])
 
     def test_github_skill_import_records_revision_and_provenance(self):
         with domain_api() as (client, path):
@@ -223,11 +234,21 @@ class DomainApiTests(unittest.TestCase):
             )
             self.assertEqual(200, delegated.status_code, delegated.text)
             task = delegated.json()
-            self.assertEqual("인증 오류를 조사하고 수정해줘", task["title"])
+            self.assertEqual("인증 오류를 조사하고 수정", task["title"])
             self.assertEqual("develop", task["base_ref"])
             self.assertEqual("pnpm test", task["acceptance_command"])
             self.assertEqual("todo", task["status"])
             self.assertEqual("direct", task["workflow_stage"])
+
+            concise = client.post(
+                f"/projects/{project['id']}/delegations", headers=HEADERS,
+                json={"objective": "일단 에이전트 페이지에서 UI, UX 관점의 개선점을 말해줘"},
+            )
+            self.assertEqual(200, concise.status_code, concise.text)
+            self.assertEqual(
+                "에이전트 페이지에서 UI, UX 관점의 개선점",
+                concise.json()["title"],
+            )
 
             mockup = client.post(
                 f"/projects/{project['id']}/delegations", headers=HEADERS,
@@ -317,6 +338,11 @@ class DomainApiTests(unittest.TestCase):
             models = client.get("/profiles/models", headers=HEADERS).json()
             self.assertEqual("agent_default", agents[0]["id"])
             self.assertIn("read_file", agents[0]["tools"])
+            self.assertIn("You are Janus", agents[0]["base_system_prompt"])
+            self.assertIn("# Coding Rules", agents[0]["coding_rules_prompt"])
+            self.assertEqual(
+                agents[0]["base_system_prompt"], agents[0]["effective_system_prompt"]
+            )
             self.assertEqual("qwen3.8-27b", models[0]["model_key"])
 
             archived = client.delete(

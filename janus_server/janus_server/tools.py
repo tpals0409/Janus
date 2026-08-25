@@ -248,13 +248,14 @@ def _r_docs(v):
 def _t(
     name, handler, render, schema, description, guidance="", needs_approval=False,
     requires_workspace=False, resource_class="io_tool", render_chars=MAX_RENDER_CHARS,
+    terminal=False,
 ):
     return {"name": name, "handler": handler, "render": render, "schema": schema,
             "description": description, "guidance": guidance,
             "needs_approval": needs_approval,
             "requires_workspace": requires_workspace,
             "resource_class": resource_class,
-            "render_chars": render_chars}
+            "render_chars": render_chars, "terminal": terminal}
 
 
 def _obj(required, **props):

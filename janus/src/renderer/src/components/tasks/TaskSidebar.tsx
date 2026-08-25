@@ -1,28 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Boxes, ChartNoAxesColumn, ChevronDown, Files, FolderGit2, ListTodo, MessageSquarePlus, Plus, Trash2 } from 'lucide-react'
+import { Boxes, ChevronDown, Files, FolderGit2, ListTodo, MessageSquarePlus, Plus, Trash2 } from 'lucide-react'
 import { useStore } from '../../store'
-import type { Project, Task, TaskStatus } from '../../types'
+import type { Project, Task } from '../../types'
 import FileTree from '../FileTree'
 import { ConfirmDialog, Menu, MenuItem } from '../ui'
-
-const STATUS: Record<TaskStatus, { label: string; color: string }> = {
-  todo: { label: '할 일', color: 'var(--color-muted)' },
-  preparing: { label: '준비 중', color: 'var(--color-warn)' },
-  working: { label: '작업 중', color: 'var(--color-accent-fg)' },
-  needs_you: { label: '응답 대기', color: 'var(--color-warn)' },
-  review: { label: '검토', color: 'var(--color-ok)' },
-  failed: { label: '실패', color: 'var(--color-danger)' },
-}
-
-function taskStatus(task: Task) {
-  if (task.status === 'needs_you' && task.attention_reason === 'conversation_idle') {
-    return { label: '대화 가능', color: 'var(--color-ok)' }
-  }
-  if (task.status === 'needs_you' && task.attention_reason === 'mockup_review') {
-    return { label: '목업 검토 필요', color: 'var(--color-warn)' }
-  }
-  return STATUS[task.status]
-}
+import { taskStatusMeta } from '../../taskStatus'
 
 function ProjectSwitcher() {
   const projects = useStore((state) => state.projects)
@@ -144,7 +126,6 @@ export default function TaskSidebar({
       <nav className="task-sidebar-nav" aria-label="기본 탐색">
         <button aria-current={activeNavigation === 'tasks' ? 'page' : undefined} onClick={() => onNavigate?.('tasks')}><ListTodo size={14} /> 작업</button>
         <button aria-current={activeNavigation === 'agents' ? 'page' : undefined} onClick={() => onNavigate?.('agents')}><Boxes size={14} /> 에이전트</button>
-        <button aria-current={activeNavigation === 'monitor' ? 'page' : undefined} onClick={() => onNavigate?.('monitor')}><ChartNoAxesColumn size={14} /> 모니터</button>
       </nav>
       <div className="task-sidebar-actions">
         <button type="button" onClick={onNewConversation} disabled={!projectId} className="task-sidebar-new-chat">
@@ -168,11 +149,11 @@ export default function TaskSidebar({
             <div key={task.id} className="group resource-row relative" aria-selected={task.id === taskId}>
               <button onClick={() => { void selectTask(task.id); onNavigate?.('tasks') }} className="w-full pr-7 text-left">
                 <div className="flex items-start gap-2">
-                  <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: taskStatus(task).color }} />
+                  <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: taskStatusMeta(task).color }} />
                   <span className="line-clamp-2 text-[12px] font-medium leading-snug">{task.title}</span>
                 </div>
                 <div className="mt-1.5 flex items-center justify-between pl-3.5 text-[10px]">
-                  <span style={{ color: taskStatus(task).color }}>{taskStatus(task).label}</span>
+                  <span style={{ color: taskStatusMeta(task).color }}>{taskStatusMeta(task).label}</span>
                   <span className="font-mono text-faint">{task.base_ref}</span>
                 </div>
               </button>

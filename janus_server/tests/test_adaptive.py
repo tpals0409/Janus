@@ -87,7 +87,7 @@ class AdaptiveDecisionTests(unittest.TestCase):
         self.assertEqual(2, effective["budget"]["workers"]["total_limit"])
         self.assertEqual(2, effective["budget"]["workers"]["concurrent_limit"])
         self.assertTrue(effective["allow_autonomous_workers"])
-        self.assertEqual(16_384, effective["budget"]["worker"]["token_limit"])
+        self.assertEqual(49_152, effective["budget"]["worker"]["token_limit"])
         self.assertEqual(8, effective["budget"]["worker"]["step_limit"])
         self.assertIn("queue:single_generation_slot_sequential_workers", decision["reasons"])
 

@@ -6,7 +6,6 @@ import Canvas from './components/Canvas'
 import { AgentProfilePicker, StatusBar } from './components/Shell'
 import TaskWorkspace from './components/tasks/TaskWorkspace'
 import TaskSidebar from './components/tasks/TaskSidebar'
-import OperationsDashboard from './components/operations/OperationsDashboard'
 import PromptEditor from './components/PromptEditor'
 import SkillLibrary from './components/SkillLibrary'
 import ContextPolicyEditor from './components/ContextPolicyEditor'
@@ -14,7 +13,7 @@ import { BrandMark, Status, Tabs } from './components/ui'
 import CommandPalette from './components/CommandPalette'
 import AgentOverview from './components/AgentOverview'
 
-const DESIGN_TABS = ['개요', '지침', '능력', '기억과 컨텍스트', '작업 흐름'] as const
+const DESIGN_TABS = ['대시보드', '지침', '스킬', '컨텍스트', '그래프'] as const
 
 
 export default function App() {
@@ -33,7 +32,7 @@ export default function App() {
 
   const [nav, setNav] = useState('tasks')
   const [newConversation, setNewConversation] = useState(false)
-  const [tab, setTab] = useState<(typeof DESIGN_TABS)[number]>('개요')
+  const [tab, setTab] = useState<(typeof DESIGN_TABS)[number]>('대시보드')
   const selectedProfile = agentProfiles.find((profile) => profile.id === selectedAgentProfileId)
 
   const pollHealth = useStore((s) => s.pollHealth)
@@ -124,7 +123,6 @@ export default function App() {
         <div className="app-titlebar__context">
           {nav === 'tasks'
             ? task?.title ?? projects.find((project) => project.id === projectId)?.name ?? '작업'
-            : nav === 'monitor' ? '운영 모니터'
             : selectedProfile?.name ?? '실행 프로필'}
         </div>
         <div className="app-titlebar__status">
@@ -152,8 +150,6 @@ export default function App() {
             newConversation={newConversation}
             onNewConversationChange={setNewConversation}
           />
-        ) : nav === 'monitor' ? (
-          <OperationsDashboard onOpenTask={() => setNav('tasks')} />
         ) : nav !== 'agents' ? (
           <div className="grid flex-1 place-items-center text-[12px] text-faint">
             이 화면은 아직 구현되지 않았습니다
@@ -161,17 +157,19 @@ export default function App() {
         ) : (
           <>
             <main className="flex min-w-0 flex-1 flex-col">
-              <AgentProfilePicker />
-              <Tabs items={DESIGN_TABS} value={tab} onChange={setTab} label="에이전트 프로필" />
+              <div className="agent-navigation">
+                <Tabs items={DESIGN_TABS} value={tab} onChange={setTab} label="에이전트 프로필" className="agent-tabs" />
+                <AgentProfilePicker />
+              </div>
 
               <div className="min-h-0 flex-1">
-                {tab === '개요' ? (
+                {tab === '대시보드' ? (
                   <AgentOverview onOpen={setTab} />
                 ) : tab === '지침' ? (
                   <PromptEditor />
-                ) : tab === '능력' ? (
+                ) : tab === '스킬' ? (
                   <SkillLibrary />
-                ) : tab === '기억과 컨텍스트' ? (
+                ) : tab === '컨텍스트' ? (
                   <ContextPolicyEditor />
                 ) : (
                   <ReactFlowProvider>

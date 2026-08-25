@@ -313,6 +313,9 @@
 
 ### 19. Evaluation Lab
 
+> 2026-08-25 UI 재편: Evaluation Lab 화면은 제거됐고 백엔드 `/evaluations/*` API와
+> 승격 게이트(`agent-profile/promote`)만 유지된다. 비교 결과는 API/CLI로 확인한다.
+
 - [x] baseline/candidate 실행
 - [x] AgentProfile·prompt·budget·worker policy A/B
 - [x] 성공률과 분산

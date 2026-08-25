@@ -27,7 +27,7 @@ export function seedTaskRuntimeVisualFixture(): void {
     error: null,
     budget: {
       dispatch: { token_limit: 32768, time_limit_ms: 900000, step_limit: 15 },
-      worker: { token_limit: 8192, time_limit_ms: 300000, step_limit: 8 },
+      worker: { token_limit: 49152, time_limit_ms: 300000, step_limit: 8 },
       workers: { total_limit: 4, concurrent_limit: 2 },
       queue: { timeout_ms: 300000, priority: 0 }
     },
@@ -112,6 +112,9 @@ export function seedTaskRuntimeVisualFixture(): void {
     name: 'Janus Local',
     description: 'Default local coding agent',
     system_prompt: '',
+    base_system_prompt: '# Janus\n\nYou are Janus.',
+    coding_rules_prompt: '# Coding Rules\n\nPrefer the smallest behaviorally complete change.',
+    effective_system_prompt: '# Janus\n\nYou are Janus.',
     tools: ['read_file', 'edit_file'],
     approval: 'ask',
     worker_policy: 'autonomous',
@@ -119,7 +122,7 @@ export function seedTaskRuntimeVisualFixture(): void {
     model_profile_id: 'model_qwen38_27b_4bit',
     budget: {
       dispatch: { token_limit: 32768, time_limit_ms: 900000, step_limit: 15 },
-      worker: { token_limit: 8192, time_limit_ms: 300000, step_limit: 8 },
+      worker: { token_limit: 49152, time_limit_ms: 300000, step_limit: 8 },
       workers: { total_limit: 4, concurrent_limit: 2 },
       queue: { timeout_ms: 300000, priority: 0 }
     },

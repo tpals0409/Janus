@@ -91,6 +91,11 @@ class WorkspaceService:
             raise UnsafeWorkspace(f"Janus 소유 저장 루트 밖의 경로입니다: {root}")
         return root
 
+    def _workspace_root(self, repo: Path, root_path: str | Path) -> Path:
+        """Allow the project checkout for normal work; retain ownership checks elsewhere."""
+        root = Path(root_path).expanduser().resolve()
+        return root if root == repo.resolve() else self._owned_root(root)
+
     def _target(self, workspace_id: str) -> Path:
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", str(workspace_id)):
             raise WorkspaceConflict(f"안전하지 않은 workspace id: {workspace_id}")
@@ -224,7 +229,7 @@ class WorkspaceService:
 
     def inspect(self, repo_path: str | Path, root_path: str | Path) -> dict:
         repo = Path(self.validate_repo(repo_path, "HEAD")["repo_path"])
-        root = self._owned_root(root_path)
+        root = self._workspace_root(repo, root_path)
         registered = self._registered(repo, root)
         if registered is None:
             raise WorkspaceConflict(f"등록된 worktree가 아닙니다: {root}")
@@ -306,7 +311,7 @@ class WorkspaceService:
         if max_diff_bytes < 1:
             raise WorkspaceServiceError("max_diff_bytes는 1 이상이어야 합니다")
         repo = Path(self.validate_repo(repo_path, base_ref)["repo_path"])
-        root = self._owned_root(root_path)
+        root = self._workspace_root(repo, root_path)
         registered = self._registered(repo, root)
         if registered is None:
             raise WorkspaceConflict(f"등록된 worktree가 아닙니다: {root}")
@@ -427,11 +432,11 @@ class WorkspaceService:
         self, *, repo_path: str | Path, root_path: str | Path, message: str,
     ) -> dict:
         repo = Path(self.validate_repo(repo_path, "HEAD")["repo_path"])
-        root = self._owned_root(root_path)
+        root = self._workspace_root(repo, root_path)
         status = self.inspect(repo, root)
         branch = str(status.get("branch_name") or "")
-        if not branch.startswith("janus/"):
-            raise UnsafeWorkspace(f"Janus Task branch가 아닙니다: {branch}")
+        if not branch:
+            raise UnsafeWorkspace("detached HEAD에서는 commit할 수 없습니다")
         if status["unmerged"]:
             raise UnsafeWorkspace("unmerged 변경은 commit할 수 없습니다")
         if not str(message).strip():
@@ -450,11 +455,11 @@ class WorkspaceService:
         self, *, repo_path: str | Path, root_path: str | Path, remote: str = "origin",
     ) -> dict:
         repo = Path(self.validate_repo(repo_path, "HEAD")["repo_path"])
-        root = self._owned_root(root_path)
+        root = self._workspace_root(repo, root_path)
         status = self.inspect(repo, root)
         branch = str(status.get("branch_name") or "")
-        if not branch.startswith("janus/"):
-            raise UnsafeWorkspace(f"Janus Task branch가 아닙니다: {branch}")
+        if not branch:
+            raise UnsafeWorkspace("detached HEAD에서는 push할 수 없습니다")
         if status["dirty"]:
             raise UnsafeWorkspace("commit되지 않은 변경이 있어 push할 수 없습니다")
         remote_name = str(remote).strip()
@@ -471,7 +476,7 @@ class WorkspaceService:
 
     def current_head(self, *, repo_path: str | Path, root_path: str | Path) -> dict:
         repo = Path(self.validate_repo(repo_path, "HEAD")["repo_path"])
-        root = self._owned_root(root_path)
+        root = self._workspace_root(repo, root_path)
         status = self.inspect(repo, root)
         return {
             "commit_sha": self._git(root, "rev-parse", "HEAD^{commit}").stdout.strip(),

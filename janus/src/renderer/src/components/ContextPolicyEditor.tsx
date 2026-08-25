@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { BookOpen, Save } from 'lucide-react'
+import { Brain, Pause, Play, Save } from 'lucide-react'
 import type { ContextPolicy } from '../types'
 import { useStore } from '../store'
-import { Button, Checkbox, EmptyState, Field, Input, Section, Select, Status } from './ui'
+import { Button, Checkbox, EmptyState, Field, Input, Section, Status } from './ui'
 
 const fallback: ContextPolicy = {
   max_chars: 24_000,
@@ -36,11 +36,15 @@ function NumberSetting({
 export default function ContextPolicyEditor() {
   const profiles = useStore((state) => state.agentProfiles)
   const profileId = useStore((state) => state.selectedAgentProfileId)
-  const selectProfile = useStore((state) => state.selectAgentProfile)
   const updateProfile = useStore((state) => state.updateAgentProfile)
   const busy = useStore((state) => state.profileBusy)
   const error = useStore((state) => state.profileError)
+  const projects = useStore((state) => state.projects)
+  const projectId = useStore((state) => state.projectId)
+  const learnings = useStore((state) => state.projectLearnings)
+  const setLearningStatus = useStore((state) => state.setProjectLearningStatus)
   const profile = profiles.find((item) => item.id === profileId) ?? null
+  const project = projects.find((item) => item.id === projectId)
   const [policy, setPolicy] = useState<ContextPolicy>(fallback)
 
   useEffect(() => setPolicy(profile?.context_policy ?? fallback), [profile?.id, profile?.context_policy])
@@ -52,32 +56,35 @@ export default function ContextPolicyEditor() {
   const sources: Array<[keyof ContextPolicy, string, string]> = [
     ['include_task_objective', '작업 목표', 'Task의 목표를 새 세션의 고정 컨텍스트로 전달'],
     ['include_acceptance', '수용 검증', '완료 판정에 사용할 검증 명령을 전달'],
-    ['include_workspace_root', '작업 공간 경로', '에이전트가 수정할 격리 worktree 경로를 전달'],
+    ['include_workspace_root', '작업 공간 경로', '에이전트가 읽고 수정할 원본 저장소 경로를 전달'],
   ]
 
   return (
     <section className="workspace-surface">
-      <header className="workspace-toolbar">
-        <div className="workspace-toolbar__icon"><BookOpen size={16} strokeWidth={1.5} /></div>
-        <div className="workspace-toolbar__title">
-          <h2>컨텍스트 정책</h2>
-          <p>포함 소스·용량·압축 기준</p>
-        </div>
-        <div className="workspace-toolbar__actions">
-          <Select value={profileId} onChange={(event) => selectProfile(event.target.value)} disabled={dirty || busy} aria-label="실행 프로필" className="workspace-profile-select">
-            {profiles.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </Select>
+      <div className="workspace-actionbar">
           <Status tone={dirty ? 'warning' : 'success'}>{dirty ? '변경됨' : '저장됨'}</Status>
           <Button onClick={() => void updateProfile(profile.id, { context_policy: policy })} disabled={!dirty || busy}>
             <Save size={13} strokeWidth={1.5} /> {busy ? '저장 중…' : '저장'}
           </Button>
-        </div>
-      </header>
+      </div>
 
       {error && <div className="error-strip">{error}</div>}
 
       <div className="workspace-split">
         <main className="workspace-main">
+            <Section label={`${project?.name ?? '현재 프로젝트'}에서 배운 내용`} description="완료된 작업에서 확인한 방법을 다음 세션에 자동 적용합니다.">
+              <div className="memory-learning-list">
+                {learnings.map((item) => <div key={item.id} data-status={item.status}>
+                  <Brain size={13} />
+                  <span><strong>{item.title}</strong><small>{item.content}</small></span>
+                  <em>근거 {item.evidence_count}회</em>
+                  <button type="button" aria-label={item.status === 'active' ? `${item.title} 일시정지` : `${item.title} 활성화`} onClick={() => void setLearningStatus(item.id, item.status === 'active' ? 'paused' : 'active')}>
+                    {item.status === 'active' ? <Pause size={12} /> : <Play size={12} />}
+                  </button>
+                </div>)}
+                {learnings.length === 0 && <p className="text-[10.5px] text-faint">아직 배운 내용이 없습니다. 작업을 완료하면 여기에 추가됩니다.</p>}
+              </div>
+            </Section>
             <Section label="용량과 압축" description="한도를 넘으면 오래된 대화 블록부터 요약합니다.">
               <div className="grid grid-cols-3 gap-4">
                 <NumberSetting label="최대 컨텍스트" value={policy.max_chars} min={8_000} max={200_000} suffix="자" onChange={(max_chars) => patch({ max_chars })} />
@@ -102,7 +109,7 @@ export default function ContextPolicyEditor() {
         </main>
 
           <aside className="workspace-inspector">
-            <Section label="Context envelope">
+            <Section label="컨텍스트 용량">
             <div className="context-meter mt-2">
               <span style={{ width: `${Math.min(100, Math.max(8, policy.summary_max_chars / policy.max_chars * 100))}%` }} />
             </div>
@@ -113,7 +120,7 @@ export default function ContextPolicyEditor() {
               프롬프트와 선택한 고정 소스는 안정 prefix로 유지하고, 대화가 한도를 넘으면 이전 블록만 요약합니다.
             </p>
             </Section>
-            <Section label="스킬 로딩">
+            <Section label="스킬 불러오기">
             <div className="text-[10px] leading-relaxed text-faint">
               스킬은 이 정책과 별개로 메타데이터만 선주입되고, 필요할 때만 본문을 로드합니다.
             </div>

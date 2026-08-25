@@ -228,6 +228,9 @@ class BudgetTests(unittest.TestCase):
             )
 
         self.assertEqual("completed_partial", result["status"])
+        self.assertEqual(1, result["recovery_limits"]["file_reads"])
+        self.assertEqual(1, result["recovery_limits"]["validation_commands"])
+        self.assertIn("assigned workspace", result["recovery_instruction"])
         self.assertIn("Do not spawn another worker", result["result"])
         self.assertTrue(reused["reused"])
         self.assertEqual(result["result"], reused["result"])

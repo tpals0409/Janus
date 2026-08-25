@@ -20,6 +20,7 @@ import {
   Send,
   Settings2,
   ShieldCheck,
+  Sparkles,
   Square,
   Wifi,
   WifiOff,
@@ -28,23 +29,15 @@ import {
 } from 'lucide-react'
 import { useStore } from '../../store'
 import { useDomainEvent } from '../../domainEvents'
-import type { ChangeLayer, ChangeSetFile, Project, Span, Task, TaskStatus } from '../../types'
+import type { ChangeLayer, ChangeSetFile, Project, Span, Task } from '../../types'
 import ContextInspector from './ContextInspector'
 import { Button, ConfirmDialog, EmptyState, Status } from '../ui'
+import { taskStatusMeta } from '../../taskStatus'
 
 const TaskDevelopmentSurface = lazy(() => import('./TaskDevelopmentSurface'))
 const FileView = lazy(() => import('../FileView'))
 // 마크다운 렌더러는 초기 번들 예산을 넘긴다 — 첫 답변이 올 때 받아온다.
 const TaskMarkdown = lazy(() => import('./TaskMarkdown'))
-
-const STATUS: Record<TaskStatus, { label: string; color: string; short: string }> = {
-  todo: { label: '할 일', color: 'var(--color-muted)', short: '할' },
-  preparing: { label: '준비 중', color: 'var(--color-warn)', short: '준' },
-  working: { label: '작업 중', color: 'var(--color-accent-fg)', short: '작' },
-  needs_you: { label: '응답 대기', color: 'var(--color-warn)', short: '대' },
-  review: { label: '검토', color: 'var(--color-ok)', short: '검' },
-  failed: { label: '실패', color: 'var(--color-danger)', short: '실' }
-}
 
 const STATE_LABEL: Record<string, string> = {
   created: '연결 준비', idle: '대화 가능', running: '실행 중', stopped: '중단됨',
@@ -58,11 +51,7 @@ const stateLabel = (value: string) => STATE_LABEL[value.toLowerCase()] ?? value
 
 function StatusBadge({ task }: { task: Task }) {
   const status = task.status
-  const meta = status === 'needs_you' && task.attention_reason === 'conversation_idle'
-    ? { ...STATUS.needs_you, label: '대화 가능' }
-    : status === 'needs_you' && task.attention_reason === 'mockup_review'
-      ? { ...STATUS.needs_you, label: '목업 검토 필요' }
-      : STATUS[status]
+  const meta = taskStatusMeta(task)
   const tone = status === 'failed' ? 'danger'
     : status === 'needs_you' && task.attention_reason === 'conversation_idle' ? 'success'
       : status === 'preparing' || status === 'needs_you' ? 'warning'
@@ -322,6 +311,7 @@ function WorkspaceCard({ task }: { task: Task }) {
 
 function TaskRuntimeCard({ task }: { task: Task }) {
   const profiles = useStore((state) => state.agentProfiles)
+  const profileSkills = useStore((state) => state.agentProfileSkills)
   const selectedProfileId = useStore((state) => state.selectedAgentProfileId)
   const selectProfile = useStore((state) => state.selectAgentProfile)
   const session = useStore((state) => state.taskSession)
@@ -342,6 +332,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
   const approveMockup = useStore((state) => state.approveTaskMockup)
   const rejectMockup = useStore((state) => state.rejectTaskMockup)
   const [message, setMessage] = useState('')
+  const [skillSelection, setSkillSelection] = useState(0)
   const [confirmNewAttempt, setConfirmNewAttempt] = useState(false)
   const messageRef = useRef<HTMLTextAreaElement>(null)
   const ready = task.workspace?.state === 'ready'
@@ -420,7 +411,12 @@ function TaskRuntimeCard({ task }: { task: Task }) {
     return items
   }, [events, pendingDelegation, session, task.id])
 
+  const partialRecovery = events.some((event) =>
+    event.kind === 'agent_event' && event.payload.kind === 'worker_state' &&
+    event.payload.status === 'completed_partial'
+  )
   const phase = useMemo(() => {
+    if (partialRecovery && active) return '부분 결과 검증 중'
     for (let i = events.length - 1; i >= 0; i -= 1) {
       const kind = String(events[i].payload.kind ?? '')
       if (kind === 'text_delta' || kind === 'assistant') return '답하는 중'
@@ -429,7 +425,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
       if (kind === 'resource_queue_wait' || kind === 'resource_queue_enter') return '모델 대기 중'
     }
     return '준비 중'
-  }, [events])
+  }, [active, events, partialRecovery])
   const lastTurnOutcome = useMemo(() => {
     const payload = [...events].reverse().find((event) => event.kind === 'turn_end')?.payload
     const raw = payload?.outcome
@@ -468,11 +464,24 @@ function TaskRuntimeCard({ task }: { task: Task }) {
   const skillSuggestions = useMemo(() => {
     if (!message.startsWith('/') || message.slice(1).includes(' ')) return []
     const needle = message.slice(1).toLowerCase()
-    return (session?.skills ?? []).filter((skill) =>
+    const available = new Map(
+      profileSkills
+        .filter((skill) => skill.activation_mode !== 'off')
+        .map((skill) => [skill.skill_id, skill])
+    )
+    for (const skill of session?.skills ?? []) available.set(skill.skill_id, skill)
+    return [...available.values()].filter((skill) =>
       skill.name.toLowerCase().includes(needle)
       || `${skill.namespace}:${skill.name}`.toLowerCase().includes(needle)
     ).slice(0, 6)
-  }, [message, session?.skills])
+  }, [message, profileSkills, session?.skills])
+  useEffect(() => {
+    setSkillSelection(0)
+  }, [message])
+  const chooseSkill = (name: string) => {
+    setMessage(`/${name} `)
+    requestAnimationFrame(() => messageRef.current?.focus())
+  }
 
   // 답이 흘러나오는 동안 바닥에 붙어 있게 한다. 위로 올려 읽는 중이면 끌어내리지 않는다.
   useEffect(() => {
@@ -770,7 +779,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
               <button onClick={() => respondApproval(approval.id, true, 'once')} className="task-primary-action">이번만 허용</button>
               {approval.rememberable && (
                 <button onClick={() => respondApproval(approval.id, true, 'session_workspace')} className="task-quiet-action">
-                  이 세션에서 허용
+                  {approval.approval_scope === 'workspace_shell' ? '이 세션에서 명령 허용' : '이 세션에서 파일 수정 허용'}
                 </button>
               )}
             </div>
@@ -789,7 +798,20 @@ function TaskRuntimeCard({ task }: { task: Task }) {
             파일 수정 권한 취소
           </button>
         </div>
-      )}
+        )}
+        {session?.approval_scopes?.some((item) => item.scope === 'workspace_shell') && (
+        <div className="task-session-notice">
+          <span className="text-[10.5px] text-muted">이 세션에서 작업 공간 명령 실행을 허용했습니다.</span>
+          <button
+            type="button"
+            onClick={() => void revokeApprovalScope('workspace_shell')}
+            disabled={busy}
+            className="task-quiet-action"
+          >
+            명령 실행 권한 취소
+          </button>
+        </div>
+        )}
 
       {task.workflow_stage === 'mockup' && task.status === 'needs_you' && session?.status === 'idle' && !active && (
         <div className="task-decision-card">
@@ -852,33 +874,66 @@ function TaskRuntimeCard({ task }: { task: Task }) {
         )}
       </div>
 
-      <form onSubmit={submit} className="janus-composer janus-composer--session">
+      <div className="janus-composer-shell">
         {skillSuggestions.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-1.5" role="listbox" aria-label="스킬 자동완성">
-            {skillSuggestions.map((skill) => (
+          <div className="skill-command-menu" role="listbox" aria-label="사용 가능한 스킬" id="skill-command-menu">
+            <div className="skill-command-menu__header">
+              <span><Sparkles size={13} /> 스킬</span>
+              <small>{skillSuggestions.length}개 사용 가능</small>
+            </div>
+            {skillSuggestions.map((skill, index) => (
               <button
                 key={skill.skill_version_id}
+                id={`skill-command-${index}`}
                 type="button"
                 role="option"
-                aria-selected="false"
-                onClick={() => {
-                  setMessage(`/${skill.name} `)
-                  requestAnimationFrame(() => messageRef.current?.focus())
-                }}
-                className="task-quiet-action"
+                aria-selected={index === skillSelection}
+                aria-label={`/${skill.name} · ${skill.activation_mode === 'manual' ? '수동' : '자동'}`}
+                onMouseEnter={() => setSkillSelection(index)}
+                onClick={() => chooseSkill(skill.name)}
+                className="skill-command-menu__item"
               >
-                /{skill.name} · {skill.activation_mode === 'manual' ? '수동' : '자동'}
+                <span className="skill-command-menu__command">/{skill.name}</span>
+                <span className="skill-command-menu__description">{skill.description}</span>
+                <span className="skill-command-menu__mode">
+                  {skill.activation_mode === 'manual' ? '수동' : '자동'}
+                </span>
               </button>
             ))}
           </div>
         )}
+      <form onSubmit={submit} className="janus-composer janus-composer--session">
         <textarea
           ref={messageRef}
           rows={3}
           aria-label="작업 지시"
           value={message}
+          aria-haspopup="listbox"
+          aria-expanded={skillSuggestions.length > 0}
+          aria-controls="skill-command-menu"
+          aria-activedescendant={skillSuggestions.length > 0 ? `skill-command-${skillSelection}` : undefined}
           onChange={(event) => setMessage(event.target.value)}
           onKeyDown={(event) => {
+            if (skillSuggestions.length > 0 && event.key === 'ArrowDown') {
+              event.preventDefault()
+              setSkillSelection((current) => (current + 1) % skillSuggestions.length)
+              return
+            }
+            if (skillSuggestions.length > 0 && event.key === 'ArrowUp') {
+              event.preventDefault()
+              setSkillSelection((current) => (current - 1 + skillSuggestions.length) % skillSuggestions.length)
+              return
+            }
+            if (skillSuggestions.length > 0 && event.key === 'Escape') {
+              event.preventDefault()
+              setMessage('')
+              return
+            }
+            if (skillSuggestions.length > 0 && event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+              event.preventDefault()
+              chooseSkill(skillSuggestions[skillSelection].name)
+              return
+            }
             if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
             event.preventDefault()
             event.currentTarget.form?.requestSubmit()
@@ -916,6 +971,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
           </div>
         </div>
       </form>
+      </div>
       <ConfirmDialog
         open={confirmNewAttempt}
         title="새 시도를 시작할까요?"
@@ -1406,7 +1462,7 @@ function TaskShippingCard() {
         </button>
       </div>
       <p className="mt-2 text-[10px] text-faint">
-        Janus는 작업 워크트리 안에서만 커밋하며 main 체크아웃을 전환하거나 수정하지 않습니다.
+        Janus는 선택한 원본 저장소의 현재 브랜치에서 직접 커밋합니다.
       </p>
       {failedCommit && !commit && (
         <div className="error-strip mt-2 text-[10px]">
@@ -1425,13 +1481,16 @@ function TaskShippingCard() {
             <code className="text-muted">{commit.commit_sha.slice(0, 12)}</code>
             <code className="min-w-0 flex-1 truncate text-faint">{commit.branch_name}</code>
           </div>
-          {handoff && (
+          {handoff?.local_apply_command && (
             <div className="mt-2 flex items-center gap-2">
               <code className="min-w-0 flex-1 truncate bg-base px-2 py-1.5 text-[10px] text-faint">
                 {handoff.local_apply_command}
               </code>
               <button
-                onClick={() => void navigator.clipboard.writeText(handoff.local_apply_command)}
+                onClick={() => {
+                  const command = handoff?.local_apply_command
+                  if (command) void navigator.clipboard.writeText(command)
+                }}
                 className="task-quiet-action"
               >
                 cherry-pick 복사
@@ -1563,6 +1622,7 @@ type RuntimeWorkerState =
   | 'running'
   | 'waiting_approval'
   | 'stopping'
+  | 'partial'
   | 'success'
   | 'error'
   | 'suppressed'
@@ -1625,9 +1685,10 @@ function RuntimeWorkerGraph({
           rawStatus === 'queued' ? 'queued'
             : rawStatus === 'waiting_approval' ? 'waiting_approval'
               : rawStatus === 'stopping' ? 'stopping'
-                : rawStatus === 'completed' || rawStatus === 'completed_partial' ? 'success'
-                  : rawStatus === 'failed' || rawStatus === 'cancelled' ? 'error'
-                    : 'running'
+                : rawStatus === 'completed_partial' ? 'partial'
+                  : rawStatus === 'completed' ? 'success'
+                    : rawStatus === 'failed' || rawStatus === 'cancelled' ? 'error'
+                      : 'running'
         spans.set(workerId, {
           ...previous,
           state,
@@ -1642,6 +1703,7 @@ function RuntimeWorkerGraph({
     running: { glyph: '●', label: '실행 중', tone: 'var(--accent)' },
     waiting_approval: { glyph: '!', label: '승인 대기', tone: 'var(--warning)' },
     stopping: { glyph: '◌', label: '중지 중', tone: 'var(--warning)' },
+    partial: { glyph: '◐', label: '부분 완료', tone: 'var(--warning)' },
     success: { glyph: '✓', label: '완료', tone: 'var(--success)' },
     error: { glyph: '×', label: '실패', tone: 'var(--danger)' },
     suppressed: { glyph: '—', label: '억제', tone: 'var(--warning)' }

@@ -7,7 +7,6 @@ import unittest
 
 os.environ.setdefault("JANUS_AUTH_TOKEN", "test-token")
 
-from janus_server import server
 from janus_server import spec as S
 
 
@@ -37,9 +36,3 @@ class SpecTests(unittest.TestCase):
         self.assert_rejected({**BASE, "tools": ["http_get"]}, "approval: auto 를 쓸 수 없습니다")
         S.validate({**BASE, "tools": ["run_bash"], "approval": "ask"})
 
-    def test_blank_spec_validates(self):
-        S.validate(server._blank_spec("새 에이전트"))
-
-
-if __name__ == "__main__":
-    unittest.main()

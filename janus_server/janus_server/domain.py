@@ -17,7 +17,7 @@ from typing import Any
 
 from .budget import empty_usage, merge_budget, normalize_budget
 
-CURRENT_SCHEMA_VERSION = 20
+CURRENT_SCHEMA_VERSION = 24
 
 DEFAULT_CONTEXT_POLICY = {
     "max_chars": 24_000,
@@ -601,12 +601,61 @@ CREATE INDEX idx_project_learnings_active
 ON project_learnings(project_id,status,confidence DESC,updated_at DESC);
 """
 
+# The runtime always prepends the bundled Janus persona. Remove only the exact
+# legacy seed so user-authored profile instructions remain untouched.
+MIGRATION_21 = """
+UPDATE agent_profiles
+SET system_prompt = '',
+    description = 'Janus local coding orchestrator',
+    updated_at = updated_at
+WHERE id = 'agent_default'
+  AND system_prompt = 'You are a local coding agent. Make verified changes in the assigned workspace.';
+"""
+
+MIGRATION_22 = """
+CREATE TABLE session_approval_scopes_v22 (
+    session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    scope TEXT NOT NULL CHECK(scope IN ('workspace_write','workspace_shell')),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(session_id, workspace_id, scope)
+);
+INSERT INTO session_approval_scopes_v22(session_id,workspace_id,scope,created_at)
+SELECT session_id,workspace_id,scope,created_at FROM session_approval_scopes;
+DROP TABLE session_approval_scopes;
+ALTER TABLE session_approval_scopes_v22 RENAME TO session_approval_scopes;
+"""
+
+# A worker's former 16K ceiling could be consumed by one 12K generation plus its
+# prompt, leaving no room to inspect tool output and report a result. Preserve
+# explicitly customized profiles and only raise the shipped former default.
+MIGRATION_23 = """
+UPDATE agent_profiles
+SET budget_json = json_set(budget_json, '$.worker.token_limit', 49152),
+    updated_at = updated_at
+WHERE json_extract(budget_json, '$.worker.token_limit') = 16384;
+"""
+
+# Task agents now work directly in the project checkout. Preserve abandoned
+# Janus worktrees on disk, but stop routing sessions to them.
+MIGRATION_24 = """
+UPDATE workspaces
+SET root_path = repo_path,
+    branch_name = NULL,
+    owned = 0,
+    state = CASE WHEN state = 'archived' THEN state ELSE 'ready' END,
+    progress = CASE WHEN state = 'archived' THEN progress ELSE 'ready' END,
+    error = NULL,
+    updated_at = updated_at;
+"""
+
 MIGRATIONS = {
     1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3, 4: MIGRATION_4,
     5: MIGRATION_5, 6: MIGRATION_6, 7: MIGRATION_7, 8: MIGRATION_8,
     9: MIGRATION_9, 10: MIGRATION_10, 11: MIGRATION_11, 12: MIGRATION_12,
     13: MIGRATION_13, 14: MIGRATION_14, 15: MIGRATION_15, 16: MIGRATION_16,
     17: MIGRATION_17, 18: MIGRATION_18, 19: MIGRATION_19, 20: MIGRATION_20,
+    21: MIGRATION_21, 22: MIGRATION_22, 23: MIGRATION_23, 24: MIGRATION_24,
 }
 
 
@@ -696,8 +745,7 @@ class DomainStore:
                 "model_profile_id,budget_json,created_at,updated_at) "
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
-                    "agent_default", "Janus Local", "Default local coding agent",
-                    "You are a local coding agent. Make verified changes in the assigned workspace.",
+                    "agent_default", "Janus Local", "Janus local coding orchestrator", "",
                     _json(["read_file", "glob", "grep", "write_file", "edit_file", "run_bash"]),
                     "ask", "autonomous", 15, "model_qwen38_27b_4bit",
                     _json(normalize_budget(None)), now, now,
@@ -1384,18 +1432,18 @@ class DomainStore:
 
     def create_workspace(
         self, *, task_id: str, repo_path: str, base_ref: str,
-        workspace_id: str | None = None,
+        workspace_id: str | None = None, owned: bool = False,
     ) -> dict:
         now = _now()
         workspace_id = workspace_id or _id("workspace")
         try:
             with self.transaction(immediate=True) as connection:
                 connection.execute(
-                    "INSERT INTO workspaces(id,task_id,repo_path,base_ref,state,created_at,updated_at) "
-                    "VALUES (?,?,?,?,?,?,?)",
+                    "INSERT INTO workspaces(id,task_id,repo_path,base_ref,state,owned,created_at,updated_at) "
+                    "VALUES (?,?,?,?,?,?,?,?)",
                     (
                         workspace_id, task_id, str(Path(repo_path).expanduser().resolve()),
-                        base_ref, "preparing", now, now,
+                        base_ref, "preparing", int(owned), now, now,
                     ),
                 )
         except sqlite3.IntegrityError as error:
@@ -1639,6 +1687,33 @@ class DomainStore:
                 "ORDER BY s.namespace,s.name",
                 (session_id,),
             )]
+
+    def sync_session_profile_skills(self, session_id: str) -> int:
+        """Add newly activated skills to a resumable session without changing snapshots."""
+        with self.transaction(immediate=True) as connection:
+            session = self._one(
+                connection, "SELECT * FROM agent_sessions WHERE id=?",
+                (session_id,), "AgentSession",
+            )
+            if session["status"] not in {"created", "idle"}:
+                raise Conflict("스킬은 대화 가능한 Session에만 동기화할 수 있습니다")
+            before = connection.execute(
+                "SELECT COUNT(*) FROM session_skill_snapshots WHERE session_id=?",
+                (session_id,),
+            ).fetchone()[0]
+            connection.execute(
+                "INSERT OR IGNORE INTO session_skill_snapshots("
+                "session_id,skill_id,skill_version_id,activation_mode) "
+                "SELECT ?,skill_id,skill_version_id,activation_mode "
+                "FROM agent_profile_skills WHERE agent_profile_id=? "
+                "AND activation_mode IN ('auto','manual')",
+                (session_id, session["agent_profile_id"]),
+            )
+            after = connection.execute(
+                "SELECT COUNT(*) FROM session_skill_snapshots WHERE session_id=?",
+                (session_id,),
+            ).fetchone()[0]
+        return int(after) - int(before)
 
     def mark_session_skill_loaded(
         self, session_id: str, skill_version_id: str, *, reason: str, prompt_tokens: int,
@@ -2097,7 +2172,7 @@ class DomainStore:
     def grant_session_approval_scope(
         self, session_id: str, workspace_id: str, scope: str,
     ) -> dict:
-        if scope != "workspace_write":
+        if scope not in {"workspace_write", "workspace_shell"}:
             raise Conflict(f"지원하지 않는 승인 범위입니다: {scope}")
         created_at = _now()
         with self.transaction(immediate=True) as connection:

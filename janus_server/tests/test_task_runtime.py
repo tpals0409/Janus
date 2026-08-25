@@ -142,6 +142,18 @@ class TaskRuntimeTests(unittest.TestCase):
 
         turn_end = next(event for event in events if event["type"] == "turn_end")
         self.assertEqual("completed", turn_end["outcome"]["outcome"])
+        done = next(
+            event for event in events
+            if event.get("type") == "agent_event" and event.get("kind") == "done"
+        )
+        self.assertEqual("terminal_tool:finish_turn", done["reason"])
+        self.assertEqual(1, len(fake.captured))
+        self.assertTrue(any(
+            event.get("type") == "agent_event"
+            and event.get("kind") == "assistant"
+            and event.get("content") == "Implemented and verified"
+            for event in events
+        ))
         updated = self.client.get(f"/tasks/{task['id']}", headers=self.headers).json()
         self.assertEqual("review", updated["status"])
         self.assertIsNone(updated["attention_reason"])
@@ -468,7 +480,7 @@ class TaskRuntimeTests(unittest.TestCase):
             json={"confirm_workspace_id": detail["workspace_id"]},
         )
         self.assertEqual(409, denied.status_code, denied.text)
-        self.assertIn("AgentSession", denied.json()["detail"])
+        self.assertIn("소유하지 않은 Workspace", denied.json()["detail"])
 
     def test_new_attempt_rejects_old_dispatch_events(self):
         task = self.create_ready_task("Attempts")

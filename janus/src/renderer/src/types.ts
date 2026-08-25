@@ -198,6 +198,9 @@ export interface AgentProfile {
   name: string
   description: string
   system_prompt: string
+  base_system_prompt?: string
+  coding_rules_prompt?: string
+  effective_system_prompt?: string
   tools: string[]
   approval: Approval
   worker_policy: 'none' | 'fixed_one' | 'autonomous'
@@ -386,10 +389,10 @@ export interface TaskShipment {
 }
 
 export interface ShipHandoff {
-  executed: false
+  executed: boolean
   commit_sha: string
   branch_name: string
-  local_apply_command: string
+  local_apply_command: string | null
   push_command: string
   notice: string
 }
@@ -467,62 +470,6 @@ export interface ProjectLearning {
   last_applied_at: string | null
 }
 
-export type OperationsLane = 'queue' | 'working' | 'idle' | 'needs_you' | 'review' | 'failed'
-
-export interface OperationsTimelineItem {
-  category: 'generation' | 'tool' | 'verification' | 'queue' | 'worker'
-  kind: string
-  at: string
-  status: string | null
-  label: string | null
-}
-
-export interface OperationsTask {
-  id: string
-  project_id: string
-  project_name: string
-  title: string
-  status: TaskStatus
-  lane: OperationsLane
-  updated_at: string
-  dispatch: Dispatch | null
-  session: { id: string; status: AgentSessionStatus; updated_at: string } | null
-  budget_progress: {
-    tokens: number; steps: number; time: number; workers: number; peak: number
-  }
-  timeline: OperationsTimelineItem[]
-  attention: boolean
-}
-
-export interface OperationsSnapshot {
-  generated_at: string
-  summary: {
-    total: number
-    attention: number
-    lanes: Record<OperationsLane, number>
-  }
-  scheduler: {
-    closed: boolean
-    resources: Record<string, {
-      cap: number; active: number; queued: number; next_priority: number | null
-    }>
-    active_leases: number
-  }
-  memory: { janus_process_peak_rss_bytes: number }
-  tasks: OperationsTask[]
-}
-
-/** 에이전트 = 오케스트레이터 1개의 평평한 설정. 워커는 런타임에 만들어져 트레이스에만 존재한다. */
-export interface Spec {
-  name: string
-  description?: string
-  model: string
-  system_prompt?: string
-  tools?: string[]
-  approval?: Approval
-  max_steps?: number
-}
-
 /** 에이전트가 도는 동안 흘러나오는 세션 이벤트 */
 export interface AgentEvent {
   node_id: string
@@ -564,21 +511,6 @@ export interface TreeEntry {
   size: number | null
 }
 
-export interface RunSummary {
-  id: string
-  at: string
-  cancelled: boolean
-  duration_ms: number
-  node_count: number
-  summary: string
-  inputs: Record<string, string>
-}
-
-export interface RunDetail extends RunSummary {
-  agent_id?: string
-  spans: Span[]
-}
-
 export interface ApprovalRequest {
   id: string
   node_id: string
@@ -588,7 +520,7 @@ export interface ApprovalRequest {
   workspace_id: string
   dispatch_id: string
   rememberable?: boolean
-  approval_scope?: 'workspace_write' | null
+  approval_scope?: 'workspace_write' | 'workspace_shell' | null
 }
 
 export type ApprovalResponseScope = 'once' | 'session_workspace'
@@ -611,22 +543,6 @@ export interface Span {
   parent_id?: string | null
   /** 워커의 표시 이름 (create_worker의 name) */
   label?: string | null
-}
-
-export interface AgentSummary {
-  id: string
-  name: string
-  description?: string
-  model?: string
-  error?: string
-}
-
-export interface ToolInfo {
-  name: string
-  description: string
-  needs_approval: boolean
-  requires_workspace: boolean
-  params: string[]
 }
 
 export type ServicePhase = 'starting' | 'up' | 'restarting' | 'failed' | 'external' | 'blocked' | 'stopped'

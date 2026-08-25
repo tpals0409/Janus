@@ -674,7 +674,7 @@ class Orchestration:
             "Call exactly once at the completion boundary. Use completed only with fresh "
             "evidence, input_required only for a concrete user decision, and mockup_review "
             "only after producing a reviewable mockup.",
-            resource_class="cpu_tool", render_chars=4000,
+            resource_class="cpu_tool", render_chars=4000, terminal=True,
         )
 
     def snapshot_turn_outcome(self) -> dict:
@@ -1008,6 +1008,17 @@ class Orchestration:
             "result": record.get("result") or "",
             "error": record.get("error"), "tools": list(record.get("tools") or []),
             "queued_followups": len(record.get("followups") or []),
+            "changed_paths": sorted(record.get("changed_paths") or []),
+            "recovery_limits": (
+                {"file_reads": 1, "validation_commands": 1}
+                if status == "completed_partial" else None
+            ),
+            "recovery_instruction": (
+                "Use only the assigned workspace. Read each changed path at most once, "
+                "run at most one targeted validation command, then call finish_turn. "
+                "Do not inspect the source repository or repeat discovery."
+                if status == "completed_partial" else None
+            ),
         }
 
     def _run_worker_record(self, record: dict) -> None:
