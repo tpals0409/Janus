@@ -15,14 +15,14 @@ import json
 import os
 import threading
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from openai import OpenAI
 
-from . import tools as T
 from . import budget as budget_mod
 from . import scheduler as scheduler_mod
+from . import tools as T
 from .workspace import WorkspaceContext
 
 DEFAULT_MAX_STEPS = 15
@@ -430,8 +430,9 @@ def run(
                 cancel=effective_cancel,
                 timeout=queue_timeout,
                 on_wait=lambda wait: emit(
-                    "resource_queue_wait", operation_id=generation_id,
-                    step=step + 1, **wait,
+                    "resource_queue_wait", operation_id=generation_id,  # noqa: B023
+                    step=step + 1, **wait,  # noqa: B023
+                    # acquire가 같은 반복에서 동기 호출하므로 late binding은 무해하다.
                 ),
             )
         except scheduler_mod.LeaseCancelled:
@@ -549,15 +550,16 @@ def run(
                     "error": f"tool {name!r} is not available to this agent node",
                     "reason": "tool_not_in_node_subset",
                 }
-            if partial_recovery_limits is not None and name in {"read_file", "run_bash"}:
-                with partial_recovery_lock:
-                    remaining = partial_recovery_limits[name]
+            if partial_recovery_limits is not None and name in {"read_file", "run_bash"}:  # noqa: B023
+                # exec_call은 매 반복마다 재정의되고 같은 반복 안에서만 실행된다.
+                with partial_recovery_lock:  # noqa: B023
+                    remaining = partial_recovery_limits[name]  # noqa: B023
                     if remaining <= 0:
                         return name, {
                             "error": "부분 결과 검증 한도를 이미 사용했습니다. 반복 탐색을 멈추고 finish_turn을 호출하세요.",
                             "reason": "partial_recovery_limit",
                         }
-                    partial_recovery_limits[name] = remaining - 1
+                    partial_recovery_limits[name] = remaining - 1  # noqa: B023
             operation_id = uuid.uuid4().hex[:16]
             resource_class = T.resource_class_for(name, registry=reg)
             emit("resource_queue_enter", resource=resource_class, operation_id=operation_id,
@@ -624,9 +626,9 @@ def run(
 
             def _exec_into(i: int, c: dict) -> None:
                 try:
-                    results[i] = exec_call(c)
+                    results[i] = exec_call(c)  # noqa: B023 — join 후 다음 반복으로 진행
                 except Exception as e:  # emit 등이 죽어도 턴은 계속
-                    results[i] = (c["function"]["name"],
+                    results[i] = (c["function"]["name"],  # noqa: B023
                                   {"error": f"{type(e).__name__}: {e}"})
 
             threads = [threading.Thread(target=_exec_into, args=(i, c), daemon=True)
@@ -639,7 +641,7 @@ def run(
             results = [exec_call(calls[0])]
 
         # 결과 반영은 호출 순서대로 — 병렬이어도 세션 로그는 결정적이다
-        for call, (name, value) in zip(calls, results):
+        for call, (name, value) in zip(calls, results, strict=True):
             session.append("tool_result", tool_call_id=call["id"], name=name, value=value)
             emit("tool_result", name=name, value=value, call_id=call["id"])
 

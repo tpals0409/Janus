@@ -18,16 +18,16 @@ import re
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from openai import OpenAI
 
 from . import adaptive as adaptive_mod
 from . import agent as agent_mod
 from . import budget as budget_mod
-from . import spec as spec_mod
 from . import scheduler as scheduler_mod
+from . import spec as spec_mod
 from . import telemetry as telemetry_mod
 from . import tools as T
 from .workspace import WorkspaceContext
@@ -1210,7 +1210,9 @@ class Orchestration:
             self._set_worker_status(record, "stopping")
             return {"worker": worker, "status": "stopping", "stopped": True}
 
-        render = lambda value: json.dumps(value, ensure_ascii=False)
+        def render(value: object) -> str:
+            return json.dumps(value, ensure_ascii=False)
+
         return [
             T._t("worker_status", status, render,
                  T._obj([], worker={"type": "string", "description": "Worker id; omit for all."}),

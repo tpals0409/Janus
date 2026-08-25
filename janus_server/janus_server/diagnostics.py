@@ -11,12 +11,11 @@ import re
 import sqlite3
 import tempfile
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .recovery import database_integrity
 from .version import __version__
-
 
 MAX_LOG_BYTES = 1_000_000
 MAX_LOG_FILES = 4
@@ -68,7 +67,7 @@ def create_diagnostic_bundle(
     logs = Path(log_dir).expanduser().resolve()
     output = Path(output_dir).expanduser().resolve()
     output.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
     destination = output / f"janus-diagnostics-{stamp}.zip"
     fd, temporary_name = tempfile.mkstemp(prefix=".janus-diagnostics-", suffix=".tmp", dir=output)
     os.close(fd)
@@ -88,7 +87,7 @@ def create_diagnostic_bundle(
                     "included_bytes": len(tail.encode("utf-8")), "truncated": truncated,
                 })
             manifest = {
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": datetime.now(UTC).isoformat(),
                 "janus_version": __version__,
                 "schema_version": _schema_version(database_path),
                 "database_integrity": database_integrity(database_path),

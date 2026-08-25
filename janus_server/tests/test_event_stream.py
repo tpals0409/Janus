@@ -26,11 +26,14 @@ class EventStreamTests(unittest.TestCase):
             self.assertEqual("task_1", event["task_id"])
 
     def test_invalid_token_is_rejected(self):
-        with self.assertRaises(Exception):
+        try:
             with self.client.websocket_connect(
                 "/events", subprotocols=["janus", "wrong-token"]
             ):
                 pass
+            self.fail("잘못된 토큰 연결이 수락되었다")
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

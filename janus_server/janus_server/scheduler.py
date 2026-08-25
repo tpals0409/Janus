@@ -8,14 +8,14 @@ call path the same blocking lease contract.
 from __future__ import annotations
 
 import itertools
+import math
 import os
 import threading
 import time
 import uuid
-import math
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Callable, Mapping
 
 
 class ResourceClass(StrEnum):
@@ -63,7 +63,7 @@ class ResourceLease:
     """A capacity token that is always safe to release more than once."""
 
     def __init__(
-        self, scheduler: "ResourceScheduler", lease_id: str,
+        self, scheduler: ResourceScheduler, lease_id: str,
         resource: ResourceClass, owner_id: str | None,
     ):
         self.scheduler = scheduler
@@ -80,7 +80,7 @@ class ResourceLease:
             self._released = True
         self.scheduler._release(self.id)
 
-    def __enter__(self) -> "ResourceLease":
+    def __enter__(self) -> ResourceLease:
         return self
 
     def __exit__(self, *_exc) -> None:

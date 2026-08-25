@@ -15,11 +15,10 @@ import stat
 import urllib.parse
 import urllib.request
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import yaml
-
 
 MAX_SKILL_FILES = 200
 MAX_SKILL_BYTES = 2_000_000
@@ -239,7 +238,7 @@ def compile_skill_directory(
 
     effective_namespace = _safe_name(namespace, source_kind)
     source_key = hashlib.sha256(
-        f"{source_kind}\0{source_locator}\0{source_subpath}".encode("utf-8")
+        f"{source_kind}\0{source_locator}\0{source_subpath}".encode()
     ).hexdigest()
     original = {
         "frontmatter": frontmatter,

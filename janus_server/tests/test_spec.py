@@ -9,7 +9,6 @@ os.environ.setdefault("JANUS_AUTH_TOKEN", "test-token")
 
 from janus_server import spec as S
 
-
 BASE = {"name": "T", "model": "qwen3.8-27b", "system_prompt": "hi",
         "tools": ["grep"], "approval": "auto", "max_steps": 10}
 

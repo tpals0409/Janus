@@ -9,7 +9,6 @@ from pathlib import Path
 from janus_server.server import app
 from janus_server.version import __version__
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 

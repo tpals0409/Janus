@@ -7,7 +7,6 @@ import argparse
 import json
 from pathlib import Path
 
-
 PUBLIC_RUN_KEYS = {
     "schema_version", "task_id", "category", "policy", "repeat", "status",
     "acceptance_passed", "policy_conformant", "turn_error", "wall_time_ms",

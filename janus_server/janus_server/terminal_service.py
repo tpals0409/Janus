@@ -11,9 +11,8 @@ import subprocess
 import termios
 import threading
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
-
 
 MAX_TERMINAL_BUFFER_CHARS = 200_000
 

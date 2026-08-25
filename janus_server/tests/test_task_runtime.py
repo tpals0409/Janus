@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import os
 import asyncio
 import json
+import os
 import tempfile
 import threading
 import time
@@ -17,7 +17,8 @@ os.environ.setdefault("JANUS_ALLOWED_ORIGINS", "http://localhost:5173")
 
 from fastapi.testclient import TestClient
 
-from janus_server import domain, runtime, scheduler as scheduler_mod, server
+from janus_server import domain, runtime, server
+from janus_server import scheduler as scheduler_mod
 from janus_server.scheduler import ResourceClass, ResourceScheduler
 from tests.fakes import FakeClient, text_chunk
 

@@ -10,7 +10,6 @@ from __future__ import annotations
 import hashlib
 import re
 
-
 PREFERENCE_CUES = re.compile(
     r"(?:앞으로|항상|매번|먼저|자동으로|하지\s*마|하면\s*안\s*돼|"
     r"from now on|always|never|every time|prefer)", re.IGNORECASE,

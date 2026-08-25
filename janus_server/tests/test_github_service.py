@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from janus_server.github_service import GitHubService, GitHubServiceError, MAX_FAILED_LOG_CHARS
+from janus_server.github_service import MAX_FAILED_LOG_CHARS, GitHubService, GitHubServiceError
 
 
 def completed(args: list[str], output: object, *, returncode: int = 0) -> subprocess.CompletedProcess[str]:

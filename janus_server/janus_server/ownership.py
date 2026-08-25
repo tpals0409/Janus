@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import threading
-from pathlib import PurePosixPath
 from collections.abc import Iterable
+from pathlib import PurePosixPath
 
 
 class InvalidPartition(ValueError):
@@ -61,7 +61,7 @@ def partitions_overlap(left: str, right: str) -> bool:
 
 
 class OwnershipLease:
-    def __init__(self, table: "FileOwnershipTable", owner: str, partitions: tuple[str, ...]):
+    def __init__(self, table: FileOwnershipTable, owner: str, partitions: tuple[str, ...]):
         self._table = table
         self.owner = owner
         self.partitions = partitions
@@ -72,7 +72,7 @@ class OwnershipLease:
             self._table._release(self.owner, self.partitions)
             self._released = True
 
-    def __enter__(self) -> "OwnershipLease":
+    def __enter__(self) -> OwnershipLease:
         return self
 
     def __exit__(self, *_exc) -> None:

@@ -192,7 +192,6 @@ class WorkspaceApiTests(unittest.TestCase):
         task = self.create_task(title="Background")
         started = threading.Event()
         release = threading.Event()
-        fake_root = self.worktrees / "fake"
 
         class BlockingService:
             def validate_repo(_self, repo_path, base_ref):

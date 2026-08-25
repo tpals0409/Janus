@@ -15,6 +15,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "websockets>=16.1.1",
+    "ruff>=0.14.5",
 ]
 
 [tool.pytest.ini_options]
@@ -22,3 +23,13 @@ dev = [
 pythonpath = ["."]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+extend-exclude = ["artifacts", "tasksuite"]
+
+[tool.ruff.lint]
+# E4/E7/E9: pycodestyle 오류 하위집합, F: pyflakes, I: isort,
+# B: bugbear(실버그 성격의 안티패턴), UP: pyupgrade
+select = ["E4", "E7", "E9", "F", "I", "B", "UP"]

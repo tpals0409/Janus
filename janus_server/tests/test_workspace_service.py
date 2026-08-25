@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import subprocess
 import tempfile
-import unittest
 import unicodedata
+import unittest
 from pathlib import Path
 
 from janus_server.workspace_service import (

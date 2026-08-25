@@ -8,7 +8,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from janus_server import agent, budget, runtime, scheduler as scheduler_mod
+from janus_server import agent, budget, runtime
+from janus_server import scheduler as scheduler_mod
 from janus_server.budget import BudgetTracker, normalize_budget
 from janus_server.scheduler import ResourceScheduler
 from janus_server.workspace import WorkspaceContext

@@ -7,12 +7,10 @@ effective worker topology, and budget that existed at dispatch time travel toget
 
 from __future__ import annotations
 
-from copy import deepcopy
 import re
-from typing import Any
+from copy import deepcopy
 
 from .budget import merge_budget, normalize_budget
-
 
 TASK_CLASSES = {
     "single_file_bug", "multi_file_refactor", "multi_component_build",

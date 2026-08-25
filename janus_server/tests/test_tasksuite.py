@@ -13,7 +13,6 @@ from scripts.compare_tasksuite_results import compare
 from scripts.publish_tasksuite_summary import public_report
 from scripts.run_tasksuite_v0 import build_run_spec, efficiency_summary
 
-
 SUITE = Path(__file__).parents[1] / "tasksuite" / "v0"
 
 
