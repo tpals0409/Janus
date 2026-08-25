@@ -1155,6 +1155,16 @@ const CHANGE_LAYER_LABEL: Record<ChangeLayer, string> = {
   committed: '커밋됨', staged: '스테이징됨', unstaged: '스테이징 안 됨', untracked: '미추적'
 }
 
+function diffStat(diff: string | null): { add: number; del: number } {
+  let add = 0
+  let del = 0
+  for (const line of (diff ?? '').split('\n')) {
+    if (line.startsWith('+') && !line.startsWith('+++')) add += 1
+    else if (line.startsWith('-') && !line.startsWith('---')) del += 1
+  }
+  return { add, del }
+}
+
 function diffLines(diff: string | null) {
   let oldLine = 0
   let newLine = 0
@@ -1205,6 +1215,14 @@ function ChangeSetCard() {
     setCommentBody('')
   }, [layer, changeSet?.head_commit, changeSet?.derived_at])
 
+  // 비어 있는 레이어를 보여주며 시작하지 않는다 — 변경이 있는 첫 레이어로 이동.
+  useEffect(() => {
+    if (!changeSet || changeSet.counts[layer] > 0) return
+    const populated = CHANGE_LAYERS.find((item) => changeSet.counts[item] > 0)
+    if (populated) setLayer(populated)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [changeSet?.derived_at])
+
   if (!changeSet) return null
   return (
     <section className="task-card">
@@ -1232,7 +1250,7 @@ function ChangeSetCard() {
             onClick={() => setLayer(item)}
             className="border-b-2 px-2.5 py-2 text-[10.5px] capitalize"
             style={{
-              borderColor: item === layer ? 'var(--color-accent)' : 'transparent',
+              borderColor: item === layer ? 'var(--color-fg)' : 'transparent',
               color: item === layer ? 'var(--color-fg)' : 'var(--color-faint)'
             }}
           >
@@ -1250,9 +1268,20 @@ function ChangeSetCard() {
               style={{ background: selected?.path === file.path ? 'var(--color-accent-soft)' : undefined }}
             >
               <span className="w-7 shrink-0 font-mono text-[10px] text-secondary">{file.status}</span>
-              <span className="min-w-0 truncate font-mono text-[10px] text-muted" title={file.path}>
+              <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-muted" title={file.path}>
                 {file.old_path ? `${file.old_path} → ${file.path}` : file.path}
               </span>
+              {(() => {
+                const stat = diffStat(file.diff)
+                if (stat.add === 0 && stat.del === 0) return null
+                return (
+                  <span className="shrink-0 font-mono text-[9.5px]">
+                    {stat.add > 0 && <span className="text-ok">+{stat.add}</span>}
+                    {stat.add > 0 && stat.del > 0 && ' '}
+                    {stat.del > 0 && <span className="text-danger">−{stat.del}</span>}
+                  </span>
+                )
+              })()}
             </button>
           ))}
           {files.length === 0 && <div className="p-3 text-[10.5px] text-faint">{CHANGE_LAYER_LABEL[layer]} 변경이 없습니다.</div>}
@@ -1289,8 +1318,15 @@ function ChangeSetCard() {
                       }}
                       className="block w-full whitespace-pre text-left hover:bg-hover"
                       style={{
-                        color: item.text.startsWith('+') ? 'var(--color-ok)'
-                          : item.text.startsWith('-') ? 'var(--color-danger)' : undefined
+                        background: item.text.startsWith('+') && !item.text.startsWith('+++')
+                          ? 'var(--diff-add-bg)'
+                          : item.text.startsWith('-') && !item.text.startsWith('---')
+                            ? 'var(--diff-remove-bg)'
+                            : undefined,
+                        color: (item.text.startsWith('+') && !item.text.startsWith('+++'))
+                          || (item.text.startsWith('-') && !item.text.startsWith('---'))
+                          ? 'var(--text-primary)'
+                          : undefined
                       }}
                     >
                       <span className="mr-3 inline-block w-16 select-none text-right text-faint">
