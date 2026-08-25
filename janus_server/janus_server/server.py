@@ -68,6 +68,7 @@ SKILLS_DIR = Path(
     os.environ.get("JANUS_SKILLS_DIR", str(Path.home() / ".janus" / "skills"))
 ).expanduser()
 PACKAGED_SKILLS_DIR = Path(__file__).parent / "library_skills"
+PACKAGED_SKILL_NAMESPACE = "janus"
 _BACKUP_LOCK = threading.Lock()
 _DOMAIN_LOCK = threading.Lock()
 _DOMAIN_STORE: D.DomainStore | None = None
@@ -148,27 +149,40 @@ def _token_valid(candidate: str | None) -> bool:
     return candidate is not None and hmac.compare_digest(candidate, AUTH_TOKEN)
 
 
+def _pin_library_skills(store: D.DomainStore, agent_profile_id: str) -> None:
+    """Let one AgentProfile name the packaged skills. 사람이 정한 activation은 덮지 않는다."""
+    held = {
+        item["skill_id"]: item
+        for item in store.list_agent_profile_skills(agent_profile_id)
+    }
+    for skill in store.list_skills():
+        if skill["namespace"] != PACKAGED_SKILL_NAMESPACE:
+            continue
+        prior = held.get(skill["id"])
+        store.set_agent_profile_skill(
+            agent_profile_id=agent_profile_id,
+            skill_id=skill["id"],
+            skill_version_id=skill["latest_version_id"],
+            activation_mode=prior["activation_mode"] if prior else "manual",
+            priority=prior["priority"] if prior else 100,
+        )
+
+
 def _ensure_packaged_skills(store: D.DomainStore) -> None:
-    """Install versioned Janus library skills and pin their default activation."""
+    """Install versioned Janus library skills and pin them on every AgentProfile."""
     if not PACKAGED_SKILLS_DIR.is_dir():
         return
     for directory in skill_mod.discover_skill_directories(PACKAGED_SKILLS_DIR):
         relative = directory.relative_to(PACKAGED_SKILLS_DIR).as_posix()
-        artifact = skill_mod.compile_skill_directory(
+        store.import_skill_version(**skill_mod.compile_skill_directory(
             directory,
             source_kind="local",
             source_locator="janus://packaged-skills",
             source_subpath=relative,
-            namespace="janus",
-        )
-        version = store.import_skill_version(**artifact)
-        store.set_agent_profile_skill(
-            agent_profile_id="agent_default",
-            skill_id=version["skill_id"],
-            skill_version_id=version["id"],
-            activation_mode="manual",
-            priority=100,
-        )
+            namespace=PACKAGED_SKILL_NAMESPACE,
+        ))
+    for profile in store.list_agent_profiles():
+        _pin_library_skills(store, profile["id"])
 
 
 def get_domain_store() -> D.DomainStore:
@@ -2358,6 +2372,7 @@ def create_agent_profile(body: dict):
         )
     except (TypeError, ValueError) as error:
         raise HTTPException(400, str(error)) from error
+    _pin_library_skills(get_domain_store(), profile["id"])
     return _agent_profile_json(profile)
 
 

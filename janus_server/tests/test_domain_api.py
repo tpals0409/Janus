@@ -373,6 +373,42 @@ class DomainApiTests(unittest.TestCase):
             self.assertEqual(401, client.get("/projects").status_code)
 
 
+    def test_every_agent_profile_can_name_the_packaged_skills(self):
+        with domain_api() as (client, _):
+            created = client.post(
+                "/profiles/agents", headers=HEADERS,
+                json={"name": "Second", "system_prompt": "너는 Janus다.", "tools": []},
+            )
+            self.assertEqual(200, created.status_code, created.text)
+            listed = client.get(
+                f"/profiles/agents/{created.json()['id']}/skills", headers=HEADERS,
+            ).json()
+            self.assertEqual(
+                ["clear", "compact", "interview"],
+                sorted(item["name"] for item in listed),
+            )
+            self.assertEqual({"manual"}, {item["activation_mode"] for item in listed})
+
+    def test_a_packaged_skill_turned_off_stays_off_after_restart(self):
+        with domain_api() as (client, _):
+            listed = client.get(
+                "/profiles/agents/agent_default/skills", headers=HEADERS,
+            ).json()
+            target = next(item for item in listed if item["name"] == "clear")
+            turned_off = client.put(
+                f"/profiles/agents/agent_default/skills/{target['skill_id']}",
+                headers=HEADERS, json={"activation_mode": "off"},
+            )
+            self.assertEqual(200, turned_off.status_code, turned_off.text)
+            server._ensure_packaged_skills(server.get_domain_store())
+            after = client.get(
+                "/profiles/agents/agent_default/skills", headers=HEADERS,
+            ).json()
+            modes = {item["name"]: item["activation_mode"] for item in after}
+            self.assertEqual("off", modes["clear"])
+            self.assertEqual("manual", modes["compact"])
+
+
 class GracefulShutdownTest(unittest.TestCase):
     def test_main_bounds_graceful_shutdown_under_supervisor_grace(self):
         """SIGTERM 뒤 5초(supervisor grace) 안에 끝나야 SIGKILL을 안 맞는다."""
