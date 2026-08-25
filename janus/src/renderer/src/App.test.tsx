@@ -213,7 +213,8 @@ describe('Janus renderer fixture', () => {
         workspace_id: fixtureEvent.workspace_id ?? '',
         dispatch_id: fixtureEvent.dispatch_id,
         rememberable: true,
-        approval_scope: 'workspace_write'
+        approval_scope: 'workspace_write',
+        deadline_epoch_ms: Date.now() + 125_000
       }],
       taskSessionEvents: [
         ...useStore.getState().taskSessionEvents,
@@ -236,6 +237,7 @@ describe('Janus renderer fixture', () => {
     const user = userEvent.setup()
 
     render(<App />)
+    expect(screen.getAllByText(/남은 시간 2:0\d/).length).toBeGreaterThan(0)
 
     await user.click(screen.getByRole('button', { name: '워커 impl_worker 상세' }))
     const modal = screen.getByRole('dialog', { name: '워커 impl_worker' })
@@ -421,5 +423,35 @@ describe('Janus renderer fixture', () => {
     const development = screen.getByRole('button', { name: '개발 도구' })
     await user.click(development)
     expect(development).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('marks an unanswered approval as expired and lets the user dismiss it', async () => {
+    window.history.replaceState({}, '', '/?fixture=task-runtime')
+    seedTaskRuntimeVisualFixture()
+    const fixtureEvent = useStore.getState().taskSessionEvents.at(-1)!
+    useStore.setState({
+      taskConnected: true,
+      taskApprovals: [{
+        id: 'req-expired',
+        node_id: 'w1',
+        tool: 'write_file',
+        args: {},
+        task_id: fixtureEvent.task_id,
+        workspace_id: fixtureEvent.workspace_id ?? '',
+        dispatch_id: fixtureEvent.dispatch_id,
+        rememberable: false,
+        deadline_epoch_ms: Date.now() - 1_000
+      }]
+    })
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    const hint = screen.getByText('제한 시간 안에 응답이 없어 거부로 처리했습니다.')
+    expect(hint).toBeVisible()
+    expect(screen.queryByText('이번만 허용')).toBeNull()
+    const card = hint.closest('.task-decision-card')!
+    await user.click(within(card as HTMLElement).getByRole('button', { name: '닫기' }))
+    expect(useStore.getState().taskApprovals).toHaveLength(0)
   })
 })

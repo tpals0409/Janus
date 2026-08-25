@@ -29,7 +29,7 @@ import {
 } from 'lucide-react'
 import { useStore } from '../../store'
 import { useDomainEvent } from '../../domainEvents'
-import type { ChangeLayer, ChangeSetFile, Project, Span, Task } from '../../types'
+import type { ApprovalRequest, ChangeLayer, ChangeSetFile, Project, Span, Task } from '../../types'
 import ContextInspector from './ContextInspector'
 import { Button, ConfirmDialog, EmptyState, Status } from '../ui'
 import { taskStatusMeta } from '../../taskStatus'
@@ -54,6 +54,63 @@ function toolDetail(args: unknown): string {
     ?? Object.values(record).find((v) => typeof v === 'string' && v)
   if (typeof value !== 'string') return ''
   return value.length > 72 ? `${value.slice(0, 71)}…` : value
+}
+
+function useApprovalCountdown(deadlineMs?: number): number | null {
+  const [nowMs, setNowMs] = useState(() => Date.now())
+  useEffect(() => {
+    if (deadlineMs === undefined) return
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [deadlineMs])
+  if (deadlineMs === undefined) return null
+  return Math.max(0, Math.ceil((deadlineMs - nowMs) / 1000))
+}
+
+function ApprovalCard({ approval, variant }: { approval: ApprovalRequest; variant: 'task' | 'worker' }) {
+  const respond = useStore((state) => state.respondTaskApproval)
+  const dismiss = useStore((state) => state.dismissTaskApproval)
+  const remaining = useApprovalCountdown(approval.deadline_epoch_ms)
+  const expired = remaining !== null && remaining <= 0
+  const outerClass = variant === 'task' ? 'task-decision-card' : 'worker-modal__approval'
+  const copyClass = variant === 'task' ? 'task-decision-card__copy' : undefined
+  const actionsClass = variant === 'task' ? 'task-decision-card__actions' : 'worker-modal__approval-actions'
+  const Hint = variant === 'task' ? 'span' : 'small'
+  if (expired) {
+    return (
+      <div className={outerClass}>
+        <div className={copyClass}>
+          <strong><code>{approval.tool}</code> 승인이 만료됐습니다</strong>
+          <Hint>제한 시간 안에 응답이 없어 거부로 처리했습니다.</Hint>
+        </div>
+        <div className={actionsClass}>
+          <button type="button" onClick={() => dismiss(approval.id)} className="task-quiet-action">닫기</button>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className={outerClass}>
+      <div className={copyClass}>
+        <strong><code>{approval.tool}</code> 실행 권한이 필요합니다</strong>
+        <Hint>{variant === 'task' ? '이 작업 공간에서 도구를 실행합니다.' : '이 워커가 답을 기다리는 중입니다.'}</Hint>
+        {remaining !== null && (
+          <span className="approval-timer" data-urgent={remaining <= 60 ? '' : undefined}>
+            남은 시간 {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, '0')}
+          </span>
+        )}
+      </div>
+      <div className={actionsClass}>
+        <button type="button" onClick={() => respond(approval.id, false)} className="task-quiet-action">거부</button>
+        <button type="button" onClick={() => respond(approval.id, true, 'once')} className="task-primary-action">이번만 허용</button>
+        {approval.rememberable && (
+          <button type="button" onClick={() => respond(approval.id, true, 'session_workspace')} className="task-quiet-action">
+            {approval.approval_scope === 'workspace_shell' ? '이 세션에서 명령 허용' : '이 세션에서 파일 수정 허용'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
 }
 
 
@@ -463,7 +520,6 @@ function TaskRuntimeCard({ task }: { task: Task }) {
   const sendMessage = useStore((state) => state.sendTaskMessage)
   const cancelTurn = useStore((state) => state.cancelTaskTurn)
   const stopSession = useStore((state) => state.stopTaskSession)
-  const respondApproval = useStore((state) => state.respondTaskApproval)
   const revokeApprovalScope = useStore((state) => state.revokeTaskApprovalScope)
   const approveMockup = useStore((state) => state.approveTaskMockup)
   const rejectMockup = useStore((state) => state.rejectTaskMockup)
@@ -927,21 +983,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
         )}
 
         {approvals.map((approval) => (
-          <div key={approval.id} className="task-decision-card">
-            <div className="task-decision-card__copy">
-              <strong><code>{approval.tool}</code> 실행 권한이 필요합니다</strong>
-              <span>이 작업 공간에서 도구를 실행합니다.</span>
-            </div>
-            <div className="task-decision-card__actions">
-              <button onClick={() => respondApproval(approval.id, false)} className="task-quiet-action">거부</button>
-              <button onClick={() => respondApproval(approval.id, true, 'once')} className="task-primary-action">이번만 허용</button>
-              {approval.rememberable && (
-                <button onClick={() => respondApproval(approval.id, true, 'session_workspace')} className="task-quiet-action">
-                  {approval.approval_scope === 'workspace_shell' ? '이 세션에서 명령 허용' : '이 세션에서 파일 수정 허용'}
-                </button>
-              )}
-            </div>
-          </div>
+          <ApprovalCard key={approval.id} approval={approval} variant="task" />
         ))}
 
         {session?.approval_scopes?.some((item) => item.scope === 'workspace_write') && (
@@ -1824,7 +1866,6 @@ function WorkerDetailModal({ worker, onClose }: { worker: RuntimeWorker, onClose
   const meta = WORKER_STATE_META[worker.state]
   // 승인을 기다리는 워커는 여기서 바로 풀 수 있어야 한다 — 대화 화면까지 돌아가
   // 카드를 찾아야 한다면, 워커는 답 없이 APPROVAL_TIMEOUT을 그대로 태운다.
-  const respondApproval = useStore((state) => state.respondTaskApproval)
   const pending = useStore((state) => state.taskApprovals).filter(
     (item) => item.node_id === worker.id
   )
@@ -1860,25 +1901,7 @@ function WorkerDetailModal({ worker, onClose }: { worker: RuntimeWorker, onClose
         </header>
         <div className="worker-modal__body">
           {pending.map((approval) => (
-            <div key={approval.id} className="worker-modal__approval">
-              <div>
-                <strong><code>{approval.tool}</code> 실행 권한이 필요합니다</strong>
-                <small>이 워커가 답을 기다리는 중입니다.</small>
-              </div>
-              <div className="worker-modal__approval-actions">
-                <button type="button" onClick={() => respondApproval(approval.id, false)} className="task-quiet-action">거부</button>
-                <button type="button" onClick={() => respondApproval(approval.id, true, 'once')} className="task-primary-action">이번만 허용</button>
-                {approval.rememberable && (
-                  <button
-                    type="button"
-                    onClick={() => respondApproval(approval.id, true, 'session_workspace')}
-                    className="task-quiet-action"
-                  >
-                    {approval.approval_scope === 'workspace_shell' ? '이 세션에서 명령 허용' : '이 세션에서 파일 수정 허용'}
-                  </button>
-                )}
-              </div>
-            </div>
+            <ApprovalCard key={approval.id} approval={approval} variant="worker" />
           ))}
           {task && (
             <div className="worker-modal__turn worker-modal__turn--task">

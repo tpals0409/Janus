@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 import uuid
 from contextlib import suppress
 from pathlib import Path
@@ -539,6 +540,7 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
             "node_id": node_id,
             "tool": tool,
             "args": args,
+            "deadline_epoch_ms": int((time.time() + server.APPROVAL_TIMEOUT) * 1000),
             "rememberable": scope_key is not None,
             "approval_scope": scope_key[0] if scope_key is not None else None,
             **approval_context.identifiers(),
