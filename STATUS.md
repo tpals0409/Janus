@@ -410,3 +410,57 @@ pnpm dev
   `forgeboard-*` 로컬 산출물을 .gitignore에 추가했다.
 - 남은 비대칭: runtime `WORKER_ROLES`의 `researcher`(scout 별칭)는 TS union에 없지만
   adaptive가 해당 역할을 반환하지 않으므로 불일치는 발생하지 않는다.
+
+## 2026-08-26 — write 워커 파일 소유권 임대
+
+오케스트레이터-워커 전환 때 사라졌던 "같은 파일 병렬 쓰기 불가" 불변식을 현재 플로우로 이식했다.
+
+- `create_worker`는 쓰기 능력(`write_file`/`edit_file`/`run_bash`)을 가진 비읽기 역할 워커에게
+  배타적 파일 소유권 임대를 요구한다 (`ownership.FileOwnershipTable`, `runtime.write_ownership`).
+- `owned_paths`(워크스페이스 상대 경로/디렉터리)를 선언하면 겹치지 않는 파티션끼리 병렬 write
+  fan-out이 가능하고, 미선언 시 워크스페이스 전체(`*`) 배타 임대라 두 번째 동시 writer는
+  `write_partition_conflict`로 스폰이 거부된다. 거부 응답에는 보유 임대 스냅샷과 wait_worker
+  재시도 지침이 함께 담긴다.
+- 임대 획득은 스폰 수락과 같은 임계영역에서 원자적이라, 충돌 거부가 seq·fingerprint·
+  active_workers 회계를 소비하지 않는다. 워커 종료·취소·예산 소진·스레드 기동 실패 어느
+  경로로도 임대는 해제된다.
+- `_worker_view`에 `owned_partitions`이 노출되고 스폰 성공 시 `worker_write_lease_acquired`
+  이벤트가 기록된다.
+- 한계: run_bash 내부의 셸 쓰기까지 임대가 강제하지는 못한다 — 임대는 선언된 writer 간
+  겹침을 차단하며, 셸 쓰기는 기존 승인 게이트에 의존한다.
+- 테스트: `tests/test_worker_write_leases.py` 7건 — 루트 파티션(`*`) 의미론, 잘못된
+  owned_paths 사전 거부(회계 무오염), 무선언 충돌→해제 후 재스폰, 비종속 파티션 병렬
+  Barrier 실증, 선언 겹침 거부·비종속 통과, read-only 역할 무임대, view 노출·완료 시 해제.
+
+### 후속: 워커 성과의 턴 경계 회수 (같은 날)
+
+부모가 결과를 받기 전에 턴이 끝난 워커는 quiesce로 강제 종료되지만, 그 성과가 조용히
+버려지지 않게 한다.
+
+- quiesce 강제 종료 직전 각 워커의 스냅샷(상태·changed_paths·부분 result)을 레코드에 남긴다.
+- wait/status/stop/send로 부모가 실제로 받아낸 기록은 `delivered`로 낙관하고, 미전달 종료
+  기록은 다음 턴 시작에서 `[janus runtime]` 봉투의 운영 노트로 세션에 재주입된다
+  (`worker_recovery_injected` 이벤트 동반). 같은 기록은 최대 3턴까지만 재노출한다.
+- `on_worker_outcome` 콜백 시임을 추가했다 — 서버가 도메인 스토어를 연결하면 크래시 이후에도
+  워커 성과 복원이 가능해진다(런타임은 여전히 저장소를 모른다). 종료 상태마다 정확히 1회
+  발화하고, send 후속 재기동 시 초기화된다.
+- 운영 노트는 user kind를 재사용해 UI·메시지 조립 경로 변경이 없으며, 봉투 문구 자체가
+  사용자 발화가 아님을 선언한다.
+- 테스트: `tests/test_worker_recovery.py` 3건 — quiesce→다음 턴 주입과 재노출 상한,
+  delivered/stop 제외 규칙, 종료 훅 1회 보장과 followup 리셋.
+
+### 후속: 의도 어휘 단일 원천과 경계 매칭 (같은 날)
+
+- 신규 `intent.py`가 요청 의도 어휘의 유일한 원천이 된다 — runtime의 읽기 전용/변형 리스트와
+  adaptive의 investigation 토폴로지 리스트를 이관했고, runtime `is_read_only_request`는
+  호환 위임만 남긴다.
+- 영어 낱말은 단어 경계 + 최소 활용형(s/es/ed/ing, 어미 -e 탈락 흡수)으로 매칭한다. 부분
+  문자열 시절에는 fix ⊂ fixtures, edit ⊂ edition 오검 때문에 순수 조사 요청의 read-only
+  도구 축소가 풀렸다. -tion 계 명사형(creation 등)은 의도 신호가 아니라고 명시적으로 제외하고,
+  한글은 활용 결합 때문에 부분 문자열 매칭을 유지한다.
+- 방향 불변식을 문서·테스트로 고정했다: 변형 신호가 하나라도 있으면 혼합 요청("조사하고 수정해줘")
+  은 절대 read-only로 좁히지 않는다. 어휘가 없을 때의 기본값도 전체 도구다.
+- adaptive 나머지 범주 어휘(test/planning 등)는 복수형 매칭을 위해 substring이 필요하므로 이관만
+  하고 매칭 방식은 보존했다 — dispatch 분류 동작은 무변경이다.
+- 테스트: `tests/test_intent.py` 14건 — 순수/혼합/무신호 판정, 경계·활용형 회귀(fixtures·edition),
+  한글 substring, 런타임 위임, adaptive 공유 어휘 와이어링과 우선순위 보존, demo 자가검증.

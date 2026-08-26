@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from copy import deepcopy
 
+from . import intent as intent_mod
 from .budget import merge_budget, normalize_budget
 
 TASK_CLASSES = {
@@ -60,13 +61,7 @@ def classify_task(task: dict) -> tuple[str, list[str]]:
     if str(task.get("workflow_stage") or "") == "mockup":
         return "visual_prototype", ["explicit_mockup_workflow"]
 
-    investigation_words = (
-        "investigate", "diagnose", "analyze", "audit", "research", "explain",
-        "inspect", "explore",
-        # 읽기 전용 한국어 요청은 "조사"만 쓰지 않는다. 사전에 없는 낱말을 쓰면
-        # general로 떨어져 worker fanout이 막힌다.
-        "조사", "진단", "분석", "감사", "원인", "파악", "살펴", "탐색", "훑",
-    )
+    investigation_words = intent_mod.INVESTIGATION_TASK_WORDS
     refactor_words = (
         "refactor", "migration", "across", "multiple files", "architecture",
         "리팩터", "마이그레이션", "여러 파일", "전반", "아키텍처",

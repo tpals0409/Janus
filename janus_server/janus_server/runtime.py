@@ -26,6 +26,8 @@ from openai import OpenAI
 from . import adaptive as adaptive_mod
 from . import agent as agent_mod
 from . import budget as budget_mod
+from . import intent as intent_mod
+from . import ownership as ownership_mod
 from . import scheduler as scheduler_mod
 from . import spec as spec_mod
 from . import telemetry as telemetry_mod
@@ -51,6 +53,15 @@ WORKER_ROLES = {
     "implementer", "verifier", "operator",
 }
 READ_ONLY_WORKER_ROLES = {"scout", "researcher", "planner", "verifier"}
+# write 워컈 파일 소유권: 이 도구 중 하나라도 갖는 비읽기 역할은 임대를 요구한다.
+# run_bash가 포함되는 이유는 셸이 사실상의 쓰기 경로이기 때문이다 (임대는 선언된
+# writer 간 겹침을 차단하고, 셸 내부 쓰기는 여전히 승인 게이트에 의존한다).
+_WRITE_CAPABILITY_TOOLS = frozenset({"write_file", "edit_file", "run_bash"})
+WRITE_ROOT_PARTITION = "*"  # 소유 파티션 미선언 write 워커 = 워크스페이스 전체 배타
+# 이 상태에 도달한 워커 기록은 더 이상 갱신되지 않는다 — 회수·훅·view가 같은 집합을 쓴다.
+TERMINAL_WORKER_STATUSES = frozenset(
+    {"completed", "completed_partial", "failed", "cancelled"}
+)
 _RESOURCE_ROOT = Path(__file__).resolve().parent
 _PERSONA_FILES = {
     "janus": "personas/janus.md",
@@ -84,14 +95,6 @@ EXPLICIT_WORKER_PHRASES = (
     "worker를", "워커를", "위임",
 )
 EXPLICIT_WORKER_KOREAN_ACTIONS = ("배치", "생성", "추가", "실행", "스폰", "위임")
-READ_ONLY_REQUEST_WORDS = (
-    "investigate", "inspect", "research", "analyze", "audit", "explain", "explore",
-    "조사", "살펴", "확인", "분석", "검토", "설명", "요약", "파악", "탐색", "훑",
-)
-MUTATING_REQUEST_WORDS = (
-    "edit", "modify", "write", "implement", "fix", "refactor", "create", "delete",
-    "수정", "변경", "작성", "구현", "고쳐", "리팩터", "생성", "삭제", "추가",
-)
 
 
 def _bundled_markdown(relative_path: str) -> str:
@@ -130,11 +133,8 @@ def persona_prompt(role: str, *, custom_prompt: str = "") -> str:
 
 
 def is_read_only_request(text: str | None) -> bool:
-    lowered = str(text or "").lower()
-    return (
-        any(word in lowered for word in READ_ONLY_REQUEST_WORDS)
-        and not any(word in lowered for word in MUTATING_REQUEST_WORDS)
-    )
+    """호환 위임 — 판정 규칙과 어휘의 원천은 intent 모듈이다."""
+    return intent_mod.is_read_only_request(text)
 
 
 def worker_spawn_pressure(snapshot: dict, *, max_model_queue: int =
@@ -327,7 +327,8 @@ class Orchestration:
                  queue_timeout: float | None = None,
                  budget: dict | None = None,
                  budget_usage: dict | None = None,
-                 on_skill_loaded: Callable[[str, str, int], None] | None = None):
+                 on_skill_loaded: Callable[[str, str, int], None] | None = None,
+                 on_worker_outcome: Callable[[dict], None] | None = None):
         self.spec = spec
         self.send = send
         self.client = make_client()
@@ -374,6 +375,12 @@ class Orchestration:
         self.active_workers = 0
         self.worker_requests: dict[str, dict] = {}
         self.worker_records: dict[str, dict] = {}
+        # 같은 worktree를 공유하는 병렬 write 워커의 동일 파일 쓰기를 차단하는
+        # 엔진 소유 배타 임대 (구 DAG 엔진의 파일 소유권 불변식을 현재 플로우로 이식).
+        self.write_ownership = ownership_mod.FileOwnershipTable()
+        # 워커 성과의 턴 경계 영속화 시임. 서버가 도메인 스토어 연결을 꽂으면
+        # 크래시 이후에도 결과 복원이 가능해진다 — 런타임은 저장소를 모른다.
+        self.on_worker_outcome = on_worker_outcome
         telemetry_kwargs = {
             "task_id": workspace_context.task_id,
             "workspace_id": workspace_context.workspace_id,
@@ -714,7 +721,8 @@ class Orchestration:
     def _make_create_worker(self) -> dict:
         def handler(name: str = "", system_prompt: str = "", task: str = "",
                     tools: list | None = None, max_steps: int = 8,
-                    role: str = "implementer", context: str = "") -> dict:
+                    role: str = "implementer", context: str = "",
+                    owned_paths: list | None = None) -> dict:
             workspace_context = self.active_workspace_context
             if workspace_context is None:
                 return {"error": "active WorkspaceContext가 없습니다"}
@@ -784,6 +792,26 @@ class Orchestration:
             if prepared_context:
                 prepared_task += "\n\nRelevant context (only what this subtask needs):\n" + prepared_context
 
+            # write 워커 소유권 임대 준비. 유효성은 예산 소비 전에 여기서 검사해
+            # 안전하지 않은 입력이 스폰 회계를 오염하지 않게 한다.
+            write_capable = (
+                role not in READ_ONLY_WORKER_ROLES
+                and bool(_WRITE_CAPABILITY_TOOLS.intersection(allowed))
+            )
+            spawn_lease = None
+            try:
+                partitions = tuple(dict.fromkeys(
+                    ownership_mod.normalize_partition(str(item))
+                    for item in (owned_paths or []) if str(item).strip()
+                ))
+            except ownership_mod.InvalidPartition as error:
+                return {
+                    "error": f"owned_paths에 안전하지 않은 경로가 있습니다: {error}",
+                    "reason": "invalid_write_partition",
+                }
+            if write_capable and not partitions:
+                partitions = (WRITE_ROOT_PARTITION,)
+
             fingerprint = hashlib.sha256(json.dumps(
                 {"name": str(name), "requested_role": requested_role, "role": role,
                  "system": prepared_system,
@@ -816,18 +844,27 @@ class Orchestration:
                 elif (pressure := worker_spawn_pressure(scheduler_state)) is not None:
                     rejection = pressure
                 else:
-                    self.worker_seq += 1
-                    seq = self.worker_seq
-                    self.active_workers += 1
-                    concurrent = self.active_workers
-                    self.dispatch_budget.record_worker_start(concurrent)
-                    slug = re.sub(
-                        r"[^a-z0-9]+", "-", str(name).lower()
-                    ).strip("-") or "worker"
-                    wid = f"w{seq}-{slug}"
-                    self.worker_requests[fingerprint] = {
-                        "status": "running", "worker": wid, "role": role,
-                    }
+                    # 임대 획득은 스폰 수락과 같은 임계영역에서 원자적으로 — 충돌 시
+                    # seq·active_workers·fingerprint 회계를 소비하지 않는다.
+                    if write_capable:
+                        try:
+                            spawn_lease = self.write_ownership.acquire(
+                                f"wlease-{uuid.uuid4().hex[:8]}", partitions)
+                        except ownership_mod.OwnershipConflict:
+                            rejection = "write_partition_conflict"
+                    if rejection is None:
+                        self.worker_seq += 1
+                        seq = self.worker_seq
+                        self.active_workers += 1
+                        concurrent = self.active_workers
+                        self.dispatch_budget.record_worker_start(concurrent)
+                        slug = re.sub(
+                            r"[^a-z0-9]+", "-", str(name).lower()
+                        ).strip("-") or "worker"
+                        wid = f"w{seq}-{slug}"
+                        self.worker_requests[fingerprint] = {
+                            "status": "running", "worker": wid, "role": role,
+                        }
             if reused is not None:
                 self._sink(ORCH_ID, "worker_result_reused", {
                     "worker": reused["worker"], "role": role,
@@ -854,6 +891,10 @@ class Orchestration:
                     ),
                     "model_queue_backpressure": "model queue 압력 때문에 worker spawn을 억제했습니다",
                     "scheduler_closed": "scheduler가 종료돼 worker spawn을 억제했습니다",
+                    "write_partition_conflict": (
+                        "다른 write 워커가 겹치는 파일 소유권 임대를 보유 중입니다"
+                    ),
+                    "invalid_write_partition": "owned_paths에 안전하지 않은 경로가 있습니다",
                 }
                 if rejection in {
                     "worker_policy_fixed_one", "autonomous_implementer_overhead",
@@ -869,7 +910,17 @@ class Orchestration:
                         "role": role, "created": False, "result": guidance,
                         "suppressed": True, "reason": rejection,
                     }
-                return {"error": messages[rejection], "reason": rejection}
+                payload = {"error": messages[rejection], "reason": rejection}
+                if rejection == "write_partition_conflict":
+                    payload["held"] = self.write_ownership.snapshot()
+                    payload["result"] = (
+                        "WORKER NOT CREATED: another write worker holds an overlapping "
+                        "file lease. Call wait_worker for the holding worker and integrate "
+                        "its result first, or re-spawn with disjoint owned_paths "
+                        "(workspace-relative files or directories this worker will modify). "
+                        "Do not implement the work yourself."
+                    )
+                return payload
             # extra_tools를 안 넘기므로 워커는 create_worker를 절대 못 받는다 (깊이 1).
             dispatch_snapshot = self.dispatch_budget.snapshot()
             steps = effective_worker_step_limit(
@@ -890,62 +941,77 @@ class Orchestration:
             self.worker_cancels[wid] = cancel
             # span_start를 본 UI/headless harness가 즉시 stop을 보내도 놓치지 않도록
             # cancel handle을 공개한 뒤 span 이벤트를 보낸다.
-            span = self._open_span(wid, label=str(name) or wid,
-                                   parent_id=self.spans[0]["id"] if self.spans else None,
-                                   input={"task": prepared_task, "tools": allowed,
-                                          "role": role, "requested_role": requested_role,
-                                          "role_adaptation": role_adaptation,
-                                          "context_chars": len(prepared_context)})
-            if role_adaptation is not None:
-                self._sink(wid, "worker_role_adapted", {
-                    "requested_role": requested_role,
-                    "effective_role": role,
-                    "reason": role_adaptation,
+            try:
+                span = self._open_span(wid, label=str(name) or wid,
+                                       parent_id=self.spans[0]["id"] if self.spans else None,
+                                       input={"task": prepared_task, "tools": allowed,
+                                              "role": role, "requested_role": requested_role,
+                                              "role_adaptation": role_adaptation,
+                                              "context_chars": len(prepared_context)})
+                if role_adaptation is not None:
+                    self._sink(wid, "worker_role_adapted", {
+                        "requested_role": requested_role,
+                        "effective_role": role,
+                        "reason": role_adaptation,
+                        "model_generation_cap": model_state.get("cap", 1),
+                        "dispatch_step_limit": self.budget["dispatch"]["step_limit"],
+                    })
+                self._sink(wid, "worker_step_budget_reserved", {
+                    "requested_steps": max_steps,
+                    "effective_steps": steps,
+                    "dispatch_steps_used": dispatch_snapshot["usage"]["steps"],
+                    "dispatch_step_limit": dispatch_snapshot["limits"]["step_limit"],
                     "model_generation_cap": model_state.get("cap", 1),
-                    "dispatch_step_limit": self.budget["dispatch"]["step_limit"],
                 })
-            self._sink(wid, "worker_step_budget_reserved", {
-                "requested_steps": max_steps,
-                "effective_steps": steps,
-                "dispatch_steps_used": dispatch_snapshot["usage"]["steps"],
-                "dispatch_step_limit": dispatch_snapshot["limits"]["step_limit"],
-                "model_generation_cap": model_state.get("cap", 1),
-            })
-            self._sink(wid, "worker_context_prepared", {
-                "role": role,
-                "system_chars": len(prepared_system),
-                "task_chars": len(prepared_task),
-                "context_chars": len(prepared_context),
-                "requested_tools": requested_tools,
-                "allowed_tools": allowed,
-                "truncated": (
-                    len(raw_system) > WORKER_SYSTEM_MAX_CHARS
-                    or len(raw_task) > WORKER_TASK_MAX_CHARS
-                    or len(raw_context) > WORKER_CONTEXT_MAX_CHARS
-                ),
-            })
-            record = {
-                "worker": wid, "name": str(name) or wid,
-                "role": role, "requested_role": requested_role,
-                "role_adaptation": role_adaptation, "status": "queued",
-                "result": "", "error": None, "tools": list(allowed),
-                "task": prepared_task, "system_prompt": prepared_system,
-                "workspace_context": workspace_context, "max_steps": steps,
-                "cancel": cancel, "idle": threading.Event(),
-                "launched": threading.Event(), "session": agent_mod.Session(
-                    agent_mod.build_system_prompt(prepared_system, allowed),
-                    registry=T.REGISTRY,
-                ),
-                "worker_budget": worker_budget, "fingerprint": fingerprint,
-                "span": span, "followups": [], "changed_paths": set(),
-                "dispatch_id": self.current_dispatch_id,
-            }
-            with self.lock:
-                self.worker_records[wid] = record
-            threading.Thread(
-                target=lambda: self._run_worker_record(record),
-                name=f"janus-{wid}", daemon=True,
-            ).start()
+                self._sink(wid, "worker_context_prepared", {
+                    "role": role,
+                    "system_chars": len(prepared_system),
+                    "task_chars": len(prepared_task),
+                    "context_chars": len(prepared_context),
+                    "requested_tools": requested_tools,
+                    "allowed_tools": allowed,
+                    "truncated": (
+                        len(raw_system) > WORKER_SYSTEM_MAX_CHARS
+                        or len(raw_task) > WORKER_TASK_MAX_CHARS
+                        or len(raw_context) > WORKER_CONTEXT_MAX_CHARS
+                    ),
+                })
+                record = {
+                    "worker": wid, "name": str(name) or wid,
+                    "role": role, "requested_role": requested_role,
+                    "role_adaptation": role_adaptation, "status": "queued",
+                    "result": "", "error": None, "tools": list(allowed),
+                    "task": prepared_task, "system_prompt": prepared_system,
+                    "workspace_context": workspace_context, "max_steps": steps,
+                    "cancel": cancel, "idle": threading.Event(),
+                    "launched": threading.Event(), "session": agent_mod.Session(
+                        agent_mod.build_system_prompt(prepared_system, allowed),
+                        registry=T.REGISTRY,
+                    ),
+                    "worker_budget": worker_budget, "fingerprint": fingerprint,
+                    "span": span, "followups": [], "changed_paths": set(),
+                    "dispatch_id": self.current_dispatch_id,
+                    "write_lease": spawn_lease,
+                    "owned_partitions": (
+                        list(partitions) if spawn_lease is not None else []
+                    ),
+                }
+                with self.lock:
+                    self.worker_records[wid] = record
+                threading.Thread(
+                    target=lambda: self._run_worker_record(record),
+                    name=f"janus-{wid}", daemon=True,
+                ).start()
+            except BaseException:
+                # 스레드 기동 전 실패 시 임대를 즉시 반납해 다음 writer가 막히지 않게 한다.
+                if spawn_lease is not None:
+                    spawn_lease.release()
+                raise
+            if spawn_lease is not None:
+                self._sink(wid, "worker_write_lease_acquired", {
+                    "owner": spawn_lease.owner,
+                    "partitions": list(record["owned_partitions"]),
+                })
             # 완료가 아니라 모델 큐 등록까지만 기다린다. 이 배리어가 없으면 부모가
             # 다음 생성 슬롯을 먼저 잡아 워커가 시작도 못 한 채 뒤로 밀린다.
             record["launched"].wait(1.0)
@@ -995,11 +1061,20 @@ class Orchestration:
                               "Optional restrictive subset. Omit or pass [] to inherit "
                               "role-appropriate tools from the parent."
                           )},
+                   owned_paths={"type": "array", "items": {"type": "string"},
+                                "description": (
+                                    "Workspace-relative files/directories this worker will "
+                                    "modify. Write workers hold exclusive leases; omitting it "
+                                    "leases the whole workspace, so parallel writers must "
+                                    "declare disjoint paths."
+                                )},
                    max_steps={"type": "number", "description": "Step budget (default 8)."}),
             "Spawn a background worker for a separable subtask and return its id immediately.",
             "Spawn only for a separable subtask. Pass minimal context and the smallest "
             "tool restriction only when needed. After spawning, use wait_worker before "
-            "integrating its result. Duplicate work and queue pressure are suppressed.",
+            "integrating its result. Duplicate work and queue pressure are suppressed. "
+            "Workers that modify files hold an exclusive write lease on owned_paths; an "
+            "overlapping lease rejects the spawn instead of racing on the same files.",
             resource_class="cpu_tool",
         )
 
@@ -1013,11 +1088,26 @@ class Orchestration:
             record["worker"], "worker_state", {"status": status, **extra},
             dispatch_id=record.get("dispatch_id"),
         )
+        if status in TERMINAL_WORKER_STATUSES and not record.get("outcome_recorded"):
+            with self.lock:
+                record["outcome_recorded"] = True
+            if self.on_worker_outcome is not None:
+                try:
+                    self.on_worker_outcome(self._worker_view(record))
+                except Exception as error:
+                    # 관측 실패가 실행을 죽이지 않는다 — 단, 흔적은 남긴다.
+                    self._sink(record["worker"], "worker_outcome_hook_failed",
+                               {"error": f"{type(error).__name__}: {error}"})
+
+    def _mark_worker_delivered(self, record: dict) -> None:
+        """부모가 결과를 실제로 받아냄(wait/status/stop/send) — 회수 노트에서 제외."""
+        with self.lock:
+            record["delivered"] = True
 
     @staticmethod
     def _worker_view(record: dict) -> dict:
         status = record["status"]
-        terminal = status in {"completed", "completed_partial", "failed", "cancelled"}
+        terminal = status in TERMINAL_WORKER_STATUSES
         recovery_action = (
             "integrate_result" if status == "completed"
             else "validate_partial_changes" if status == "completed_partial"
@@ -1032,6 +1122,7 @@ class Orchestration:
             "error": record.get("error"), "tools": list(record.get("tools") or []),
             "queued_followups": len(record.get("followups") or []),
             "changed_paths": sorted(record.get("changed_paths") or []),
+            "owned_partitions": sorted(record.get("owned_partitions") or []),
             "recovery_limits": (
                 {"file_reads": 1, "validation_commands": 1}
                 if status == "completed_partial" else None
@@ -1132,6 +1223,9 @@ class Orchestration:
             self._set_worker_status(record, "failed", error=message)
             self._close_span(record["span"], "error", {"error": message})
         finally:
+            if record.get("write_lease") is not None:
+                # 취소·예산 소진·예외 어느 종료 경로로도 임대를 반납한다.
+                record["write_lease"].release()
             budget.end_active()
             record["idle"].set()
             with self.lock:
@@ -1146,8 +1240,17 @@ class Orchestration:
         def status(worker: str = "") -> dict:
             if worker:
                 record, error = lookup(worker)
-                return error or self._worker_view(record)
-            return {"workers": [self._worker_view(r) for r in self.worker_records.values()]}
+                if error:
+                    return error
+                if record["status"] in TERMINAL_WORKER_STATUSES:
+                    self._mark_worker_delivered(record)
+                return self._worker_view(record)
+            views = []
+            for r in self.worker_records.values():
+                if r["status"] in TERMINAL_WORKER_STATUSES:
+                    self._mark_worker_delivered(r)
+                views.append(self._worker_view(r))
+            return {"workers": views}
 
         def wait(worker: str, timeout_seconds: float = 30) -> dict:
             record, error = lookup(worker)
@@ -1156,6 +1259,8 @@ class Orchestration:
             finished = record["idle"].wait(max(0.0, min(float(timeout_seconds), 60.0)))
             view = self._worker_view(record)
             view["finished"] = finished
+            if finished and record["status"] in TERMINAL_WORKER_STATUSES:
+                self._mark_worker_delivered(record)
             if not finished:
                 view["message"] = (
                     "Worker is still active. Inspect with worker_status, wait once more if "
@@ -1177,8 +1282,13 @@ class Orchestration:
                     return {"worker": worker, "status": record["status"], "queued": True}
                 if record["status"] not in {"completed", "completed_partial"}:
                     return {"error": f"worker가 후속 작업을 받을 수 없습니다: {record['status']}"}
+                # 후속 작업은 새 종료 경계다 — 이전 성과는 전달 완료로 정리하고
+                # 훅·회수 상태를 초기화해 다음 종료에서 다시 기록되게 한다.
+                record.pop("delivered", None)
+                record.pop("quiesce", None)
                 record.update(
                     task=followup, cancel=threading.Event(), error=None,
+                    outcome_recorded=False,
                     dispatch_id=self.current_dispatch_id, idle=threading.Event(),
                     launched=threading.Event(), worker_budget=budget_mod.BudgetTracker(
                         f"worker:{worker}:followup", dict(self.budget["worker"]),
@@ -1204,8 +1314,11 @@ class Orchestration:
             record, error = lookup(worker)
             if error:
                 return error
-            if record["status"] in {"completed", "completed_partial", "failed", "cancelled"}:
+            if record["status"] in TERMINAL_WORKER_STATUSES:
+                self._mark_worker_delivered(record)
                 return {"worker": worker, "status": record["status"], "stopped": False}
+            # 부모가 명시적으로 버리기로 한 워커 — 회수 노트의 대상이 아니다.
+            self._mark_worker_delivered(record)
             record["cancel"].set()
             self._set_worker_status(record, "stopping")
             return {"worker": worker, "status": "stopping", "stopped": True}
@@ -1234,6 +1347,53 @@ class Orchestration:
                  "Stop only when its work is no longer needed.", resource_class="cpu_tool"),
         ]
 
+    def _undelivered_terminal_workers(self) -> list[dict]:
+        """부모에게 전달되지 않은 종료(또는 강제 종료 예정) 워커 기록.
+
+        recovery_notes는 같은 기록을 최대 3턴까지만 재노출하기 위한 계수다 —
+        통합도 폐기 선언도 없는 채 컨텍스트를 영구 점유하지 않게 한다.
+        """
+        with self.lock:
+            return [
+                record for record in self.worker_records.values()
+                if not record.get("delivered")
+                and int(record.get("recovery_notes") or 0) < 3
+                and (record["status"] in TERMINAL_WORKER_STATUSES
+                     or record.get("quiesce"))
+            ]
+
+    @staticmethod
+    def _format_recovery_digest(pending: list[dict]) -> str:
+        if not pending:
+            return ""
+        lines = [
+            "[janus runtime] Uncollected worker records from earlier turns "
+            "(operational data, not user speech). Integrate them or state why "
+            "they are discarded before starting new work:",
+        ]
+        for record in pending[:8]:
+            snap = record.get("quiesce") or {}
+            if record["status"] in TERMINAL_WORKER_STATUSES:
+                shown_status = record["status"]
+            else:  # 아직 종료 스레드가 뒤늦게 따라오는 중 — 스냅샷으로 표기
+                shown_status = (
+                    f"{snap.get('status', record['status'])}"
+                    f"({snap.get('reason', 'quiesced')})"
+                )
+            parts = [f"- {record['worker']} [{record['role']} · {shown_status}]"]
+            if task := " ".join(str(record.get("task") or "").split())[:80]:
+                parts.append(f'task="{task}"')
+            changed = snap.get("changed_paths") or sorted(
+                record.get("changed_paths") or [])
+            if changed:
+                parts.append(f"changed=[{', '.join(changed)}]")
+            if result := " ".join(str(record.get("result") or "").split())[:200]:
+                parts.append(f'result="{result}"')
+            lines.append(" ".join(parts))
+        if len(pending) > 8:
+            lines.append(f"- … 외 {len(pending) - 8}건 생략")
+        return "\n".join(lines)
+
     def _quiesce_turn_workers(self, dispatch_id: str, wait_seconds: float = 2.0) -> list[dict]:
         """Prevent workers from outliving the parent turn that owns them."""
         active_statuses = {"queued", "running", "waiting_approval", "stopping"}
@@ -1247,6 +1407,14 @@ class Orchestration:
             return []
         snapshots = [self._worker_view(record) for record in active]
         for record in active:
+            with self.lock:
+                # 강제 종료 전 성과 스냅샷 — 다음 턴 회수 노트의 근거가 된다.
+                record["quiesce"] = {
+                    "status": record["status"],
+                    "changed_paths": sorted(record.get("changed_paths") or []),
+                    "result": str(record.get("result") or "")[:500],
+                    "reason": "parent_turn_ended",
+                }
             record["cancel"].set()
             self._set_worker_status(record, "stopping", recovery="parent_turn_ended")
         deadline = time.monotonic() + max(0.0, wait_seconds)
@@ -1275,6 +1443,8 @@ class Orchestration:
         self.cancelled_turn = False
         self.turn_failed = False
         self.turn_outcome = None
+        pending_recovery = self._undelivered_terminal_workers()
+        recovered_note = self._format_recovery_digest(pending_recovery)
         dispatch_id = self.telemetry.begin_turn(dispatch_id)
         self.current_dispatch_id = dispatch_id
         self.last_dispatch_id = dispatch_id
@@ -1282,6 +1452,18 @@ class Orchestration:
         context = self.workspace_context.for_dispatch(dispatch_id)
         self.active_workspace_context = context
         self.dispatch_budget.begin_active()
+        if recovered_note:
+            # 런타임 운영 노트를 명시적 봉투로 세션에 주입한다. user kind 재사용은
+            # UI와 메시지 조립 경로를 그대로 두기 위한 선택이다 — 봉투 자체가
+            # "사용자 말이 아님"을 선언하므로 대화 이력의 정직성은 유지된다.
+            self.session.append("user", content=recovered_note)
+            self._sink(ORCH_ID, "worker_recovery_injected",
+                       {"chars": len(recovered_note)})
+            with self.lock:
+                for record in pending_recovery:
+                    record["recovery_notes"] = (
+                        int(record.get("recovery_notes") or 0) + 1
+                    )
         turn_tools = list(self.tools)
         if is_read_only_request(text):
             turn_tools = [tool for tool in turn_tools if tool in T.READ_ONLY]

@@ -35,6 +35,8 @@ def owns_path(partitions: Iterable[str], path: str) -> bool:
         target = target.rstrip("/")
     for partition in partitions:
         owned = normalize_partition(partition)
+        if owned == "*":
+            return True
         if owned.endswith("/"):
             prefix = owned.rstrip("/")
             if target == prefix or target.startswith(prefix + "/"):
@@ -47,6 +49,9 @@ def owns_path(partitions: Iterable[str], path: str) -> bool:
 def partitions_overlap(left: str, right: str) -> bool:
     a = normalize_partition(left)
     b = normalize_partition(right)
+    if a == "*" or b == "*":
+        # "*"는 워크스페이스 전체를 의미하는 루트 파티션이다 — 무엇과도 겹친다.
+        return True
     if a == b:
         return True
     if a.endswith("/"):
