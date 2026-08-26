@@ -479,3 +479,16 @@ pnpm dev
   워커가 무엇을 바꿨는지 오케스트레이터가 알 수 있다.
 - 테스트: 스토어 왕복·검증·limit·재시작 복원 4건(`test_worker_outcome_store.py`),
   런타임 훅 ID 보강과 persisted 1회 주입 검증 확장(`test_worker_recovery.py`).
+
+### 후속: 같은 역할 재스폰 상한의 엔진 강제 (같은 날)
+
+- `budget.workers.role_limit`(기본 3)을 신설했다 — 초기 시도 뒤 교정 재시도 2회까지 허용하는
+  페르소나 계약("두 번의 연속 실패 후 사용자에게 보고")을 모델 규율이 아니라 엔진이 강제한다.
+- 스폰 수락 임계영역에서 역할별 카운트를 가산하고 상한 도달 시 `worker_role_budget`으로
+  거부한다. 거부 응답에는 {role, spawned, role_limit, total_spawns, total_limit} 스냅샷과
+  "다른 허용 역할로 더 작게 분할 위임하거나 사용자에게 보고하라"는 지침(직접 구현 금지)이
+  담기며, 거부 자체는 seq·fingerprint 회계를 소비하지 않는다. `send_worker` 후속은 재스폰이
+  아니므로 가산하지 않는다.
+- 이전 실행에서 저장한 예산 JSON에 role_limit이 없어도 normalize가 기본값을 채워 호환된다.
+- 테스트: 기본 상한 3회 도달·역할별 독립성(implementer 소진 후 scout 가능)·예산 오버라이드
+  조임(role_limit=1) 3건(`test_worker_role_budget.py`).

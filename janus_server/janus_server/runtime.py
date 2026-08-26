@@ -373,6 +373,9 @@ class Orchestration:
         self.node_usage: dict[str, dict] = {}
         self.spans: list[dict] = []          # [0]=오케스트레이터, 이후 워커 스폰 순
         self.worker_seq = 0
+        # 같은 역할 재스폰 상한 강제용 카운터 — 세션 수명 기준(total_limit과 동일 스코프).
+        # send_worker 후속은 재스폰이 아니므로 가산하지 않는다.
+        self.role_spawn_counts: dict[str, int] = {}
         self.active_workers = 0
         self.worker_requests: dict[str, dict] = {}
         self.worker_records: dict[str, dict] = {}
@@ -836,6 +839,13 @@ class Orchestration:
                     rejection = "worker_total_budget"
                 elif self.active_workers >= self._concurrent_worker_limit():
                     rejection = "worker_concurrent_budget"
+                elif (
+                    int(self.role_spawn_counts.get(role, 0))
+                    >= int(self.budget["workers"].get("role_limit", 3))
+                ):
+                    # 페르소나가 권하는 "재시도 2회 후 보고"를 엔진이 강제한다 —
+                    # 지문만 바꾼 무한 재디스패치는 여기서 끊긴다.
+                    rejection = "worker_role_budget"
                 elif existing is not None and existing["status"] in {
                     "queued", "running", "waiting_approval", "stopping"
                 }:
@@ -858,6 +868,9 @@ class Orchestration:
                             rejection = "write_partition_conflict"
                     if rejection is None:
                         self.worker_seq += 1
+                        self.role_spawn_counts[role] = (
+                            int(self.role_spawn_counts.get(role, 0)) + 1
+                        )
                         seq = self.worker_seq
                         self.active_workers += 1
                         concurrent = self.active_workers
@@ -899,6 +912,9 @@ class Orchestration:
                         "다른 write 워커가 겹치는 파일 소유권 임대를 보유 중입니다"
                     ),
                     "invalid_write_partition": "owned_paths에 안전하지 않은 경로가 있습니다",
+                    "worker_role_budget": (
+                        "같은 역할의 worker 재스폰 상한(workers.role_limit)을 소진했습니다"
+                    ),
                 }
                 if rejection in {
                     "worker_policy_fixed_one", "autonomous_implementer_overhead",
@@ -923,6 +939,22 @@ class Orchestration:
                         "its result first, or re-spawn with disjoint owned_paths "
                         "(workspace-relative files or directories this worker will modify). "
                         "Do not implement the work yourself."
+                    )
+                elif rejection == "worker_role_budget":
+                    payload["counts"] = {
+                        "role": role,
+                        "spawned": int(self.role_spawn_counts.get(role, 0)),
+                        "role_limit": int(self.budget["workers"].get("role_limit", 3)),
+                        "total_spawns": self.worker_seq,
+                        "total_limit": int(self.budget["workers"]["total_limit"]),
+                    }
+                    payload["result"] = (
+                        "WORKER NOT CREATED: this dispatch exhausted its re-spawn "
+                        "allowance for this role. Do not spawn the same role again. "
+                        "Either delegate the remaining work once under a different "
+                        "allowed role with a smaller, split task, or report the "
+                        "repeated failure to the user and call finish_turn. Do not "
+                        "implement the work yourself."
                     )
                 return payload
             # extra_tools를 안 넘기므로 워커는 create_worker를 절대 못 받는다 (깊이 1).

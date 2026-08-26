@@ -11,10 +11,13 @@ from copy import deepcopy
 # dispatch 예산은 한 턴이 아니라 **세션 전체**에 누적된다. 실측으로 5턴짜리 대화가
 # 모델 호출 11회에 26k~34k 토큰을 썼다 — 예전 32,768은 대화 하나를 못 버텼다.
 # 호출당 약 2,600 토큰을 기준으로 100회 남짓 버티도록 잡았다.
+#
+# workers.role_limit은 같은 역할의 재스폰 상한이다. 페르소나 계약(초기 시도 뒤
+# 교정 1회, 역할 변경·분할 1회, 이후 보고)을 모델 규율이 아니라 엔진이 강제한다.
 DEFAULT_BUDGET = {
     "dispatch": {"token_limit": 262_144, "time_limit_ms": 3_600_000, "step_limit": 60},
     "worker": {"token_limit": 49_152, "time_limit_ms": 300_000, "step_limit": 8},
-    "workers": {"total_limit": 4, "concurrent_limit": 4},
+    "workers": {"total_limit": 4, "concurrent_limit": 4, "role_limit": 3},
     "queue": {"timeout_ms": 300_000, "priority": 0},
 }
 
