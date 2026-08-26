@@ -464,3 +464,18 @@ pnpm dev
   하고 매칭 방식은 보존했다 — dispatch 분류 동작은 무변경이다.
 - 테스트: `tests/test_intent.py` 14건 — 순수/혼합/무신호 판정, 경계·활용형 회귀(fixtures·edition),
   한글 substring, 런타임 위임, adaptive 공유 어휘 와이어링과 우선순위 보존, demo 자가검증.
+
+### 후속: 워커 성과의 SQLite 영속 연결 (같은 날)
+
+- `MIGRATION_25`로 `worker_outcomes` 테이블을 추가했다(schema v25) — task FK cascade,
+  changed/owned 경로의 JSON 컬럼, 최신순 조회 인덱스를 갖는다.
+- `DomainStore.record_worker_outcome/get/list_worker_outcomes`가 상태 검증, JSON 왕복,
+  limit 상한을 담당한다.
+- 런타임 종료 훅 페이로드에 task/workspace/session/dispatch 식별자를 보강했고, 세션 WS
+  핸드셰이크가 `on_worker_outcome=store.record_worker_outcome`을 주입해 모든 종료 상태가
+  크래시 내구적으로 기록된다. 훅 실패는 실행을 죽이지 않고 이벤트로 남는다.
+- 새 AgentSession 시작 시 해당 Task의 최근 8건을 읽어 첫 턴에 `[janus runtime] Persisted
+  worker outcomes …` 노트로 정확히 한 번 주입하고 소비한다 — 프로세스 재시작 후에도 이전
+  워커가 무엇을 바꿨는지 오케스트레이터가 알 수 있다.
+- 테스트: 스토어 왕복·검증·limit·재시작 복원 4건(`test_worker_outcome_store.py`),
+  런타임 훅 ID 보강과 persisted 1회 주입 검증 확장(`test_worker_recovery.py`).

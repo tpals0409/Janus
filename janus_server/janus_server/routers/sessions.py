@@ -461,6 +461,8 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
         )
         spec["context_preamble"] = context_snapshot["preamble"]
         store.mark_project_learnings_applied([item["id"] for item in active_learnings])
+        # 이전 실행(크래시 포함)에서 남긴 워커 성과 — 새 세션의 첫 턴에 회수 노트로 주입된다.
+        persisted_worker_outcomes = store.list_worker_outcomes(task_id, limit=8)
     except D.DomainError:
         await ws.close(code=1008)
         return
@@ -600,6 +602,9 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
             session_id, skill_version_id, reason=reason, prompt_tokens=prompt_tokens,
         )
 
+    def persist_worker_outcome(view: dict) -> None:
+        store.record_worker_outcome(view)
+
     def ensure_orchestration() -> runtime.Orchestration:
         nonlocal orch
         if orch is None:
@@ -613,6 +618,8 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
                 budget=spec["budget"],
                 budget_usage=dispatch["usage"],
                 on_skill_loaded=skill_loaded,
+                on_worker_outcome=persist_worker_outcome,
+                persisted_worker_outcomes=persisted_worker_outcomes,
             )
             orch.session.events = [dict(item) for item in transcript_events]
             with shared._TASK_RUNTIMES_LOCK:

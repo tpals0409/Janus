@@ -328,7 +328,8 @@ class Orchestration:
                  budget: dict | None = None,
                  budget_usage: dict | None = None,
                  on_skill_loaded: Callable[[str, str, int], None] | None = None,
-                 on_worker_outcome: Callable[[dict], None] | None = None):
+                 on_worker_outcome: Callable[[dict], None] | None = None,
+                 persisted_worker_outcomes: list[dict] | None = None):
         self.spec = spec
         self.send = send
         self.client = make_client()
@@ -381,6 +382,9 @@ class Orchestration:
         # 워커 성과의 턴 경계 영속화 시임. 서버가 도메인 스토어 연결을 꽂으면
         # 크래시 이후에도 결과 복원이 가능해진다 — 런타임은 저장소를 모른다.
         self.on_worker_outcome = on_worker_outcome
+        # 이전 실행에서 SQLite로 남긴 워커 성과 — 첫 턴 시작에서 한 번만 회수 노트로
+        # 소비되고 메모리에서 비워진다 (같은 기록의 이중 주입 방지).
+        self.persisted_worker_outcomes = list(persisted_worker_outcomes or [])
         telemetry_kwargs = {
             "task_id": workspace_context.task_id,
             "workspace_id": workspace_context.workspace_id,
@@ -1093,7 +1097,15 @@ class Orchestration:
                 record["outcome_recorded"] = True
             if self.on_worker_outcome is not None:
                 try:
-                    self.on_worker_outcome(self._worker_view(record))
+                    view = self._worker_view(record)
+                    # 영속 계약에 필요한 실행 식별자를 훅 페이로드에 보강한다.
+                    view.update({
+                        "task_id": self.telemetry.task_id,
+                        "workspace_id": self.telemetry.workspace_id,
+                        "session_id": self.telemetry.session_id,
+                        "dispatch_id": record.get("dispatch_id"),
+                    })
+                    self.on_worker_outcome(view)
                 except Exception as error:
                     # 관측 실패가 실행을 죽이지 않는다 — 단, 흔적은 남긴다.
                     self._sink(record["worker"], "worker_outcome_hook_failed",
@@ -1394,6 +1406,30 @@ class Orchestration:
             lines.append(f"- … 외 {len(pending) - 8}건 생략")
         return "\n".join(lines)
 
+    @staticmethod
+    def _format_persisted_digest(rows: list[dict]) -> str:
+        """SQLite에서 복원한 워커 성과를 첫 턴 회수 노트로 변환한다."""
+        if not rows:
+            return ""
+        lines = [
+            "[janus runtime] Persisted worker outcomes from an earlier run "
+            "(operational data, not user speech). Integrate them or state why "
+            "they are discarded before starting new work:",
+        ]
+        for row in rows[:8]:
+            parts = [
+                f"- {row.get('worker_id')} "
+                f"[{row.get('role')} · {row.get('status')}(persisted)]"
+            ]
+            if name := str(row.get("name") or "").strip():
+                parts.append(f'name="{name}"')
+            if changed := list(row.get("changed_paths") or []):
+                parts.append(f"changed=[{', '.join(changed)}]")
+            if result := " ".join(str(row.get("result") or "").split())[:200]:
+                parts.append(f'result="{result}"')
+            lines.append(" ".join(parts))
+        return "\n".join(lines)
+
     def _quiesce_turn_workers(self, dispatch_id: str, wait_seconds: float = 2.0) -> list[dict]:
         """Prevent workers from outliving the parent turn that owns them."""
         active_statuses = {"queued", "running", "waiting_approval", "stopping"}
@@ -1443,8 +1479,19 @@ class Orchestration:
         self.cancelled_turn = False
         self.turn_failed = False
         self.turn_outcome = None
+        persisted_note = ""
+        if self.persisted_worker_outcomes:
+            persisted_note = self._format_persisted_digest(
+                self.persisted_worker_outcomes)
+            self.persisted_worker_outcomes = []  # 첫 턴에 한 번만 소비한다
         pending_recovery = self._undelivered_terminal_workers()
-        recovered_note = self._format_recovery_digest(pending_recovery)
+        recovered_parts = [
+            part for part in (
+                persisted_note,
+                self._format_recovery_digest(pending_recovery),
+            ) if part
+        ]
+        recovered_note = "\n\n".join(recovered_parts)
         dispatch_id = self.telemetry.begin_turn(dispatch_id)
         self.current_dispatch_id = dispatch_id
         self.last_dispatch_id = dispatch_id

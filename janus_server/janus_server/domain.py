@@ -17,7 +17,7 @@ from typing import Any
 
 from .budget import empty_usage, merge_budget, normalize_budget
 
-CURRENT_SCHEMA_VERSION = 24
+CURRENT_SCHEMA_VERSION = 25
 
 DEFAULT_CONTEXT_POLICY = {
     "max_chars": 24_000,
@@ -649,6 +649,29 @@ SET root_path = repo_path,
     updated_at = updated_at;
 """
 
+# Terminal worker outcomes survive process restarts so a resumed session can be
+# told what its earlier workers changed even after a crash.
+MIGRATION_25 = """
+CREATE TABLE worker_outcomes (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    workspace_id TEXT,
+    session_id TEXT,
+    dispatch_id TEXT,
+    worker_id TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL CHECK(status IN
+        ('completed','completed_partial','failed','cancelled')),
+    result TEXT NOT NULL DEFAULT '',
+    error TEXT,
+    changed_paths_json TEXT NOT NULL DEFAULT '[]',
+    owned_partitions_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX idx_worker_outcomes_task ON worker_outcomes(task_id,created_at DESC);
+"""
+
 MIGRATIONS = {
     1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3, 4: MIGRATION_4,
     5: MIGRATION_5, 6: MIGRATION_6, 7: MIGRATION_7, 8: MIGRATION_8,
@@ -656,6 +679,7 @@ MIGRATIONS = {
     13: MIGRATION_13, 14: MIGRATION_14, 15: MIGRATION_15, 16: MIGRATION_16,
     17: MIGRATION_17, 18: MIGRATION_18, 19: MIGRATION_19, 20: MIGRATION_20,
     21: MIGRATION_21, 22: MIGRATION_22, 23: MIGRATION_23, 24: MIGRATION_24,
+    25: MIGRATION_25,
 }
 
 
@@ -2107,6 +2131,62 @@ class DomainStore:
                 "UPDATE project_learnings SET last_applied_at=? WHERE id=?",
                 [(_now(), learning_id) for learning_id in learning_ids],
             )
+
+    @staticmethod
+    def _worker_outcome_dict(row: sqlite3.Row) -> dict:
+        outcome = dict(row)
+        outcome["changed_paths"] = json.loads(outcome.pop("changed_paths_json") or "[]")
+        outcome["owned_partitions"] = json.loads(
+            outcome.pop("owned_partitions_json") or "[]")
+        return outcome
+
+    def record_worker_outcome(self, payload: dict) -> dict:
+        """Persist one terminal runtime-worker outcome for crash-durable recovery."""
+        status = str(payload.get("status") or "")
+        if status not in {"completed", "completed_partial", "failed", "cancelled"}:
+            raise Conflict(f"지원하지 않는 worker outcome 상태: {status}")
+        task_id = str(payload.get("task_id") or "")
+        if not task_id:
+            raise Conflict("worker outcome에는 task_id가 필요합니다")
+        outcome_id = _id("workeroutcome")
+        with self.transaction(immediate=True) as connection:
+            self._one(connection, "SELECT id FROM tasks WHERE id=?", (task_id,), "Task")
+            connection.execute(
+                "INSERT INTO worker_outcomes(id,task_id,workspace_id,session_id,"
+                "dispatch_id,worker_id,name,role,status,result,error,"
+                "changed_paths_json,owned_partitions_json,created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    outcome_id, task_id,
+                    payload.get("workspace_id"), payload.get("session_id"),
+                    payload.get("dispatch_id"),
+                    str(payload.get("worker") or payload.get("worker_id") or ""),
+                    str(payload.get("name") or ""), str(payload.get("role") or ""),
+                    status, str(payload.get("result") or ""),
+                    payload.get("error"),
+                    _json(list(payload.get("changed_paths") or [])),
+                    _json(list(payload.get("owned_partitions") or [])),
+                    _now(),
+                ),
+            )
+        return self.get_worker_outcome(outcome_id)
+
+    def get_worker_outcome(self, outcome_id: str) -> dict:
+        with self._connect() as connection:
+            row = self._one(connection, "SELECT * FROM worker_outcomes WHERE id=?",
+                            (outcome_id,), "WorkerOutcome")
+        return self._worker_outcome_dict(row)
+
+    def list_worker_outcomes(self, task_id: str, *, limit: int = 20) -> list[dict]:
+        """Newest terminal outcomes for one Task, newest first."""
+        with self._connect() as connection:
+            self._one(connection, "SELECT id FROM tasks WHERE id=?", (task_id,), "Task")
+            rows = [self._worker_outcome_dict(row) for row in connection.execute(
+                "SELECT * FROM worker_outcomes WHERE task_id=? "
+                "ORDER BY created_at DESC,id DESC LIMIT ?",
+                (task_id, max(1, min(200, int(limit)))),
+            )]
+        return rows
 
     def transition_dispatch(
         self, dispatch_id: str, target: str, *, error: str | None = None,

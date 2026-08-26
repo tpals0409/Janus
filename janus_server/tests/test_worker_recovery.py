@@ -22,7 +22,8 @@ from tests.fakes import FakeClient
 PARENT_TOOLS = ["read_file", "glob", "grep", "write_file", "edit_file", "run_bash"]
 
 
-def make_orchestration(fake: FakeClient, root: Path, *, on_worker_outcome=None):
+def make_orchestration(fake: FakeClient, root: Path, *, on_worker_outcome=None,
+                       persisted_worker_outcomes=None):
     context = WorkspaceContext(
         root=root, task_id="task_recover", workspace_id="workspace_recover",
     ).for_dispatch("dispatch_recover")
@@ -39,6 +40,7 @@ def make_orchestration(fake: FakeClient, root: Path, *, on_worker_outcome=None):
             spec, send=lambda _event: None, approver=lambda *_args: True,
             workspace_context=context, scheduler=ResourceScheduler(),
             on_worker_outcome=on_worker_outcome,
+            persisted_worker_outcomes=persisted_worker_outcomes,
         )
     orch.current_dispatch_id = "dispatch_recover"
     orch.current_user_text = "워커를 배치해서 진행해"
@@ -187,6 +189,10 @@ def test_on_worker_outcome_fires_once_per_terminal_and_resets_on_followup():
         assert [(o["worker"], o["status"]) for o in outcomes] == [(wid, "completed")]
         assert outcomes[0]["result"] == "first result"
         assert "owned_partitions" in outcomes[0]
+        # 영속 계약: 실행 식별자가 훅 페이로드에 함께 실린다.
+        assert outcomes[0]["task_id"] == "task_recover"
+        assert outcomes[0]["workspace_id"] == "workspace_recover"
+        assert outcomes[0]["dispatch_id"] == "dispatch_recover"
 
         # 후속 작업 재기동 → 실행 중 강제 중단 → cancelled 훅이 정확히 1회.
         control(orch, "send_worker")(wid, "second instruction")
@@ -204,3 +210,31 @@ def test_on_worker_outcome_fires_once_per_terminal_and_resets_on_followup():
         assert [o["status"] for o in outcomes] == ["completed", "cancelled"]
         # 부모가 stop으로 명시적으로 버렸으므로 회수 노트 대상이 아니다.
         assert digest(orch) == ""
+
+
+def test_persisted_outcomes_are_injected_once_on_the_first_turn():
+    rows = [{
+        "worker_id": "w9-coder", "name": "coder", "role": "implementer",
+        "status": "cancelled", "result": "partial edit applied",
+        "changed_paths": ["src/a.py"], "owned_partitions": ["src/"],
+    }]
+    fake = FakeClient([{"text": "resumed"}, {"text": "more"}])
+    with tempfile.TemporaryDirectory() as tmp:
+        orch = make_orchestration(fake, Path(tmp),
+                                  persisted_worker_outcomes=rows)
+        orch.turn("이어서 진행해줘")
+
+        persisted = [e for e in orch.session.events if e["kind"] == "user"
+                     and "Persisted worker outcomes" in e["content"]]
+        assert len(persisted) == 1
+        content = persisted[0]["content"]
+        assert "[janus runtime]" in content
+        assert "w9-coder [implementer · cancelled(persisted)]" in content
+        assert "changed=[src/a.py]" in content
+        assert 'result="partial edit applied"' in content
+        assert orch.persisted_worker_outcomes == []  # 소비 완료
+
+        orch.turn("또 이어서 해줘")
+        all_notes = [e for e in orch.session.events if e["kind"] == "user"
+                     and "Persisted worker outcomes" in e["content"]]
+        assert len(all_notes) == 1  # 두 번째 턴에는 다시 주입되지 않는다
