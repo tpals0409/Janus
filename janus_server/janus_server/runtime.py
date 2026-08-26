@@ -542,7 +542,10 @@ class Orchestration:
             instructions = instructions.replace("{{input}}", self.current_user_text)
             instructions = instructions.replace("{{workspace_root}}", str(self.workspace_context.root))
             instructions = instructions.replace("{{session_id}}", str(self.telemetry.session_id or ""))
-            prompt_tokens = max(1, len(instructions) // 4)
+            # 세션이 실측 usage로 보정한 chars/token 비율을 그대로 쓴다
+            prompt_tokens = max(
+                1, int(len(instructions) / self.session.chars_per_token)
+            )
             if self.on_skill_loaded is not None:
                 try:
                     self.on_skill_loaded(version_id, reason[:1000], prompt_tokens)

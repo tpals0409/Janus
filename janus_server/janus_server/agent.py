@@ -40,6 +40,12 @@ EMPTY_RESPONSE_RETRIES = 2
 DEFAULT_CONTEXT_MAX_CHARS = 24_000
 DEFAULT_CONTEXT_RECENT_BLOCKS = 8
 MAX_PROJECT_SUMMARY_CHARS = 4_000
+# 압축 임계는 토큰으로 사고하고 chars로 집행한다. 설정값(chars)은 4자/토큰
+# 가정으로 토큰 목표치로 환산해 두고, 실측 usage.prompt_tokens가 들어오면
+# chars/token 비율을 보정해 임계를 다시 chars로 환산한다. 한국어(1~2자/토큰)는
+# 임계가 조여지고, 코드 위주 컨텍스트는 느슨해진다.
+HEURISTIC_CHARS_PER_TOKEN = 4.0
+CHARS_PER_TOKEN_BOUNDS = (0.5, 8.0)  # 이상한 usage 보고(0, 음수, 극단값) 방어
 
 CODING_RULES = (
     Path(__file__).parent / "policies" / "coding-rules.md"
@@ -61,6 +67,12 @@ class Session:
         self.events: list[dict] = []
         self.registry = registry  # 실행별 도구(create_worker 등)의 렌더러를 찾기 위해
         self.context_max_chars = context_max_chars
+        self.context_token_target = (
+            None if context_max_chars is None
+            else max(1, int(int(context_max_chars) / HEURISTIC_CHARS_PER_TOKEN))
+        )
+        self.chars_per_token = HEURISTIC_CHARS_PER_TOKEN
+        self.token_calibration_samples = 0
         self.context_recent_blocks = max(1, int(context_recent_blocks))
         self.summary_max_chars = max(500, int(summary_max_chars))
         self.context_stats: dict = {}
@@ -99,6 +111,32 @@ class Session:
     @staticmethod
     def _chars(messages: list[dict]) -> int:
         return len(json.dumps(messages, ensure_ascii=False, separators=(",", ":")))
+
+    def _tokens(self, chars: int) -> int:
+        return int(chars / self.chars_per_token)
+
+    def effective_max_chars(self) -> int | None:
+        """토큰 목표치를 현재 보정 비율로 chars 임계로 환산한다."""
+        if self.context_token_target is None:
+            return None
+        return int(self.context_token_target * self.chars_per_token)
+
+    def observe_usage(self, sent_chars: int, prompt_tokens: int) -> None:
+        """실측 prompt_tokens로 chars/token 비율을 보정한다.
+
+        prompt_tokens에는 도구 스키마·챗 템플릿 오버헤드가 포함되므로 비율이
+        본문만 잰 것보다 낮게(= 임계가 이르게) 잡힌다 — 넘치는 쪽보다 안전한
+        방향의 편향이다. EMA로 흡수해 스텝 간 요동을 줄인다.
+        """
+        if sent_chars <= 0 or prompt_tokens <= 0:
+            return
+        low, high = CHARS_PER_TOKEN_BOUNDS
+        ratio = min(high, max(low, sent_chars / prompt_tokens))
+        if self.token_calibration_samples == 0:
+            self.chars_per_token = ratio
+        else:
+            self.chars_per_token = 0.7 * self.chars_per_token + 0.3 * ratio
+        self.token_calibration_samples += 1
 
     @staticmethod
     def _brief(value: str, limit: int = 240) -> str:
@@ -148,7 +186,7 @@ class Session:
         omitted: list[list[dict]] = []
         kept = blocks
 
-        max_chars = self.context_max_chars if compact else None
+        max_chars = self.effective_max_chars() if compact else None
         if max_chars is not None and baseline_chars > max_chars and len(blocks) > 1:
             # 압축이 필요하다고 판정했으면 최소 한 블록은 실제로 요약한다.
             split = max(1, len(blocks) - self.context_recent_blocks)
@@ -191,8 +229,8 @@ class Session:
         if compact:
             self._last_prefix_hash = prefix_hash
         sent_chars = self._chars(full)
-        baseline_token_estimate = (baseline_chars + 3) // 4
-        sent_token_estimate = (sent_chars + 3) // 4
+        baseline_token_estimate = self._tokens(baseline_chars)
+        sent_token_estimate = self._tokens(sent_chars)
         self.context_stats = {
             "compacted": bool(omitted),
             "baseline_messages": 1 + sum(len(block) for block in blocks),
@@ -207,6 +245,9 @@ class Session:
             ),
             "summary_chars": len(summary_content),
             "omitted_blocks": len(omitted),
+            "chars_per_token": round(self.chars_per_token, 3),
+            "token_calibration_samples": self.token_calibration_samples,
+            "context_token_target": self.context_token_target,
             "prefix_hash": prefix_hash,
             "prefix_reused": prefix_reused,
             "cache_candidate_chars": len(stable_prefix),
@@ -476,6 +517,10 @@ def run(
         if usage:
             tok_prompt += usage["prompt_tokens"]
             tok_completion += usage["completion_tokens"]
+            # 방금 보낸 컨텍스트의 실측 prompt_tokens로 압축 임계를 보정한다
+            session.observe_usage(
+                context_stats.get("sent_chars", 0), usage["prompt_tokens"]
+            )
             # step별 토큰 — 어느 step이 컨텍스트를 부풀려 느려지는지 보인다
             emit("usage", step=step + 1, **usage)
             for tracker in trackers:

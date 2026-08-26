@@ -492,3 +492,21 @@ pnpm dev
 - 이전 실행에서 저장한 예산 JSON에 role_limit이 없어도 normalize가 기본값을 채워 호환된다.
 - 테스트: 기본 상한 3회 도달·역할별 독립성(implementer 소진 후 scout 가능)·예산 오버라이드
   조임(role_limit=1) 3건(`test_worker_role_budget.py`).
+
+## 2026-08-27 — 토큰 실측 기반 컨텍스트 압축 (P1-3)
+
+- 압축 임계가 고정 chars 휴리스틱(4자/토큰 가정)에서 실측 보정으로 바뀌었다. 설정값
+  `context_policy.max_chars`는 그대로 두고(스키마·프로필 변경 없음) 내부에서 토큰
+  목표치(`max_chars / 4`)로 환산해 보관하며, 매 스텝 `usage.prompt_tokens` 실측이
+  들어오면 "보낸 chars ÷ 실측 토큰" 비율을 EMA(0.7/0.3)로 보정해 임계를 다시 chars로
+  환산한다. 한국어(1~2자/토큰)는 임계가 조여져 넘치기 전에 압축되고, 코드 위주
+  컨텍스트는 느슨해져 불필요한 조기 압축이 준다.
+- 비율은 [0.5, 8.0]으로 클램프해 이상한 usage 보고(0·음수·극단값)를 방어하고, 잘못된
+  보고는 무시한다. prompt_tokens에 도구 스키마·챗 템플릿 오버헤드가 포함되는 편향은
+  임계가 이르게 잡히는(넘침보다 안전한) 방향이라 그대로 둔다. 보정은 프로세스
+  메모리에만 있고 재시작 시 4.0에서 다시 시작해 첫 호출 후 재보정된다.
+- `context_stats`의 `//4` 추정치(`*_token_estimate`)와 스킬 로드 `prompt_tokens` 기록이
+  보정 비율 기반으로 바뀌었고, `chars_per_token`·`token_calibration_samples`·
+  `context_token_target`이 `context_window` 이벤트로 노출된다.
+- 테스트: 무보정 시 기존 동작 동일·실측 비율로 조기 압축·클램프와 무시·보정 통계
+  노출·run() 배선 5건(`test_context_calibration.py`), 전체 스위트 232건 통과.
