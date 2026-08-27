@@ -697,8 +697,10 @@ def run(
             session.append("tool_result", tool_call_id=call["id"], name=name, value=value)
             emit("tool_result", name=name, value=value, call_id=call["id"])
 
-            # 서킷 브레이커 — 로컬 모델이 같은 실수를 반복하는 걸 끊는다
-            if "error" in value:
+            # 서킷 브레이커 — 로컬 모델이 같은 실수를 반복하는 걸 끊는다.
+            # 키 존재가 아니라 값으로 판정한다: worker view처럼 정상 결과에
+            # error=None을 싣는 도구가 실패로 계수되면 안 된다 (P4 QA에서 발견).
+            if isinstance(value, dict) and value.get("error"):
                 fail_streak[name] = fail_streak.get(name, 0) + 1
                 if fail_streak[name] >= CIRCUIT_BREAK:
                     emit("done", reason=f"circuit_break:{name}")
