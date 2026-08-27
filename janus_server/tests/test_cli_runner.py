@@ -67,9 +67,13 @@ class CliRunnerTests(unittest.TestCase):
                 restore_env(saved)
 
         self.assertFalse(runner.turn_failed)
-        self.assertEqual("complete", runner.turn_outcome["outcome"])
+        self.assertEqual("completed", runner.turn_outcome["outcome"])
         self.assertEqual("cli-abc", runner.cli_session_id)
-        self.assertEqual({"prompt_tokens": 14, "completion_tokens": 3}, runner.usage)
+        budget = runner.snapshot_budget()
+        self.assertIsNone(budget["exhausted_reason"])  # 세션 마무리가 이 키를 읽는다
+        self.assertEqual(14, budget["usage"]["prompt_tokens"])
+        self.assertEqual(3, budget["usage"]["completion_tokens"])
+        self.assertEqual(0, budget["usage"]["steps"])
         kinds = [event["kind"] for event in sent]
         self.assertEqual(
             ["user", "cli_session", "text_delta", "assistant", "usage",
@@ -112,7 +116,7 @@ class CliRunnerTests(unittest.TestCase):
         runner._map_codex({"type": "turn.completed", "usage": {
             "input_tokens": 7, "cached_input_tokens": 2, "output_tokens": 1,
         }})
-        self.assertEqual("complete", runner.turn_outcome["outcome"])
+        self.assertEqual("completed", runner.turn_outcome["outcome"])
         self.assertEqual(
             ["tool_start", "tool_result", "text_delta", "assistant", "usage"],
             [event["kind"] for event in sent],

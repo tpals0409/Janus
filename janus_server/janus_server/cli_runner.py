@@ -101,7 +101,11 @@ class CliOrchestration:
         self.budget_exhausted_reason: str | None = None
         self.turn_outcome: dict | None = None
         self.last_text = ""
-        self.usage = {"prompt_tokens": 0, "completion_tokens": 0}
+        # dispatch usage 계약 전체를 채운다 — 세션 마무리가 이 dict를 그대로 저장한다.
+        self.usage = {
+            "prompt_tokens": 0, "completion_tokens": 0, "steps": 0,
+            "active_time_ms": 0, "workers_started": 0, "peak_concurrent_workers": 0,
+        }
         self._process: subprocess.Popen[str] | None = None
         self._auth_checked = False
         self._seq = 0
@@ -131,7 +135,11 @@ class CliOrchestration:
         return {"error": "CLI 실행기에는 Janus 워커가 없습니다"}
 
     def snapshot_budget(self) -> dict:
-        return {"limits": {}, "usage": dict(self.usage)}
+        # sessions의 턴 마무리가 exhausted_reason 키를 직접 읽는다 — 계약을 지킨다.
+        return {
+            "scope": "dispatch", "limits": {},
+            "usage": dict(self.usage), "exhausted_reason": None,
+        }
 
     def snapshot_turn_outcome(self) -> dict:
         return dict(self.turn_outcome or {
@@ -254,7 +262,7 @@ class CliOrchestration:
 
     def _finish(self, *, ok: bool, summary: str) -> None:
         self.turn_outcome = {
-            "outcome": "complete" if ok else "failed",
+            "outcome": "completed" if ok else "failed",
             "summary": summary[:500], "evidence": [],
         }
         self.turn_failed = not ok
@@ -414,8 +422,8 @@ def _self_check() -> None:
                         "usage": {"input_tokens": 10, "output_tokens": 2,
                                   "cache_read_input_tokens": 5}})
     assert runner.cli_session_id == "abc"
-    assert runner.turn_outcome and runner.turn_outcome["outcome"] == "complete"
-    assert runner.usage == {"prompt_tokens": 15, "completion_tokens": 2}
+    assert runner.turn_outcome and runner.turn_outcome["outcome"] == "completed"
+    assert runner.usage["prompt_tokens"] == 15 and runner.usage["completion_tokens"] == 2
     kinds = [event["kind"] for event in sent]
     assert kinds == ["cli_session", "tool_start", "text_delta", "assistant",
                      "tool_result", "usage", "assistant"], kinds
