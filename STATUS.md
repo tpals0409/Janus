@@ -840,3 +840,19 @@ QA 안전 기준 준수: janus-qa-fixture 격리 worktree, 모든 승인 자동 
   codex --ignore-user-config). 주입 마커 version으로 기존 대화도 1회 재주입.
 - 실 CLI E2E: claude 1턴·codex 2턴 모두 outcome 계약 준수, codex 2턴째가 1턴째를
   기억. pytest 257 passed.
+
+## 2026-08-28 — v1.0.24 릴리스
+
+- 모델 선택 드롭다운이 앱 UI와 어긋나는 문제를 두 단계로 고쳤다. 원인은 select
+  하나가 아니라 공유 레이어였다 — Shell의 agent-profile-picker만
+  appearance:none을 쓰고 나머지 select는 전부 맥 시스템 크롬으로 그려졌다.
+- 1단계(7159def): --select-chevron 토큰(lucide ChevronDown과 같은 path)을 두고
+  .ui-select·.settings-field select의 네이티브 크롬을 걷어냈다.
+- 2단계(0d621c9): 네이티브 select는 트리거를 스타일해도 열린 목록이 OS 메뉴로
+  그려진다. ui.tsx에 Listbox 프리미티브(ARIA 1.2 select-only combobox)를 두고
+  모델·프로필 피커 네 곳을 옮겼다 — Shell, 설정 모델·MTP, 컴포저, 런타임 카드.
+  목록은 body 포털(.janus-composer의 overflow:hidden이 in-flow 팝업을 자른다),
+  hover와 키보드 커서는 data-active 하나로 통합, 이름 옆에 로컬/구독 힌트.
+- EvaluationLab·SkillLibrary의 Select 프리미티브는 API가 event.target.value라
+  이관 대상으로 남겨뒀다.
+- 테스트: renderer 38건(컴포저 키보드 조작 추가)·main 31건·tsc 통과.
