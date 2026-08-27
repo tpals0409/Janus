@@ -698,3 +698,17 @@ QA 안전 기준 준수: janus-qa-fixture 격리 worktree, 모든 승인 자동 
 
 - 모델 생성 슬롯 기본값 5 → 3(9c75cf8)을 담은 패치 릴리스. 48GB 머신의 KV 스왑
   위험 제거, 증설은 vram_sizing 실측 게이트로만.
+
+## 2026-08-27 — 수동 QA 결함: 화면 이탈 후 세션 수동 재개 강요
+
+- 사용자 실기기 QA에서 발견: 다른 화면(다른 Task·프로젝트·새 대화)을 다녀오면
+  세션이 끊긴 상태로 보이고 매번 "재개"를 눌러야 했다. selectTask가 WS를 닫고
+  세션 상세만 다시 읽을 뿐 재연결하지 않았기 때문 — CHECKLIST의 "자동 연결도 한
+  번만 수행된다" 계약과 어긋나는 상태였다.
+- selectTask가 최신 세션이 재개 가능(status created|idle + dispatch
+  queued|needs_you + workspace ready)하면 자동 재연결한다. WS 라우트·resume
+  게이트 조건을 그대로 따르고, 이미 연결돼 있으면 건드리지 않으며, turn_end/
+  session_stopped 후의 상세 새로고침 경로(loadLatestTaskSession)에는 넣지 않아
+  의도적 중지가 되살아나지 않는다.
+- 테스트: 재개 가능 세션 자동 연결·terminal dispatch 미연결 2건
+  (`store.autoconnect.test.ts`), 렌더러 26건·tsc 통과.

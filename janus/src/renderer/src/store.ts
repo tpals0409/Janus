@@ -349,6 +349,18 @@ export const useStore = create<State>((set, get) => ({
       if (sequence !== openTaskSequence) return
       set({ task })
       await get().loadLatestTaskSession()
+      // 화면을 떠났다 돌아와도 대화가 이어져야 한다 — 재개 가능한 세션이면
+      // 자동 재연결한다. WS 라우트(created|idle)와 resume 게이트(queued|needs_you)
+      // 조건을 그대로 따르고, 이미 연결돼 있으면 건드리지 않는다.
+      const latest = get().taskSession
+      if (
+        sequence === openTaskSequence && !get().taskWs && latest
+        && (latest.status === 'created' || latest.status === 'idle')
+        && ['queued', 'needs_you'].includes(latest.dispatch.status)
+        && task.workspace?.state === 'ready'
+      ) {
+        get().connectTaskSession(latest)
+      }
       await get().loadVerifications()
       if (task.workspace?.state === 'ready') await get().loadReview()
       if (task.workspace?.state === 'ready') await get().loadShipments()
