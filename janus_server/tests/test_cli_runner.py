@@ -23,6 +23,24 @@ EOF
 """
 
 
+def fake_claude_login(tmp: str) -> dict:
+    """HOME을 임시로 바꿔 인증 게이트를 결정적으로 통과시킨다."""
+    home = Path(tmp) / "home"
+    (home / ".claude").mkdir(parents=True)
+    (home / ".claude" / ".credentials.json").write_text("{}")
+    previous = os.environ.get("HOME")
+    os.environ["HOME"] = str(home)
+    return {"HOME": previous}
+
+
+def restore_env(saved: dict) -> None:
+    for key, value in saved.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+
+
 def make_runner(tmp: str, provider: str = "claude_code") -> tuple[cli_runner.CliOrchestration, list[dict]]:
     sent: list[dict] = []
     context = WorkspaceContext(Path(tmp), "task-cli", "workspace-cli", "dispatch-cli")
@@ -40,11 +58,13 @@ class CliRunnerTests(unittest.TestCase):
             stub.write_text(FAKE_CLAUDE)
             stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
             os.environ["JANUS_CLAUDE_BIN"] = str(stub)
+            saved = fake_claude_login(tmp)
             try:
                 runner, sent = make_runner(tmp)
                 runner.turn("do the thing")
             finally:
                 os.environ.pop("JANUS_CLAUDE_BIN", None)
+                restore_env(saved)
 
         self.assertFalse(runner.turn_failed)
         self.assertEqual("complete", runner.turn_outcome["outcome"])
@@ -68,12 +88,14 @@ class CliRunnerTests(unittest.TestCase):
     def test_missing_cli_fails_the_turn_with_guidance(self):
         with tempfile.TemporaryDirectory() as tmp:
             os.environ["JANUS_CLAUDE_BIN"] = str(Path(tmp) / "nope")
+            saved = fake_claude_login(tmp)
             try:
                 runner, _sent = make_runner(tmp)
                 with self.assertRaises(RuntimeError) as caught:
                     runner.turn("hello")
             finally:
                 os.environ.pop("JANUS_CLAUDE_BIN", None)
+                restore_env(saved)
         self.assertIn("설치되어 있지 않습니다", str(caught.exception))
         self.assertTrue(runner.turn_failed)
 
@@ -95,6 +117,38 @@ class CliRunnerTests(unittest.TestCase):
             ["tool_start", "tool_result", "text_delta", "assistant", "usage"],
             [event["kind"] for event in sent],
         )
+
+    def test_unauthenticated_codex_short_circuits_with_guidance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = Path(tmp) / "fake-codex"
+            stub.write_text("#!/bin/sh\nexit 1\n")
+            stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+            os.environ["JANUS_CODEX_BIN"] = str(stub)
+            try:
+                runner, sent = make_runner(tmp, provider="codex")
+                runner.turn("hello")
+            finally:
+                os.environ.pop("JANUS_CODEX_BIN", None)
+        self.assertTrue(runner.turn_failed)
+        self.assertIn("codex login", runner.turn_outcome["summary"])
+        kinds = [event["kind"] for event in sent]
+        self.assertEqual(["user", "assistant", "done"], kinds)
+        self.assertEqual("cli_auth", sent[-1]["reason"])
+        # 로그인 후 재시도를 위해 점검 상태가 리셋된다.
+        self.assertFalse(runner._auth_checked)
+
+    def test_claude_auth_check_uses_credentials_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            os.environ["JANUS_SKIP_KEYCHAIN"] = "1"
+            try:
+                missing = cli_runner.check_cli_auth("claude_code", home=home)
+                self.assertIn("claude", missing)
+                (home / ".claude").mkdir()
+                (home / ".claude" / ".credentials.json").write_text("{}")
+                self.assertIsNone(cli_runner.check_cli_auth("claude_code", home=home))
+            finally:
+                os.environ.pop("JANUS_SKIP_KEYCHAIN", None)
 
     def test_transcript_restore_recovers_the_cli_session_id(self):
         with tempfile.TemporaryDirectory() as tmp:

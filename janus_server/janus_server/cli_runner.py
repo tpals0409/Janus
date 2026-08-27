@@ -15,6 +15,7 @@ import os
 import subprocess
 import threading
 from collections.abc import Callable
+from pathlib import Path
 from types import SimpleNamespace
 
 from .workspace import WorkspaceContext
@@ -24,6 +25,48 @@ CLI_BINS = {
     "claude_code": lambda: os.environ.get("JANUS_CLAUDE_BIN", "claude"),
     "codex": lambda: os.environ.get("JANUS_CODEX_BIN", "codex"),
 }
+
+
+def check_cli_auth(provider: str, *, home: Path | None = None) -> str | None:
+    """미로그인이 확실할 때만 안내 문자열을 돌려준다 — 판별 불가면 None(통과).
+
+    실패 후 진단보다 사전 안내가 낫다. 단, 과차단은 더 나쁘므로 확신 없는
+    상태(점검 오류·타임아웃·알 수 없는 저장 방식)에서는 막지 않는다.
+    """
+    home = home or Path.home()
+    if provider == "codex":
+        try:
+            status = subprocess.run(
+                [CLI_BINS["codex"](), "login", "status"],
+                capture_output=True, text=True, timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        if status.returncode != 0:
+            return (
+                "Codex가 로그인되어 있지 않습니다. 터미널에서 `codex login`을 "
+                "실행해 ChatGPT 계정으로 로그인한 뒤 다시 시도하세요."
+            )
+        return None
+    if provider == "claude_code":
+        if (home / ".claude" / ".credentials.json").is_file():
+            return None
+        if os.environ.get("JANUS_SKIP_KEYCHAIN") != "1":
+            try:
+                keychain = subprocess.run(
+                    ["security", "find-generic-password",
+                     "-s", "Claude Code-credentials"],
+                    capture_output=True, timeout=5,
+                )
+                if keychain.returncode == 0:
+                    return None
+            except (OSError, subprocess.TimeoutExpired):
+                return None  # 점검 불가 — 막지 않는다
+        return (
+            "Claude Code가 로그인되어 있지 않습니다. 터미널에서 `claude`를 "
+            "실행하고 /login으로 Claude 구독 계정에 로그인한 뒤 다시 시도하세요."
+        )
+    return None
 
 
 class _Transcript:
@@ -60,6 +103,7 @@ class CliOrchestration:
         self.last_text = ""
         self.usage = {"prompt_tokens": 0, "completion_tokens": 0}
         self._process: subprocess.Popen[str] | None = None
+        self._auth_checked = False
         self._seq = 0
         # claude는 --resume으로 대화가 이어진다. 재시작 복원을 위해 transcript의
         # cli_session 이벤트에서 마지막 id를 되살린다.
@@ -102,6 +146,20 @@ class CliOrchestration:
         self.turn_outcome = None
         self.session.append("user", content=text)
         self._emit("user", content=text)
+
+        if not self._auth_checked:
+            guidance = check_cli_auth(self.provider)
+            self._auth_checked = True
+            if guidance:
+                self._auth_checked = False  # 로그인 후 재시도를 다시 점검한다
+                self.session.append("assistant", content=guidance)
+                self._emit("assistant", content=guidance)
+                self.turn_failed = True
+                self.turn_outcome = {
+                    "outcome": "failed", "summary": guidance, "evidence": [],
+                }
+                self._emit("done", reason="cli_auth")
+                return
 
         command = self._command(text)
         try:
