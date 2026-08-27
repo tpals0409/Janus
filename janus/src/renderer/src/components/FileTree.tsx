@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ChevronRight, FileCode2, FileText, Folder, FolderGit2, FolderOpen, RefreshCw } from 'lucide-react'
 import { useStore } from '../store'
 
@@ -10,7 +10,28 @@ function isCodeFile(name: string): boolean {
   return /\.(?:c|cc|cpp|cs|css|go|h|hpp|html|java|js|jsx|json|kt|lua|md|php|py|rb|rs|sh|sql|swift|toml|ts|tsx|vue|xml|ya?ml)$/i.test(name)
 }
 
-function Directory({ path, depth }: { path: string; depth: number }) {
+/** 변경 파일을 트리에서 바로 찾을 수 있게 하는 장식 — path → git status.
+ *  committed를 먼저 깔고 작업 중 레이어(untracked/staged/unstaged)가 덮어쓴다. */
+function changedPathMap(sections: Record<string, { path: string; status: string }[]> | undefined): Map<string, string> {
+  const map = new Map<string, string>()
+  if (!sections) return map
+  for (const layer of ['committed', 'untracked', 'staged', 'unstaged']) {
+    for (const file of sections[layer] ?? []) map.set(file.path, file.status)
+  }
+  return map
+}
+
+function statusBadge(status: string): { letter: string; color: string } {
+  const letter = status.startsWith('?') ? 'U' : status[0]
+  return {
+    letter,
+    color: letter === 'U' || letter === 'A' ? 'var(--color-ok)' : 'var(--color-warn)'
+  }
+}
+
+function Directory({ path, depth, changes }: {
+  path: string; depth: number; changes: Map<string, string>
+}) {
   const entries = useStore((state) => state.tree[path])
   const loadDir = useStore((state) => state.loadDir)
   const openFile = useStore((state) => state.openFile)
@@ -27,27 +48,46 @@ function Directory({ path, depth }: { path: string; depth: number }) {
 
   return entries.map((entry) => {
     const child = path ? `${path}/${entry.name}` : entry.name
-    return entry.type === 'dir' ? (
-      <DirectoryRow key={child} path={child} name={entry.name} depth={depth} />
-    ) : (
+    if (entry.type === 'dir') {
+      return <DirectoryRow key={child} path={child} name={entry.name} depth={depth} changes={changes} />
+    }
+    const status = changes.get(child)
+    const badge = status ? statusBadge(status) : null
+    return (
       <button
         key={child}
         onClick={() => void openFile(child)}
         className="resource-file-row"
         aria-selected={openedFile?.path === child}
+        title={badge ? `Git 변경 (${status})` : undefined}
         style={{ paddingLeft: 10 + depth * 14 }}
       >
         {isCodeFile(entry.name)
           ? <FileCode2 size={12} className="shrink-0 text-muted" />
           : <FileText size={12} className="shrink-0 text-faint" />}
-        <span className="truncate">{entry.name}</span>
+        <span className="truncate" style={badge ? { color: badge.color } : undefined}>{entry.name}</span>
+        {badge && (
+          <span
+            className="ml-auto shrink-0 pr-1 font-mono text-[9px] font-semibold"
+            style={{ color: badge.color }}
+            aria-label={`Git 상태 ${badge.letter}`}
+          >
+            {badge.letter}
+          </span>
+        )}
       </button>
     )
   })
 }
 
-function DirectoryRow({ path, name, depth }: { path: string; name: string; depth: number }) {
+function DirectoryRow({ path, name, depth, changes }: {
+  path: string; name: string; depth: number; changes: Map<string, string>
+}) {
   const [open, setOpen] = useState(false)
+  let hasChanges = false
+  for (const changed of changes.keys()) {
+    if (changed.startsWith(`${path}/`)) { hasChanges = true; break }
+  }
   return (
     <div>
       <button
@@ -61,8 +101,18 @@ function DirectoryRow({ path, name, depth }: { path: string; name: string; depth
           ? <FolderOpen size={12} className="shrink-0 text-muted" />
           : <Folder size={12} className="shrink-0 text-muted" />}
         <span className="truncate">{name}</span>
+        {hasChanges && (
+          <span
+            className="ml-auto shrink-0 pr-1.5 text-[8px]"
+            style={{ color: 'var(--color-warn)' }}
+            title="이 폴더 안에 Git 변경이 있습니다"
+            aria-label="폴더 내 Git 변경 있음"
+          >
+            ●
+          </span>
+        )}
       </button>
-      {open && <Directory path={path} depth={depth + 1} />}
+      {open && <Directory path={path} depth={depth + 1} changes={changes} />}
     </div>
   )
 }
@@ -71,7 +121,9 @@ export default function FileTree() {
   const projects = useStore((state) => state.projects)
   const projectId = useStore((state) => state.projectId)
   const refreshTree = useStore((state) => state.refreshTree)
+  const changeSet = useStore((state) => state.changeSet)
   const project = projects.find((item) => item.id === projectId)
+  const changes = useMemo(() => changedPathMap(changeSet?.sections), [changeSet])
 
   if (!project) {
     return (
@@ -92,12 +144,17 @@ export default function FileTree() {
           <div className="truncate text-[11px] font-medium">{project.name}</div>
           <div className="truncate font-mono text-[10px] text-faint">{basename(project.repo_path)} · 프로젝트 루트</div>
         </div>
+        {changes.size > 0 && (
+          <span className="mt-0.5 shrink-0 font-mono text-[10px]" style={{ color: 'var(--color-warn)' }}>
+            변경 {changes.size}
+          </span>
+        )}
         <button onClick={refreshTree} title="파일 트리 새로고침" className="p-1 text-faint hover:text-fg">
           <RefreshCw size={11} />
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
-        <Directory path="" depth={0} />
+        <Directory path="" depth={0} changes={changes} />
       </div>
     </div>
   )
