@@ -824,3 +824,19 @@ QA 안전 기준 준수: janus-qa-fixture 격리 worktree, 모든 승인 자동 
 - 설정 전용 페이지 전환(1aff078), 프로바이더별 설정 분리 + 로컬 서버 마스터
   토글(c6b83d8), 컴포저 모델 셀렉트(ad9e0d5), CLI 러너 세션 마무리 계약 수정
   (6491823 — 첫 실전 구독 턴에서 답이 화면에 안 뜨던 원인)을 묶은 릴리스.
+
+## 2026-08-28 — v1.0.23 릴리스
+
+- 구독형 CLI가 Janus 에이전트 계약을 지키게 했다(f4a1c42). personas/janus.md +
+  builtin_skills/task-contract + policies/coding-rules.md를 로컬 경로와 같은
+  소스(persona_prompt/CODING_RULES)에서 주입하고, 도구가 없는 두 지점만 CLI
+  adapter가 대체한다 — create_worker 없음(페르소나가 명시한 구조적 예외),
+  finish_turn 대신 `<janus-outcome>` 블록.
+- CLI 종료 성공을 곧 completed로 보지 않는다. 모델이 선언한 outcome만 인정하고
+  없으면 partial로 정착한다 — 질문 한 번에 Task가 review로 올라가던 문제 해소,
+  구독형에서 처음으로 input_required 도달 가능.
+- codex thread.started → exec resume으로 대화 연속성 확보(이전까지 매 턴 콜드
+  스타트). 개인 전역 설정 제외(claude --setting-sources project,local,
+  codex --ignore-user-config). 주입 마커 version으로 기존 대화도 1회 재주입.
+- 실 CLI E2E: claude 1턴·codex 2턴 모두 outcome 계약 준수, codex 2턴째가 1턴째를
+  기억. pytest 257 passed.

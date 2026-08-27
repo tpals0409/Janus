@@ -1,3 +1,3 @@
 """Single backend version imported by health, diagnostics, and packaging tests."""
 
-__version__ = "1.0.22"
+__version__ = "1.0.23"
