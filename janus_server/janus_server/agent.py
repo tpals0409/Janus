@@ -694,6 +694,7 @@ def run(
             results = [exec_call(calls[0])]
 
         # 결과 반영은 호출 순서대로 — 병렬이어도 세션 로그는 결정적이다
+        tripped: list[str] = []
         for call, (name, value) in zip(calls, results, strict=True):
             session.append("tool_result", tool_call_id=call["id"], name=name, value=value)
             emit("tool_result", name=name, value=value, call_id=call["id"])
@@ -703,9 +704,8 @@ def run(
             # error=None을 싣는 도구가 실패로 계수되면 안 된다 (P4 QA에서 발견).
             if isinstance(value, dict) and value.get("error"):
                 fail_streak[name] = fail_streak.get(name, 0) + 1
-                if fail_streak[name] >= CIRCUIT_BREAK:
-                    emit("done", reason=f"circuit_break:{name}")
-                    return last_text, session.events
+                if fail_streak[name] >= CIRCUIT_BREAK and name not in tripped:
+                    tripped.append(name)
             else:
                 fail_streak[name] = 0
 
@@ -727,6 +727,24 @@ def run(
                     emit("assistant", content=final_content)
                 emit("done", reason=f"terminal_tool:{name}")
                 return last_text, session.events
+
+        # 서킷 브레이크는 턴을 죽이지 않는다 — 그 도구만 남은 턴에서 회수하고,
+        # 모델이 사용자에게 상황을 보고하며 턴을 마무리하게 한다. 예전처럼 즉시
+        # 반환하면 승인 3연속 거부 같은 경우 최종 보고 없이 턴이 끝난다 (P6 QA).
+        for name in tripped:
+            emit("circuit_break", tool=name, failures=fail_streak.get(name, 0))
+            schemas = [s for s in schemas
+                       if s.get("function", {}).get("name") != name]
+            session.append(
+                "user",
+                content=(
+                    f"The tool {name} was withdrawn for the rest of this turn "
+                    f"after {CIRCUIT_BREAK} consecutive failures or refusals. "
+                    "Do not retry it or work around the refusal. Report to the "
+                    "user what was attempted and why it did not complete, then "
+                    "finish the turn."
+                ),
+            )
 
         if any(not tracker.available() for tracker in trackers):
             emit_budget_exhaustion()

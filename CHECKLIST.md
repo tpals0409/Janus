@@ -550,8 +550,10 @@
       — 2026-08-27 통과: 단일 워커 QA에서 verifier가 `read_file`만 수령
 - [x] 파일 수정 요청은 승인 UI를 표시하고 Reject 시 워크스페이스가 변경되지 않는다.
       — 2026-08-27 통과: Task `task_e6da42993d9e41fb8408c472ebc15689`, 승인 4건 전부 거부 후
-      `git status`/`git diff` 모두 clean. 관찰: 3연속 거부가 `circuit_break:edit_file`로
-      턴을 끝내 최종 보고 없이 종료(outcome partial) — 억제는 정상이나 보고 UX 개선 여지
+      `git status`/`git diff` 모두 clean. 후속 개선(같은 날): 서킷 브레이크가 턴을
+      죽이는 대신 해당 도구만 회수하고 보고 지시를 주입 — 재검증
+      Task `task_0a3dc0966f8f4a598228b541b6557c29`에서 finish_turn으로 "3회 연속
+      거부되어 미완료, 승인 필요" 최종 보고 확인
 - [x] Allow 시 승인한 변경만 워크스페이스에 적용된다.
       — 문구 재정의(2026-08-27): MIGRATION_24부터 Task는 프로젝트 체크아웃에서 직접
       작업한다(worktree 격리 폐기). Task `task_c62752e9bb3b4ce0a4cc381ca942e851`에서
