@@ -39,6 +39,26 @@ class MutableClock:
 
 
 class SchedulerTests(unittest.TestCase):
+    def test_scheduler_records_model_slot_waits_and_reports_the_verdict(self):
+        scheduler = ResourceScheduler(caps={ResourceClass.MODEL_GENERATION: 1})
+        first = scheduler.acquire(ResourceClass.MODEL_GENERATION)
+        contended = threading.Thread(
+            target=lambda: scheduler.acquire(ResourceClass.MODEL_GENERATION).release(),
+            daemon=True,
+        )
+        contended.start()
+        wait_until(lambda: scheduler.snapshot()
+                   ["resources"]["model_generation"]["queued"] == 1)
+        first.release()
+        contended.join(2.0)
+        scheduler.acquire(ResourceClass.CPU_TOOL).release()
+
+        verdict = scheduler.snapshot()["vram_sizing"]
+        self.assertEqual(2, verdict["sample_count"])  # tool 리스는 창에 안 섞인다
+        self.assertEqual("deferred", verdict["status"])
+        self.assertEqual("insufficient_samples", verdict["reason"])
+        self.assertGreater(verdict["p95_wait_ms"], 0.0)  # 두 번째는 실제로 대기했다
+
     def test_vram_sizing_starts_only_after_sustained_measured_bottleneck(self):
         sparse = [
             {"kind": "lease_acquired", "resource": "model_generation", "queue_wait_ms": 5000}

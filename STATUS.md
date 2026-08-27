@@ -541,3 +541,17 @@ pnpm dev
   기존 경로 그대로다.
 - 테스트: 상한 이하 통과·상한 초과 시 머리/꼬리 보존과 영속 전문 보존 2건
   (`test_worker_result_budget.py`), 전체 237건 통과.
+
+### 후속: VRAM 슬롯 게이트에 실측 배선 (같은 날, P1-6)
+
+- "VRAM 기반 정밀 슬롯 계산은 세마포어가 실측으로 병목일 때만 착수"가 체크리스트의
+  게이트인데, 판정 함수 `assess_vram_sizing()`을 프로덕션에서 아무도 호출하지 않아
+  게이트가 영원히 열릴 수 없었다 — 근거 데이터(리스 대기 실측)도 어디에도 없었다.
+- 스케줄러가 model_generation 리스 승인 시점에 실제 대기시간을 bounded deque(512건)에
+  기록한다. 다른 리소스(tool/verification)는 창에 섞지 않는다 — 잦은 tool 리스가
+  실측 창을 밀어내면 p95가 흐려진다.
+- `snapshot()`이 `vram_sizing` 판정(status/reason/p95_wait_ms/sample_count)을 싣고,
+  Operations `/operations` 경로가 스냅샷을 그대로 통과시키므로 2초 주기로 노출된다.
+  p95 ≥ 1초·표본 ≥ 10일 때만 `recommended`가 뜬다 — 그때가 슬롯 증설을 검토할 시점.
+- 테스트: 경합 시 대기 실측 기록·tool 리스 미포함·판정 노출 1건(`test_scheduler.py`),
+  전체 238건 통과. UI 배지 표시는 다음 디자인 라운드로 미룬다(데이터는 이미 API에 있음).

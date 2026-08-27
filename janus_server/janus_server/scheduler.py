@@ -13,6 +13,7 @@ import os
 import threading
 import time
 import uuid
+from collections import deque
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
@@ -126,6 +127,9 @@ class ResourceScheduler:
         ] = {}
         self._sequence = itertools.count()
         self._closed = False
+        # model slot 대기 실측 — assess_vram_sizing 게이트의 근거 데이터.
+        # 다른 리소스는 섞지 않는다: 잦은 tool 리스가 창을 밀어내면 p95가 흐려진다.
+        self._model_wait_events: deque[dict] = deque(maxlen=512)
 
     def _effective_priority(self, waiter: _Waiter, now: float) -> int:
         waited = max(0.0, now - waiter.queued_at)
@@ -184,6 +188,12 @@ class ResourceScheduler:
                     lease_id = f"lease_{uuid.uuid4().hex[:16]}"
                     self._active[resource] += 1
                     self._leases[lease_id] = (resource, owner_id, cancel)
+                    if resource is ResourceClass.MODEL_GENERATION:
+                        self._model_wait_events.append({
+                            "kind": "lease_acquired",
+                            "resource": resource.value,
+                            "queue_wait_ms": (now - started) * 1000.0,
+                        })
                     return ResourceLease(self, lease_id, resource, owner_id)
                 if not wait_reported and on_wait is not None:
                     ordered = sorted(
@@ -246,6 +256,9 @@ class ResourceScheduler:
                     {"id": lease_id, "resource": resource.value, "owner_id": owner_id}
                     for lease_id, (resource, owner_id, _cancel) in self._leases.items()
                 ],
+                # 실측 슬롯 대기 판정 — "VRAM 슬롯 증설은 측정된 병목일 때만"
+                # 게이트가 실제로 열릴 수 있게 근거를 스냅샷에 싣는다.
+                "vram_sizing": assess_vram_sizing(list(self._model_wait_events)),
             }
 
     def close(self) -> None:
