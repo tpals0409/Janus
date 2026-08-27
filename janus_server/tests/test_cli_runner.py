@@ -14,13 +14,17 @@ os.environ.setdefault("JANUS_ALLOWED_ORIGINS", "http://localhost:5173")
 from janus_server import cli_runner
 from janus_server.workspace import WorkspaceContext
 
+OUTCOME = (
+    '<janus-outcome>{\\"outcome\\":\\"completed\\",\\"summary\\":\\"done\\",'
+    '\\"evidence\\":[\\"a.py\\"]}</janus-outcome>'
+)
 FAKE_CLAUDE = """#!/bin/sh
 cat <<'EOF'
 {"type":"system","subtype":"init","session_id":"cli-abc"}
 {"type":"assistant","message":{"content":[{"type":"text","text":"working"}]}}
-{"type":"result","subtype":"success","result":"finished the task","usage":{"input_tokens":10,"output_tokens":3,"cache_read_input_tokens":4}}
+{"type":"result","subtype":"success","result":"finished the task\\n%s","usage":{"input_tokens":10,"output_tokens":3,"cache_read_input_tokens":4}}
 EOF
-"""
+""" % OUTCOME
 
 
 def fake_claude_login(tmp: str) -> dict:
@@ -67,13 +71,19 @@ class CliRunnerTests(unittest.TestCase):
                 restore_env(saved)
 
         self.assertFalse(runner.turn_failed)
-        self.assertEqual("completed", runner.turn_outcome["outcome"])
+        self.assertEqual(
+            {"outcome": "completed", "summary": "done", "evidence": ["a.py"]},
+            runner.turn_outcome,
+        )
+        # outcome 블록은 사용자에게 보이는 답변에서 지워진다.
+        self.assertEqual("finished the task", runner.session.events[-1]["content"])
         self.assertEqual("cli-abc", runner.cli_session_id)
         budget = runner.snapshot_budget()
         self.assertIsNone(budget["exhausted_reason"])  # 세션 마무리가 이 키를 읽는다
         self.assertEqual(14, budget["usage"]["prompt_tokens"])
         self.assertEqual(3, budget["usage"]["completion_tokens"])
-        self.assertEqual(0, budget["usage"]["steps"])
+        self.assertEqual(1, budget["usage"]["steps"])
+        self.assertGreater(budget["usage"]["active_time_ms"], 0)
         kinds = [event["kind"] for event in sent]
         self.assertEqual(
             ["user", "cli_session", "text_delta", "assistant", "usage",
@@ -90,6 +100,9 @@ class CliRunnerTests(unittest.TestCase):
         self.assertEqual(
             ["user", "cli_context", "cli_session", "assistant", "assistant"],
             [event["kind"] for event in runner.session.events],
+        )
+        self.assertEqual(
+            cli_runner.CONTEXT_VERSION, runner.session.events[1]["version"],
         )
 
     def test_missing_cli_fails_the_turn_with_guidance(self):
@@ -114,16 +127,62 @@ class CliRunnerTests(unittest.TestCase):
             "command": "ls", "aggregated_output": "file.txt", "exit_code": 0,
         }})
         runner._map_codex({"type": "item.completed", "item": {
-            "item_type": "agent_message", "text": "all done",
+            "item_type": "agent_message",
+            "text": 'all done\n<janus-outcome>{"outcome":"partial",'
+                    '"summary":"절반"}</janus-outcome>',
         }})
         runner._map_codex({"type": "turn.completed", "usage": {
             "input_tokens": 7, "cached_input_tokens": 2, "output_tokens": 1,
         }})
-        self.assertEqual("completed", runner.turn_outcome["outcome"])
+        self.assertEqual(
+            {"outcome": "partial", "summary": "절반", "evidence": []},
+            runner.turn_outcome,
+        )
+        self.assertEqual("all done", runner.last_text)
+        # 캐시 적중분을 prompt_tokens에 더하는 의미를 claude 쪽과 맞춘다.
+        self.assertEqual(9, runner.usage["prompt_tokens"])
         self.assertEqual(
             ["tool_start", "tool_result", "text_delta", "assistant", "usage"],
             [event["kind"] for event in sent],
         )
+
+    def test_codex_thread_id_resumes_the_conversation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runner, sent = make_runner(tmp, provider="codex")
+        runner._map_codex({"type": "thread.started", "thread_id": "th-42"})
+        self.assertEqual("th-42", runner.cli_session_id)
+        self.assertEqual("cli_session", sent[0]["kind"])
+        self.assertEqual(
+            ["cli_session"], [event["kind"] for event in runner.session.events],
+        )
+        command = runner._command("이어서")
+        self.assertEqual(["exec", "resume"], command[1:3])
+        self.assertIn("th-42", command)
+        self.assertIn("--ignore-user-config", command)
+        self.assertTrue(command[-1].endswith("이어서"))
+        # 재개 경로에는 --sandbox 플래그가 없어 config override로 같은 정책을 준다.
+        self.assertIn('sandbox_mode="workspace-write"', command)
+
+    def test_missing_outcome_block_settles_the_turn_as_partial(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runner, _ = make_runner(tmp)
+        runner._map_claude({"type": "result", "subtype": "success",
+                            "result": "그냥 설명만 했습니다"})
+        self.assertEqual("partial", runner.turn_outcome["outcome"])
+        self.assertEqual("그냥 설명만 했습니다", runner.turn_outcome["summary"])
+
+    def test_unknown_outcome_value_falls_back_to_partial(self):
+        cleaned, outcome = cli_runner.extract_outcome(
+            'ok\n<janus-outcome>{"outcome":"shipped","summary":"x"}</janus-outcome>'
+        )
+        self.assertEqual("ok", cleaned)
+        self.assertEqual("partial", outcome["outcome"])
+        # 파싱 실패해도 블록은 사용자에게 보이지 않아야 한다.
+        cleaned, outcome = cli_runner.extract_outcome(
+            "ok\n<janus-outcome>{not json}</janus-outcome>"
+        )
+        self.assertEqual("ok", cleaned)
+        self.assertIsNone(outcome)
 
     def test_unauthenticated_codex_short_circuits_with_guidance(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -157,7 +216,8 @@ class CliRunnerTests(unittest.TestCase):
             finally:
                 os.environ.pop("JANUS_SKIP_KEYCHAIN", None)
 
-    def test_first_turn_injects_janus_context_for_both_providers(self):
+    def test_first_turn_injects_the_janus_agent_contract(self):
+        """로컬 경로와 같은 페르소나·코딩 규칙이 CLI에도 들어가야 한다."""
         with tempfile.TemporaryDirectory() as tmp:
             claude, _ = make_runner(tmp)
             claude.spec["system_prompt"] = "팀 규칙을 지켜라"
@@ -165,16 +225,32 @@ class CliRunnerTests(unittest.TestCase):
             command = claude._command("hello")
             self.assertIn("--append-system-prompt", command)
             context = command[command.index("--append-system-prompt") + 1]
-            self.assertIn("running inside Janus", context)
-            self.assertIn("팀 규칙을 지켜라", context)
+            self.assertIn("You are Janus", context)  # personas/janus.md
+            self.assertIn("Worker contract", context)
+            self.assertIn("Task Contract", context)  # builtin_skills/task-contract
+            self.assertIn("Coding Rules", context)  # policies/coding-rules.md
+            self.assertIn("Janus CLI adapter", context)
+            self.assertIn("<janus-outcome>", context)
+            self.assertIn("팀 규칙을 지켜라", context)  # Delegated emphasis
             self.assertIn("Task 목표: 할일 앱", context)
 
             codex, _ = make_runner(tmp, provider="codex")
             codex.spec["context_preamble"] = "Task 목표: 할일 앱"
             prompt = codex._command("hello")[-1]
             self.assertIn("[Janus environment context]", prompt)
+            self.assertIn("You are Janus", prompt)
             self.assertIn("Task 목표: 할일 앱", prompt)
             self.assertTrue(prompt.endswith("hello"))
+
+    def test_personal_global_cli_config_is_excluded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            claude, _ = make_runner(tmp)
+            command = claude._command("hello")
+            self.assertEqual(
+                "project,local", command[command.index("--setting-sources") + 1],
+            )
+            codex, _ = make_runner(tmp, provider="codex")
+            self.assertIn("--ignore-user-config", codex._command("hello"))
 
     def test_transcript_restore_recovers_the_cli_session_id(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -194,9 +270,19 @@ class CliRunnerTests(unittest.TestCase):
             injected, _ = make_runner(tmp)
         injected.restore_transcript([
             {"kind": "cli_session", "id": "old-2"},
-            {"kind": "cli_context", "injected": True},
+            {"kind": "cli_context", "injected": True,
+             "version": cli_runner.CONTEXT_VERSION},
         ])
         self.assertNotIn("--append-system-prompt", injected._command("continue"))
+
+        # 구판 마커(3문장 안내만 받은 대화)는 새 계약을 1회 다시 받는다.
+        with tempfile.TemporaryDirectory() as tmp:
+            stale, _ = make_runner(tmp)
+        stale.restore_transcript([
+            {"kind": "cli_session", "id": "old-3"},
+            {"kind": "cli_context", "injected": True},
+        ])
+        self.assertIn("--append-system-prompt", stale._command("continue"))
 
 
 if __name__ == "__main__":

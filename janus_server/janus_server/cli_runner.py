@@ -4,6 +4,10 @@
 이벤트 스트림을 Janus 세션 이벤트로 매핑한다. Janus 오케스트레이터의 워커·예산·
 컨텍스트 압축은 이 경로에 적용되지 않는다 — CLI가 자체 에이전트 루프를 돈다.
 
+다만 **에이전트 계약**은 로컬 경로와 같아야 한다. personas/janus.md와
+policies/coding-rules.md를 그대로 주입하고, 도구가 없는 두 지점(create_worker,
+finish_turn)만 CLI adapter 섹션에서 대체한다.
+
 sessions.py가 기대하는 Orchestration 표면(turn/cancel_all/session.events/
 snapshot_*)만 덕타이핑으로 구현한다.
 """
@@ -12,12 +16,16 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 
+from . import agent as agent_mod
+from . import runtime as runtime_mod
 from .workspace import WorkspaceContext
 
 ORCH_ID = "orchestrator"
@@ -25,6 +33,70 @@ CLI_BINS = {
     "claude_code": lambda: os.environ.get("JANUS_CLAUDE_BIN", "claude"),
     "codex": lambda: os.environ.get("JANUS_CODEX_BIN", "codex"),
 }
+OUTCOME_VALUES = ("completed", "partial", "input_required", "mockup_review")
+# 주입한 계약의 판. 이걸 올리면 기존 대화도 새 계약을 1회 다시 받는다.
+# 1 = 3문장 환경 안내(v1.0.21~22). 2 = 페르소나·코딩 규칙·outcome 계약.
+CONTEXT_VERSION = 2
+_OUTCOME_BLOCK = re.compile(r"<janus-outcome>\s*(\{.*?\})\s*</janus-outcome>", re.DOTALL)
+
+# janus.md를 그대로 실으면 존재하지 않는 도구를 호출하라고 지시하게 된다.
+# 어긋나는 세 지점만 여기서 덮어쓴다 — 나머지 계약은 페르소나 원문이 소유한다.
+CLI_ADAPTER = """## Janus CLI adapter
+
+You are running inside Janus, a local-first agent workbench, as a subscription CLI rather
+than on the Janus local runtime. Three parts of the persona above are adapted here.
+
+1. **No `create_worker`.** This runner structurally forbids Janus workers — exactly the
+   exception the persona names. Delegate with your own CLI subagent tool if you have one;
+   otherwise do the work yourself in this session. "Never implement the work yourself to
+   route around a failed worker" does not apply when there is no worker to route around.
+
+2. **No `finish_turn` tool.** Instead, end your final answer with exactly one line:
+
+   <janus-outcome>{"outcome":"completed","summary":"…","evidence":["…"]}</janus-outcome>
+
+   `outcome` is one of completed | partial | input_required | mockup_review, with the same
+   meanings the persona gives: `completed` only when fresh evidence proves the requested
+   work is done, `partial` when useful work finished but the Task remains open,
+   `input_required` only for a concrete user decision that blocks progress. `summary` is a
+   concise factual result; `evidence` lists changed files, commands, or other fresh proof.
+   Janus strips this line before showing your answer and uses it to move the Task forward.
+   Omitting it settles the turn as `partial`.
+
+3. **Ignore the `personas/…` paths listed above** — they are Janus package resources you
+   cannot read.
+
+The current directory is the Task's workspace. Janus tracks your file changes with git and
+shows them to the user for review, so do not commit unless you are asked to. Answer in the
+same language as the request."""
+
+
+def extract_outcome(text: str) -> tuple[str, dict | None]:
+    """최종 답변에서 outcome 블록을 떼어낸다 — (표시용 텍스트, outcome|None).
+
+    사용자에게 raw JSON이 보이면 안 되므로 파싱 실패 여부와 무관하게 블록은 지운다.
+    클램프는 runtime.finish_turn과 동일하게 맞춘다.
+    """
+    matches = list(_OUTCOME_BLOCK.finditer(text or ""))
+    cleaned = _OUTCOME_BLOCK.sub("", text or "").strip()
+    if not matches:
+        return cleaned, None
+    try:  # 여러 개면 마지막 것이 최종 판정이다.
+        payload = json.loads(matches[-1].group(1))
+    except json.JSONDecodeError:
+        return cleaned, None
+    if not isinstance(payload, dict):
+        return cleaned, None
+    outcome = str(payload.get("outcome") or "").strip().lower()
+    evidence = payload.get("evidence")
+    return cleaned, {
+        "outcome": outcome if outcome in OUTCOME_VALUES else "partial",
+        "summary": str(payload.get("summary") or "").strip()[:1000],
+        "evidence": (
+            [str(item)[:500] for item in evidence[:10]]
+            if isinstance(evidence, list) else []
+        ),
+    }
 
 
 def check_cli_auth(provider: str, *, home: Path | None = None) -> str | None:
@@ -109,7 +181,9 @@ class CliOrchestration:
         self._process: subprocess.Popen[str] | None = None
         self._auth_checked = False
         self._context_injected = False
-        self._seq = 0
+        self._injecting_context = False  # _command가 컨텍스트를 실었는지 — turn()이 읽는다
+        self._turn_started = time.monotonic()
+        self.pending_outcome: dict | None = None
         # claude는 --resume으로 대화가 이어진다. 재시작 복원을 위해 transcript의
         # cli_session 이벤트에서 마지막 id를 되살린다.
         self.cli_session_id: str | None = None
@@ -122,9 +196,12 @@ class CliOrchestration:
             if event.get("kind") == "cli_session" and event.get("id"):
                 self.cli_session_id = str(event["id"])
                 break
-        # 주입 마커가 있으면 이 대화는 이미 Janus 컨텍스트를 안다.
+        # 현재 판의 주입 마커가 있어야 이 대화가 Janus 계약을 안다. 구판 마커
+        # (version 없음 = 3문장 안내만 받은 대화)는 새 계약을 1회 다시 받는다.
         self._context_injected = any(
-            event.get("kind") == "cli_context" for event in self.session.events
+            event.get("kind") == "cli_context"
+            and int(event.get("version") or 1) >= CONTEXT_VERSION
+            for event in self.session.events
         )
 
     def cancel_all(self) -> None:
@@ -157,6 +234,8 @@ class CliOrchestration:
         self.cancelled_turn = False
         self.turn_failed = False
         self.turn_outcome = None
+        self.pending_outcome = None
+        self._turn_started = time.monotonic()
         self.session.append("user", content=text)
         self._emit("user", content=text)
 
@@ -174,10 +253,11 @@ class CliOrchestration:
                 self._emit("done", reason="cli_auth")
                 return
 
+        self._injecting_context = False
         command = self._command(text)
-        if "--append-system-prompt" in command and not self._context_injected:
+        if self._injecting_context:
             self._context_injected = True
-            self.session.append("cli_context", injected=True)
+            self.session.append("cli_context", injected=True, version=CONTEXT_VERSION)
         try:
             self._process = subprocess.Popen(
                 command,
@@ -217,6 +297,9 @@ class CliOrchestration:
             stderr = self._process.stderr.read()[-2000:]
         code = self._process.wait()
         self._process = None
+        self.usage["active_time_ms"] += round(
+            (time.monotonic() - self._turn_started) * 1000, 3
+        )
 
         if self.cancel.is_set():
             self.cancelled_turn = True
@@ -239,22 +322,27 @@ class CliOrchestration:
     # ── 내부 ──
 
     def _janus_context(self) -> str:
-        """Janus 환경·Task 컨텍스트 — 로컬 경로의 preamble을 CLI에도 전달한다."""
+        """로컬 경로와 같은 에이전트 계약을 CLI에 싣는다.
+
+        persona_prompt이 personas/janus.md + builtin_skills/task-contract를 이미
+        조립하므로 여기서 프롬프트를 새로 쓰지 않는다 — 계약의 단일 원천을 유지한다.
+        """
         parts = [
-            "You are running inside Janus, a local-first agent workbench. "
-            "The current directory is the task's workspace; Janus tracks your "
-            "file changes via git and shows them to the user. Answer in the "
-            "user's language.",
+            runtime_mod.persona_prompt(
+                "janus", custom_prompt=str(self.spec.get("system_prompt") or ""),
+            ),
+            agent_mod.CODING_RULES,
+            CLI_ADAPTER,
         ]
-        custom = str(self.spec.get("system_prompt") or "").strip()
-        if custom:
-            parts.append(custom)
         preamble = str(self.spec.get("context_preamble") or "").strip()
         if preamble:
             parts.append(preamble)
-        return "\n\n".join(parts)
+        return "\n\n---\n\n".join(parts)
 
     def _command(self, text: str) -> list[str]:
+        inject = not self._context_injected
+        if inject:
+            self._injecting_context = True
         if self.provider == "claude_code":
             command = [
                 CLI_BINS["claude_code"](), "-p", text,
@@ -262,25 +350,40 @@ class CliOrchestration:
                 # headless에는 승인 UI가 없다 — 워크스페이스 안 편집과 셸만 허용.
                 "--permission-mode", "acceptEdits",
                 "--allowedTools", "Bash",
+                # 사용자 개인 전역 설정(~/.claude의 훅·플러그인·MCP)이 Janus 턴 안에서
+                # 발동하지 않게 한다. 레포의 CLAUDE.md는 계속 읽는다 — coding-rules 12번이
+                # 레포 지침 우선을 요구한다. 한계: ~/.claude/CLAUDE.md(전역 메모리)만
+                # 골라 끄는 플래그는 없다.
+                "--setting-sources", "project,local",
             ]
             if self.cli_session_id:
                 command += ["--resume", self.cli_session_id]
-            if not self._context_injected:
+            if inject:
                 # 주입된 적 없는 대화(신규·구버전에서 만든 세션)에 1회 주입한다.
                 command += ["--append-system-prompt", self._janus_context()]
             return command
-        # codex: exec는 JSONL 이벤트를 낸다. 세션 연속이 없어 매 턴 컨텍스트를 앞에 싣는다.
+        # codex: exec는 JSONL 이벤트를 낸다. thread_id가 있으면 resume으로 대화를 잇는다.
+        prompt = text
+        if inject:
+            prompt = f"[Janus environment context]\n{self._janus_context()}\n\n{text}"
+        binary = CLI_BINS["codex"]()
+        if self.cli_session_id:
+            # exec resume에는 --sandbox 플래그가 없어 같은 정책을 config override로 준다.
+            return [
+                binary, "exec", "resume", "--json", "--ignore-user-config",
+                "-c", 'sandbox_mode="workspace-write"',
+                self.cli_session_id, prompt,
+            ]
         return [
-            CLI_BINS["codex"](), "exec", "--json",
-            "--sandbox", "workspace-write",
-            f"[Janus environment context]\n{self._janus_context()}\n\n{text}",
+            binary, "exec", "--json", "--sandbox", "workspace-write",
+            "--ignore-user-config", prompt,
         ]
 
     def _emit(self, kind: str, **data) -> None:
-        self._seq += 1
         self.send({
             "type": "agent_event", "kind": kind, "node_id": ORCH_ID,
-            "worker_id": None, "at_ms": float(self._seq),
+            "worker_id": None,
+            "at_ms": round((time.monotonic() - self._turn_started) * 1000, 3),
             "task_id": self.task_id,
             "workspace_id": self.workspace_context.workspace_id,
             "session_id": self.session_id,
@@ -289,11 +392,29 @@ class CliOrchestration:
         })
 
     def _finish(self, *, ok: bool, summary: str) -> None:
-        self.turn_outcome = {
-            "outcome": "completed" if ok else "failed",
-            "summary": summary[:500], "evidence": [],
+        """CLI 종료를 곧 완료로 보지 않는다 — outcome은 모델이 선언한 값만 인정한다.
+
+        로컬 경로에서 finish_turn을 부르지 않은 턴이 partial로 남는 것과 같은 규칙이다.
+        """
+        if not ok:
+            self.turn_outcome = {
+                "outcome": "failed", "summary": summary[:500], "evidence": [],
+            }
+            self.turn_failed = True
+            return
+        self.turn_outcome = self.pending_outcome or {
+            "outcome": "partial",
+            "summary": (summary or "Janus outcome 계약이 지켜지지 않음")[:500],
+            "evidence": [],
         }
-        self.turn_failed = not ok
+        self.turn_failed = False
+
+    def _take_outcome(self, text: str) -> str:
+        """표시용 텍스트에서 outcome 블록을 떼고 판정을 보관한다."""
+        cleaned, outcome = extract_outcome(text)
+        if outcome is not None:
+            self.pending_outcome = outcome
+        return cleaned
 
     def _map_claude(self, event: dict) -> None:
         kind = event.get("type")
@@ -321,7 +442,8 @@ class CliOrchestration:
                         args=block.get("input") or {},
                         call_id=str(block.get("id") or ""),
                     )
-            text = "\n".join(texts)
+            text = self._take_outcome("\n".join(texts))
+            self.usage["steps"] += 1  # assistant 메시지 1건 = 모델 생성 1회
             if text:
                 self.last_text = text
                 self._emit("text_delta", text=text)
@@ -363,7 +485,7 @@ class CliOrchestration:
                 "usage", prompt_tokens=prompt + cached,
                 completion_tokens=completion, cached_tokens=cached,
             )
-            result_text = str(event.get("result") or "").strip()
+            result_text = self._take_outcome(str(event.get("result") or ""))
             if result_text and result_text != self.last_text:
                 self.last_text = result_text
                 self.session.append("assistant", content=result_text)
@@ -376,14 +498,27 @@ class CliOrchestration:
     def _map_codex(self, event: dict) -> None:
         kind = event.get("type")
         item = event.get("item") or {}
-        if kind == "item.completed":
+        if kind == "thread.started":
+            # claude의 --resume과 같은 자리 — 이게 없으면 매 턴이 콜드 스타트다.
+            thread_id = str(event.get("thread_id") or "")
+            if thread_id and thread_id != self.cli_session_id:
+                self.cli_session_id = thread_id
+                self.session.append("cli_session", id=thread_id)
+                self._emit("cli_session", provider=self.provider, id=thread_id)
+        elif kind == "item.completed":
             item_type = item.get("item_type") or item.get("type")
             if item_type == "agent_message" and item.get("text"):
-                text = str(item["text"])
-                self.last_text = text
-                self.session.append("assistant", content=text)
-                self._emit("text_delta", text=text)
-                self._emit("assistant", content=text)
+                text = self._take_outcome(str(item["text"]))
+                self.usage["steps"] += 1
+                self.last_text = text or self.last_text
+                if text:
+                    self.session.append("assistant", content=text)
+                    self._emit("text_delta", text=text)
+                    self._emit("assistant", content=text)
+            elif item_type == "file_change":
+                self._emit("tool_result", name="file_change", value={
+                    "content": json.dumps(item, ensure_ascii=False)[:4000],
+                })
             elif item_type == "reasoning" and item.get("text"):
                 self._emit("reasoning_delta", text=str(item["text"]))
             elif item_type == "command_execution":
@@ -406,10 +541,11 @@ class CliOrchestration:
             prompt = int(usage.get("input_tokens") or 0)
             cached = int(usage.get("cached_input_tokens") or 0)
             completion = int(usage.get("output_tokens") or 0)
-            self.usage["prompt_tokens"] += prompt
+            # claude 쪽과 같은 의미로 맞춘다 — 캐시 적중분도 프롬프트로 계산했다.
+            self.usage["prompt_tokens"] += prompt + cached
             self.usage["completion_tokens"] += completion
             self._emit(
-                "usage", prompt_tokens=prompt,
+                "usage", prompt_tokens=prompt + cached,
                 completion_tokens=completion, cached_tokens=cached,
             )
             self._finish(ok=True, summary=self.last_text or "turn completed")
@@ -446,17 +582,38 @@ def _self_check() -> None:
     runner._map_claude({"type": "user", "message": {"content": [
         {"type": "tool_result", "tool_use_id": "c1", "content": "file.txt"},
     ]}})
-    runner._map_claude({"type": "result", "subtype": "success", "result": "done",
-                        "usage": {"input_tokens": 10, "output_tokens": 2,
-                                  "cache_read_input_tokens": 5}})
+    runner._map_claude({
+        "type": "result", "subtype": "success",
+        "result": 'done\n<janus-outcome>{"outcome":"completed","summary":"고쳤다",'
+                  '"evidence":["cli_runner.py"]}</janus-outcome>',
+        "usage": {"input_tokens": 10, "output_tokens": 2,
+                  "cache_read_input_tokens": 5},
+    })
     assert runner.cli_session_id == "abc"
-    assert runner.turn_outcome and runner.turn_outcome["outcome"] == "completed"
+    assert runner.turn_outcome == {
+        "outcome": "completed", "summary": "고쳤다", "evidence": ["cli_runner.py"],
+    }, runner.turn_outcome
     assert runner.usage["prompt_tokens"] == 15 and runner.usage["completion_tokens"] == 2
+    assert runner.usage["steps"] == 1, runner.usage
     kinds = [event["kind"] for event in sent]
     assert kinds == ["cli_session", "tool_start", "text_delta", "assistant",
                      "tool_result", "usage", "assistant"], kinds
     assert [e["kind"] for e in runner.session.events] == [
         "cli_session", "assistant", "tool_result", "assistant"]
+    # outcome 블록은 사용자에게 보이는 텍스트에서 지워진다.
+    assert runner.session.events[-1]["content"] == "done", runner.session.events[-1]
+    # 블록이 없으면 로컬의 "finish_turn was not called"와 같은 partial로 남는다.
+    bare = CliOrchestration(
+        {"provider": "codex"}, send=[].append,
+        workspace_context=context, task_id="t", session_id="s",
+    )
+    bare._map_codex({"type": "thread.started", "thread_id": "th-1"})
+    bare._map_codex({"type": "item.completed", "item": {
+        "item_type": "agent_message", "text": "다 했습니다"}})
+    bare._map_codex({"type": "turn.completed", "usage": {}})
+    assert bare.turn_outcome["outcome"] == "partial", bare.turn_outcome
+    assert bare._command("again")[:4] == [
+        CLI_BINS["codex"](), "exec", "resume", "--json"], bare._command("again")
     print("cli_runner self-check ok")
 
 

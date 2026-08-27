@@ -364,7 +364,7 @@ acceptance 기준에서 처리량과 품질이 함께 올라야 개선이다.
 
 - 범용 프로젝트 관리 또는 Jira 대체
 - 클라우드 모델·호스팅 판매
-- 외부 API 모델 또는 구독형 CLI 통합 — 필요성이 검증되기 전까지 보류
+- 외부 API 모델 통합 — 필요성이 검증되기 전까지 보류
 - 자체 Git 서버나 코드 호스팅
 - 무제한 재귀형 자율 에이전트 조직
 - IDE 전체 언어 서버 기능의 재구현
@@ -375,5 +375,24 @@ acceptance 기준에서 처리량과 품질이 함께 올라야 개선이다.
 
 Janus v1.0의 Task·worktree·scheduler·review·평가·배포 기반은 완료됐다. v1.1은
 로컬 모델의 문맥 효율을 높이기 위해 Skill Library, 외부 `SKILL.md` 컴파일,
-AgentProfile 활성화, 세션별 지연 로딩을 추가했다. 외부 모델·구독형 CLI agent는
-여전히 제품 가정이 아니며, 로컬 TaskSuite가 필요를 입증할 때만 다시 판단한다.
+AgentProfile 활성화, 세션별 지연 로딩을 추가했다. 외부 API 모델은 여전히 제품
+가정이 아니며, 로컬 TaskSuite가 필요를 입증할 때만 다시 판단한다.
+
+### 구독형 CLI 실행기 (v1.0.21~)
+
+Claude 구독(`claude`)과 ChatGPT 구독(`codex`)을 AgentProfile로 고를 수 있다. 로컬
+모델이 없는 환경에서도 Janus를 쓰기 위한 실행기이지, 별도의 제품 축이 아니다.
+
+**지키는 것 — 에이전트 계약.** 대화당 1회, `personas/janus.md` + 
+`builtin_skills/task-contract` + `policies/coding-rules.md`를 로컬 경로와 같은
+소스에서 주입한다. 도구가 없는 두 지점만 `CLI adapter` 섹션이 대체한다.
+
+- `create_worker` 없음 → CLI 자체 서브에이전트를 쓰거나 직접 수행한다.
+- `finish_turn` 없음 → 최종 답변 끝의 `<janus-outcome>` 블록이 턴 결과를 선언한다.
+  블록이 없으면 로컬에서 `finish_turn`을 부르지 않은 턴과 같이 `partial`로 정착한다.
+
+**지키지 않는 것.** 워커 오케스트레이션, 예산 강제, 컨텍스트 압축, 도구 승인
+게이트, 파일 소유권 임대는 이 경로에 적용되지 않는다. CLI가 자체 루프에서
+워크스페이스 worktree에 직접 쓰고, Janus는 git diff와 커밋 게이트로 사후 검토한다.
+사용자 개인 전역 설정(`~/.claude` 훅·플러그인·MCP, `~/.codex/config.toml`)은
+Janus 턴에서 제외한다 — 레포의 `CLAUDE.md`/`AGENTS.md`는 계속 읽는다.

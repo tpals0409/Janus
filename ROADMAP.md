@@ -453,9 +453,11 @@ wall time이 63% 증가했다. `fixed_one`은 작은 두 fixture에서 18~23% �
 ### 현재 커밋하지 않는 선택적 확장
 
 - 외부 API 모델
-- Codex·Claude Code 같은 구독형 CLI agent
 - SSH/원격 Janus runtime
 - 외부 cloud VM
+
+Codex·Claude Code 같은 구독형 CLI agent는 v1.0.21에서 실행기로 편입됐다
+(계약 범위는 [PRODUCT.md](PRODUCT.md)의 "구독형 CLI 실행기" 참조).
 
 이 항목은 로컬 TaskSuite에서 병목이 확인되고 외부 실행이 그 병목을 해결한다는 근거가 생긴 뒤
 별도 제품 결정으로 연다. 현재 도메인과 UI는 이를 미리 가정하지 않는다.
@@ -486,4 +488,5 @@ wall time이 63% 증가했다. `fixed_one`은 작은 두 fixture에서 18~23% �
 4. Task 실행 화면에 컨텍스트 소스·token·압축 상태 검사기 제공
 5. 전역 컨텍스트 메뉴 제거, 정책과 실행 상태의 소유권 분리
 
-외부 API 모델·구독형 CLI agent·원격 runtime은 별도 제품 판단 전까지 범위 밖으로 둔다.
+외부 API 모델·원격 runtime은 별도 제품 판단 전까지 범위 밖으로 둔다. 구독형 CLI agent는
+v1.0.21에서 실행기로 편입됐다.
