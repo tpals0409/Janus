@@ -551,10 +551,40 @@ describe('컴포저 모델 선택', () => {
     const user = userEvent.setup()
     render(<App />)
 
-    const select = screen.getByLabelText('모델 선택')
-    expect(select).toBeVisible()
-    await user.selectOptions(select, 'agent_claude_code')
+    const trigger = screen.getByRole('combobox', { name: '모델 선택' })
+    expect(trigger).toBeVisible()
+    await user.click(trigger)
+    await user.click(await screen.findByRole('option', { name: /Claude Code/ }))
     expect(useStore.getState().selectedAgentProfileId).toBe('agent_claude_code')
     expect(screen.getByText('새 시도부터')).toBeVisible()
+  })
+
+  it('drives the composer listbox with the keyboard and closes on Escape', async () => {
+    window.history.replaceState({}, '', '/?fixture=task-runtime')
+    seedTaskRuntimeVisualFixture()
+    const session = useStore.getState().taskSession!
+    useStore.setState({
+      taskConnected: true, serverUp: true, mlxUp: true,
+      agentProfiles: [
+        { id: session.agent_profile_id, name: 'Janus Local',
+          budget: { queue: { priority: 0, timeout_ms: 300000 } } },
+        { id: 'agent_claude_code', name: 'Claude Code (구독)',
+          budget: { queue: { priority: 0, timeout_ms: 300000 } } }
+      ] as never,
+      selectedAgentProfileId: session.agent_profile_id
+    })
+    const user = userEvent.setup()
+    render(<App />)
+
+    const trigger = screen.getByRole('combobox', { name: '모델 선택' })
+    trigger.focus()
+    await user.keyboard('{ArrowDown}')            // 닫힌 상태에서 화살표 = 열기
+    expect(await screen.findByRole('listbox')).toBeVisible()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(useStore.getState().selectedAgentProfileId).toBe(session.agent_profile_id)
+
+    await user.keyboard('{ArrowDown}{ArrowDown}{Enter}')
+    expect(useStore.getState().selectedAgentProfileId).toBe('agent_claude_code')
   })
 })

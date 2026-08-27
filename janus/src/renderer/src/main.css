@@ -1523,7 +1523,8 @@ button {
 .agent-profile-picker { position: relative; display: flex; width: 190px; height: 36px; flex: none; align-items: center; gap: 8px; border: 1px solid var(--border-subtle); border-radius: 9px; padding: 0 10px; background: var(--bg-canvas); color: var(--text-muted); }
 .agent-profile-picker:hover, .agent-profile-picker:focus-within { border-color: var(--border-strong); background: var(--bg-hover); color: var(--text-primary); }
 .agent-profile-picker__identity { min-width: 0; flex: 1; }
-.agent-profile-picker select { width: 100%; cursor: pointer; appearance: none; border: 0; background: transparent; color: var(--text-primary); font-size: 11px; font-weight: 550; outline: none; }
+.agent-profile-picker__trigger { min-height: 0; gap: 6px; border: 0; border-radius: 0; background: transparent; padding: 0; color: var(--text-primary); font-size: 11px; font-weight: 550; }
+.agent-profile-picker__trigger:hover:not(:disabled), .agent-profile-picker__trigger[aria-expanded='true'] { border-color: transparent; }
 .agent-profile-picker__ready { width: 6px; height: 6px; flex: none; border-radius: 999px; background: var(--success); box-shadow: 0 0 0 2px color-mix(in srgb, var(--success) 12%, transparent); }
 
 .agent-overview { height: 100%; min-height: 0; overflow: hidden; background: var(--bg-canvas); }
@@ -1768,6 +1769,91 @@ button {
   align-items: center;
   gap: var(--space-2);
   border-bottom: 1px solid var(--border-subtle);
+}
+
+/* 목록 상자 — 네이티브 select 대신. 트리거는 .ui-input과 같은 필드 모양,
+   목록은 body 포털이라 조상 overflow에 잘리지 않는다. */
+.ui-listbox {
+  display: flex;
+  min-height: 34px;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  padding: 0 9px 0 10px;
+  color: var(--text-primary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+}
+
+.ui-listbox:hover:not(:disabled) { border-color: var(--border-strong); }
+.ui-listbox[aria-expanded='true'],
+.ui-listbox:focus-visible { border-color: var(--focus-border); }
+.ui-listbox:disabled { color: var(--text-disabled); cursor: default; }
+.ui-listbox > svg { flex: none; color: var(--text-muted); }
+
+.ui-listbox--compact {
+  min-height: 28px;
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+}
+
+.ui-listbox__value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ui-listbox__list {
+  position: fixed;
+  z-index: 60;
+  max-height: min(320px, 50vh);
+  overflow-y: auto;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  box-shadow: var(--floating-shadow);
+  padding: var(--space-1);
+}
+
+.ui-listbox__option {
+  display: flex;
+  width: 100%;
+  min-height: 30px;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  padding: 0 var(--space-2);
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* 마우스 hover와 키보드 커서를 한 표시로 합친다 — 두 개가 동시에 보이면
+   어느 쪽이 Enter로 선택될지 읽히지 않는다. */
+.ui-listbox__option[data-active] { background: var(--bg-hover); color: var(--text-primary); }
+.ui-listbox__option:disabled { color: var(--text-disabled); cursor: default; }
+.ui-listbox__option > svg { flex: none; opacity: 0; color: var(--color-accent-fg); }
+.ui-listbox__option[aria-selected='true'] > svg { opacity: 1; }
+.ui-listbox__option > span {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ui-listbox__option > small {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 10px;
 }
 
 .ui-menu {
@@ -2106,19 +2192,10 @@ button {
   border-color: var(--focus-border);
 }
 
+/* 런타임 카드의 프로필 Listbox — 모양은 .ui-listbox가 갖고 여기선 폭만 정한다. */
 .task-select {
   min-width: 150px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  background: var(--bg-surface);
-  padding: 6px 28px 6px 9px;
-  color: var(--color-fg);
   font-size: 10.5px;
-  outline: none;
-}
-
-.task-select:focus {
-  border-color: var(--focus-border);
 }
 
 .task-runtime-card {
@@ -3062,7 +3139,7 @@ textarea:focus-visible {
   gap: 5px;
 }
 .settings-field__name { font-size: 11.5px; font-weight: 600; }
-.settings-field select,
+/* select는 전부 Listbox로 옮겼다 — 남은 건 숫자 입력뿐. */
 .settings-field input[type='number'] {
   height: 28px;
   border: 1px solid var(--color-border-strong);
@@ -3072,16 +3149,6 @@ textarea:focus-visible {
   color: var(--color-fg);
   font-size: 11.5px;
 }
-.settings-field select {
-  appearance: none;
-  cursor: pointer;
-  padding-right: 26px;
-  background-image: var(--select-chevron);
-  background-repeat: no-repeat;
-  background-position: right 8px center;
-}
-.settings-field select:hover:not(:disabled) { border-color: var(--border-strong); }
-.settings-field select:disabled { cursor: default; color: var(--color-disabled); }
 .settings-field em {
   font-style: normal;
   font-size: 10px;
@@ -3189,20 +3256,22 @@ textarea:focus-visible {
   background: var(--bg-hover);
   color: var(--text-secondary);
 }
-.janus-composer__model select {
+.janus-composer__model-trigger {
+  min-height: 0;
+  width: auto;
   max-width: 150px;
-  appearance: none;
+  gap: 4px;
   border: 0;
+  border-radius: 0;
   background: transparent;
   padding: 0;
   color: var(--text-secondary);
   font-size: 11px;
-  text-overflow: ellipsis;
-  cursor: pointer;
-  outline: none;
 }
-.janus-composer__model:hover select,
-.janus-composer__model:focus-within select { color: var(--color-fg); }
+.janus-composer__model-trigger:hover:not(:disabled),
+.janus-composer__model-trigger[aria-expanded='true'] { border-color: transparent; }
+.janus-composer__model:hover .janus-composer__model-trigger,
+.janus-composer__model:focus-within .janus-composer__model-trigger { color: var(--color-fg); }
 .janus-composer__model em {
   font-style: normal;
   font-size: 9.5px;

@@ -39,6 +39,24 @@ export function closeAllLiveRuntimes(): void {
 
 export const ORCH_ID = 'orchestrator'
 
+const PROVIDER_HINT: Record<string, string> = {
+  local: '로컬', claude_code: '구독', codex: '구독'
+}
+
+/** 모델 선택 목록 — 이름 옆에 로컬/구독을 붙인다.
+ *  프로필 피커가 네 곳(Shell·설정·컴포저·런타임 카드)이라 여기서 한 번만 만든다. */
+export function useAgentProfileOptions(): { value: string; label: string; hint?: string }[] {
+  const profiles = useStore((state) => state.agentProfiles)
+  const models = useStore((state) => state.modelProfiles)
+  return profiles.map((profile) => ({
+    value: profile.id,
+    label: profile.name,
+    hint: PROVIDER_HINT[
+      models.find((model) => model.id === profile.model_profile_id)?.provider ?? 'local'
+    ]
+  }))
+}
+
 function optimisticUserMessage(session: AgentSessionDetail, text: string, events: SessionEvent[]): SessionEvent {
   return {
     session_id: session.id,

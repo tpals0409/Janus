@@ -51,9 +51,13 @@ describe('SettingsPage', () => {
     })
     const user = userEvent.setup()
     render(<SettingsPage />)
-    const select = await screen.findByLabelText(/모델 \(에이전트 프로필\)/)
-    await user.selectOptions(select, 'agent_claude_code')
+    const trigger = await screen.findByRole('combobox', { name: /모델 \(에이전트 프로필\)/ })
+    await user.click(trigger)
+    await user.click(await screen.findByRole('option', { name: /Claude Code/ }))
     expect(useStore.getState().selectedAgentProfileId).toBe('agent_claude_code')
+    // 선택하면 목록이 닫히고 포커스가 트리거로 돌아온다.
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(trigger).toHaveFocus()
     useStore.setState({ agentProfiles: [], selectedAgentProfileId: 'agent_default' })
   })
 

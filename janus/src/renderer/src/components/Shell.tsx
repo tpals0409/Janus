@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { useStore } from '../store'
-import { Settings, Bot, ChevronDown } from 'lucide-react'
-import { Status } from './ui'
+import { useAgentProfileOptions, useStore } from '../store'
+import { Settings, Bot } from 'lucide-react'
+import { Listbox, Status } from './ui'
 
 const MODEL_LOAD_KEY = 'janus.model-load-seconds'
 
@@ -36,19 +36,22 @@ function useModelLoadSeconds(loading: boolean): { elapsed: number | null; lastSe
 }
 
 export function AgentProfilePicker() {
-  const profiles = useStore((state) => state.agentProfiles)
+  const options = useAgentProfileOptions()
   const selectedId = useStore((state) => state.selectedAgentProfileId)
   const selectProfile = useStore((state) => state.selectAgentProfile)
 
   return <div className="agent-profile-picker">
     <Bot size={14} strokeWidth={1.5} aria-hidden="true" />
     <div className="agent-profile-picker__identity">
-      <select value={selectedId} onChange={(event) => selectProfile(event.target.value)} aria-label="에이전트 프로필 선택">
-        {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
-      </select>
+      <Listbox
+        label="에이전트 프로필 선택"
+        value={selectedId}
+        options={options}
+        onChange={selectProfile}
+        className="agent-profile-picker__trigger"
+      />
     </div>
     <span className="agent-profile-picker__ready" aria-label="모델 준비" />
-    <ChevronDown size={12} strokeWidth={1.5} aria-hidden="true" />
   </div>
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Loader2, Settings } from 'lucide-react'
-import { useStore } from '../store'
+import { useAgentProfileOptions, useStore } from '../store'
+import { Listbox } from './ui'
 import type { RuntimeSettingsSnapshot, RuntimeSettingsValues } from '../types'
 
 const MTP_LABEL: Record<RuntimeSettingsValues['mtpPolicy'], string> = {
@@ -15,6 +16,7 @@ export default function SettingsPage() {
   const modelProfiles = useStore((state) => state.modelProfiles)
   const selectedAgentProfileId = useStore((state) => state.selectedAgentProfileId)
   const selectAgentProfile = useStore((state) => state.selectAgentProfile)
+  const profileOptions = useAgentProfileOptions()
   const selectedProvider = modelProfiles.find((model) =>
     model.id === agentProfiles.find((profile) => profile.id === selectedAgentProfileId)?.model_profile_id
   )?.provider ?? 'local'
@@ -80,18 +82,17 @@ export default function SettingsPage() {
         <section className="task-card settings-section">
           <h3>모델</h3>
           {agentProfiles.length > 0 ? (
-            <label className="settings-field">
+            <div className="settings-field">
               <span className="settings-field__name">모델 (에이전트 프로필)</span>
-              <select
+              <Listbox
+                label="모델 (에이전트 프로필)"
                 value={selectedAgentProfileId}
-                onChange={(event) => selectAgentProfile(event.target.value)}
-              >
-                {agentProfiles.map((profile) => (
-                  <option key={profile.id} value={profile.id}>{profile.name}</option>
-                ))}
-              </select>
+                options={profileOptions}
+                onChange={selectAgentProfile}
+                compact
+              />
               <em>즉시 저장되며 새 시도·새 대화부터 적용됩니다. 진행 중인 세션은 시작 시점의 모델을 유지합니다.</em>
-            </label>
+            </div>
           ) : (
             <p className="text-[11px] text-faint">프로필을 불러오는 중입니다.</p>
           )}
@@ -122,21 +123,20 @@ export default function SettingsPage() {
                 </em>
               </label>
 
-              <label className="settings-field">
+              <div className="settings-field">
                 <span className="settings-field__name">MTP (speculative decoding)</span>
-                <select
+                <Listbox
+                  label="MTP (speculative decoding)"
                   value={draft.mtpPolicy}
+                  options={(['required', 'preferred', 'off'] as const).map((policy) => ({
+                    value: policy, label: MTP_LABEL[policy]
+                  }))}
+                  onChange={(policy) => setDraft({ ...draft, mtpPolicy: policy })}
                   disabled={snapshot.locked.mtpPolicy || !draft.localServer}
-                  onChange={(event) => setDraft({
-                    ...draft, mtpPolicy: event.target.value as RuntimeSettingsValues['mtpPolicy']
-                  })}
-                >
-                  {(['required', 'preferred', 'off'] as const).map((policy) => (
-                    <option key={policy} value={policy}>{MTP_LABEL[policy]}</option>
-                  ))}
-                </select>
+                  compact
+                />
                 {snapshot.locked.mtpPolicy && <em>JANUS_MTP_POLICY 환경변수로 고정됨</em>}
-              </label>
+              </div>
 
               <label className="settings-field">
                 <span className="settings-field__name">모델 동시 생성 슬롯</span>

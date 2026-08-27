@@ -2,11 +2,14 @@ import type {
   ButtonHTMLAttributes,
   HTMLAttributes,
   InputHTMLAttributes,
+  KeyboardEvent as ReactKeyboardEvent,
   ReactNode,
   SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from 'react'
-import { useEffect, useId, useRef } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { Check, ChevronDown } from 'lucide-react'
 
 export function cx(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(' ')
@@ -193,6 +196,178 @@ export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectE
 
 export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return <textarea className={cx('ui-input', 'ui-textarea', className)} {...props} />
+}
+
+export type ListboxOption<T extends string> = {
+  value: T
+  label: string
+  /** 라벨 오른쪽 보조 텍스트 — 프로바이더 구분 등 */
+  hint?: string
+  disabled?: boolean
+}
+
+/** 네이티브 select 대신 쓰는 목록 상자.
+ *
+ *  네이티브 select는 트리거를 아무리 스타일해도 열린 목록이 OS 메뉴로 그려져
+ *  앱 UI와 어긋난다. 목록을 body 포털로 띄우는 이유는 `.janus-composer`처럼
+ *  `overflow: hidden`인 조상이 in-flow 팝업을 잘라내기 때문이다.
+ *
+ *  ARIA 1.2 select-only combobox 패턴 — 포커스는 트리거에 남고 활성 옵션은
+ *  aria-activedescendant로 가리킨다.
+ */
+export function Listbox<T extends string>({
+  value,
+  options,
+  onChange,
+  label,
+  placement = 'auto',
+  compact = false,
+  disabled = false,
+  className,
+  listClassName,
+}: {
+  value: T
+  options: readonly ListboxOption<T>[]
+  onChange: (value: T) => void
+  label: string
+  placement?: 'auto' | 'top' | 'bottom'
+  compact?: boolean
+  disabled?: boolean
+  className?: string
+  listClassName?: string
+}) {
+  const id = useId()
+  const trigger = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false)
+  const [cursor, setCursor] = useState(0)
+  const [box, setBox] = useState<{ left: number; top?: number; bottom?: number; width: number } | null>(null)
+  const selectedIndex = options.findIndex((option) => option.value === value)
+  const selected = options[selectedIndex]
+
+  const openList = () => {
+    const rect = trigger.current?.getBoundingClientRect()
+    if (disabled || options.length === 0 || !rect) return
+    // 컴포저처럼 화면 아래쪽에 붙은 트리거는 위로 열려야 목록이 잘리지 않는다.
+    const below = window.innerHeight - rect.bottom
+    const dropUp = placement === 'top' || (placement === 'auto' && below < 200 && rect.top > below)
+    setBox({
+      left: rect.left,
+      width: rect.width,
+      ...(dropUp ? { bottom: window.innerHeight - rect.top + 6 } : { top: rect.bottom + 6 }),
+    })
+    setCursor(selectedIndex < 0 ? 0 : selectedIndex)
+    setOpen(true)
+  }
+
+  const close = () => {
+    setOpen(false)
+    trigger.current?.focus()
+  }
+
+  const commit = (index: number) => {
+    const option = options[index]
+    if (!option || option.disabled) return
+    if (option.value !== value) onChange(option.value)
+    close()
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const dismiss = (event: Event) => {
+      const target = event.target as HTMLElement | null
+      if (trigger.current?.contains(target as Node)) return  // 토글은 onClick이 처리
+      if (target?.closest?.(`[data-listbox="${id}"]`)) return
+      setOpen(false)
+    }
+    // 위치를 열 때 한 번만 재므로, 스크롤·리사이즈되면 떠 있는 채로 어긋난다.
+    const dismissOnMove = () => setOpen(false)
+    document.addEventListener('pointerdown', dismiss)
+    window.addEventListener('resize', dismissOnMove)
+    window.addEventListener('scroll', dismissOnMove, true)
+    return () => {
+      document.removeEventListener('pointerdown', dismiss)
+      window.removeEventListener('resize', dismissOnMove)
+      window.removeEventListener('scroll', dismissOnMove, true)
+    }
+  }, [open, id])
+
+  const move = (delta: number) => setCursor((index) => {
+    let next = index
+    for (let step = 0; step < options.length; step += 1) {
+      next = (next + delta + options.length) % options.length
+      if (!options[next].disabled) return next
+    }
+    return index
+  })
+
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (!open) {
+      if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key)) {
+        event.preventDefault()
+        openList()
+      }
+      return
+    }
+    if (event.key === 'Escape') { event.preventDefault(); close() }
+    else if (event.key === 'ArrowDown') { event.preventDefault(); move(1) }
+    else if (event.key === 'ArrowUp') { event.preventDefault(); move(-1) }
+    else if (event.key === 'Home') { event.preventDefault(); setCursor(0) }
+    else if (event.key === 'End') { event.preventDefault(); setCursor(options.length - 1) }
+    else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); commit(cursor) }
+    else if (event.key === 'Tab') setOpen(false)
+  }
+
+  return (
+    <>
+      <button
+        ref={trigger}
+        type="button"
+        disabled={disabled}
+        role="combobox"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={open ? `${id}-list` : undefined}
+        aria-activedescendant={open ? `${id}-option-${cursor}` : undefined}
+        aria-label={label}
+        className={cx('ui-listbox', compact && 'ui-listbox--compact', className)}
+        onClick={() => (open ? setOpen(false) : openList())}
+        onKeyDown={onKeyDown}
+      >
+        <span className="ui-listbox__value">{selected?.label ?? ''}</span>
+        <ChevronDown size={compact ? 11 : 13} strokeWidth={1.75} aria-hidden="true" />
+      </button>
+      {open && box && createPortal(
+        <div
+          id={`${id}-list`}
+          data-listbox={id}
+          role="listbox"
+          aria-label={label}
+          className={cx('ui-listbox__list', listClassName)}
+          style={{ left: box.left, top: box.top, bottom: box.bottom, minWidth: box.width }}
+        >
+          {options.map((option, index) => (
+            <button
+              key={option.value}
+              id={`${id}-option-${index}`}
+              type="button"
+              role="option"
+              aria-selected={option.value === value}
+              disabled={option.disabled}
+              data-active={index === cursor ? '' : undefined}
+              className="ui-listbox__option"
+              onMouseEnter={() => setCursor(index)}
+              onClick={() => commit(index)}
+            >
+              <Check size={12} strokeWidth={2.25} aria-hidden="true" />
+              <span>{option.label}</span>
+              {option.hint && <small>{option.hint}</small>}
+            </button>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </>
+  )
 }
 
 export function Checkbox({

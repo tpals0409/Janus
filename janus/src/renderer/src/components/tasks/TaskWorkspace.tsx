@@ -30,11 +30,11 @@ import {
   Zap
 } from 'lucide-react'
 import { janusApi } from '../../api'
-import { useStore } from '../../store'
+import { useAgentProfileOptions, useStore } from '../../store'
 import { useDomainEvent } from '../../domainEvents'
 import type { ApprovalRequest, ChangeLayer, ChangeSetFile, Project, Span, Task } from '../../types'
 import ContextInspector from './ContextInspector'
-import { Button, ConfirmDialog, EmptyState, Status } from '../ui'
+import { Button, ConfirmDialog, EmptyState, Listbox, Status } from '../ui'
 import { taskStatusMeta } from '../../taskStatus'
 
 interface TranscriptItem {
@@ -130,25 +130,24 @@ const FileView = lazy(() => import('../FileView'))
 const TaskMarkdown = lazy(() => import('./TaskMarkdown'))
 
 function ComposerModelSelect() {
-  const profiles = useStore((state) => state.agentProfiles)
+  const options = useAgentProfileOptions()
   const selected = useStore((state) => state.selectedAgentProfileId)
   const selectProfile = useStore((state) => state.selectAgentProfile)
   const session = useStore((state) => state.taskSession)
-  if (profiles.length === 0) return <span><Zap size={13} /> 로컬 에이전트</span>
+  if (options.length === 0) return <span><Zap size={13} /> 로컬 에이전트</span>
   const differs = Boolean(session && session.agent_profile_id !== selected)
   return (
     <span className="janus-composer__model" title="모델 선택 — 새 시도·새 대화부터 적용">
       <Zap size={13} />
-      <select
+      <Listbox
+        label="모델 선택"
         value={selected}
-        onChange={(event) => selectProfile(event.target.value)}
-        aria-label="모델 선택"
-      >
-        {profiles.map((profile) => (
-          <option key={profile.id} value={profile.id}>{profile.name}</option>
-        ))}
-      </select>
-      <ChevronDown size={11} strokeWidth={1.75} aria-hidden="true" />
+        options={options}
+        onChange={selectProfile}
+        placement="top"
+        compact
+        className="janus-composer__model-trigger"
+      />
       {differs && <em>새 시도부터</em>}
     </span>
   )
@@ -539,6 +538,7 @@ function WorkspaceCard({ task }: { task: Task }) {
 
 function TaskRuntimeCard({ task }: { task: Task }) {
   const profiles = useStore((state) => state.agentProfiles)
+  const profileOptions = useAgentProfileOptions()
   const profileSkills = useStore((state) => state.agentProfileSkills)
   const selectedProfileId = useStore((state) => state.selectedAgentProfileId)
   const selectProfile = useStore((state) => state.selectAgentProfile)
@@ -797,19 +797,18 @@ function TaskRuntimeCard({ task }: { task: Task }) {
           </div>
         </div>
         <div className="flex items-end gap-2">
-          <label>
+          <div>
             <span className="task-label">에이전트 프로필</span>
-            <select
+            <Listbox
+              label="에이전트 프로필 선택"
               value={selectedProfileId}
-              onChange={(event) => selectProfile(event.target.value)}
+              options={profileOptions}
+              onChange={selectProfile}
               disabled={busy}
+              compact
               className="task-select mt-1"
-            >
-              {profiles.map((profile) => (
-                <option key={profile.id} value={profile.id}>{profile.name}</option>
-              ))}
-            </select>
-          </label>
+            />
+          </div>
           <label>
             <span className="task-label">우선순위</span>
             <input
