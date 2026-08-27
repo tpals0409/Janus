@@ -1,0 +1,111 @@
+"""구독형 CLI 실행기 — 스트림 매핑·턴 실행·재개 인자·프로바이더 배선 테스트."""
+
+from __future__ import annotations
+
+import os
+import stat
+import tempfile
+import unittest
+from pathlib import Path
+
+os.environ.setdefault("JANUS_AUTH_TOKEN", "test-token")
+os.environ.setdefault("JANUS_ALLOWED_ORIGINS", "http://localhost:5173")
+
+from janus_server import cli_runner
+from janus_server.workspace import WorkspaceContext
+
+FAKE_CLAUDE = """#!/bin/sh
+cat <<'EOF'
+{"type":"system","subtype":"init","session_id":"cli-abc"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]}}
+{"type":"result","subtype":"success","result":"finished the task","usage":{"input_tokens":10,"output_tokens":3,"cache_read_input_tokens":4}}
+EOF
+"""
+
+
+def make_runner(tmp: str, provider: str = "claude_code") -> tuple[cli_runner.CliOrchestration, list[dict]]:
+    sent: list[dict] = []
+    context = WorkspaceContext(Path(tmp), "task-cli", "workspace-cli", "dispatch-cli")
+    runner = cli_runner.CliOrchestration(
+        {"provider": provider}, send=sent.append,
+        workspace_context=context, task_id="task-cli", session_id="session-cli",
+    )
+    return runner, sent
+
+
+class CliRunnerTests(unittest.TestCase):
+    def test_turn_runs_the_cli_and_maps_events_to_the_session_contract(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = Path(tmp) / "fake-claude"
+            stub.write_text(FAKE_CLAUDE)
+            stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+            os.environ["JANUS_CLAUDE_BIN"] = str(stub)
+            try:
+                runner, sent = make_runner(tmp)
+                runner.turn("do the thing")
+            finally:
+                os.environ.pop("JANUS_CLAUDE_BIN", None)
+
+        self.assertFalse(runner.turn_failed)
+        self.assertEqual("complete", runner.turn_outcome["outcome"])
+        self.assertEqual("cli-abc", runner.cli_session_id)
+        self.assertEqual({"prompt_tokens": 14, "completion_tokens": 3}, runner.usage)
+        kinds = [event["kind"] for event in sent]
+        self.assertEqual(
+            ["user", "cli_session", "text_delta", "assistant", "usage",
+             "assistant", "done"],
+            kinds,
+        )
+        usage = next(e for e in sent if e["kind"] == "usage")
+        self.assertEqual(4, usage["cached_tokens"])
+        # 다음 턴은 --resume으로 이어진다.
+        self.assertIn("--resume", runner._command("again"))
+        self.assertEqual(
+            ["user", "cli_session", "assistant", "assistant"],
+            [event["kind"] for event in runner.session.events],
+        )
+
+    def test_missing_cli_fails_the_turn_with_guidance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["JANUS_CLAUDE_BIN"] = str(Path(tmp) / "nope")
+            try:
+                runner, _sent = make_runner(tmp)
+                with self.assertRaises(RuntimeError) as caught:
+                    runner.turn("hello")
+            finally:
+                os.environ.pop("JANUS_CLAUDE_BIN", None)
+        self.assertIn("설치되어 있지 않습니다", str(caught.exception))
+        self.assertTrue(runner.turn_failed)
+
+    def test_codex_events_map_to_commands_and_usage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runner, sent = make_runner(tmp, provider="codex")
+        runner._map_codex({"type": "item.completed", "item": {
+            "item_type": "command_execution", "id": "i1",
+            "command": "ls", "aggregated_output": "file.txt", "exit_code": 0,
+        }})
+        runner._map_codex({"type": "item.completed", "item": {
+            "item_type": "agent_message", "text": "all done",
+        }})
+        runner._map_codex({"type": "turn.completed", "usage": {
+            "input_tokens": 7, "cached_input_tokens": 2, "output_tokens": 1,
+        }})
+        self.assertEqual("complete", runner.turn_outcome["outcome"])
+        self.assertEqual(
+            ["tool_start", "tool_result", "text_delta", "assistant", "usage"],
+            [event["kind"] for event in sent],
+        )
+
+    def test_transcript_restore_recovers_the_cli_session_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runner, _ = make_runner(tmp)
+        runner.restore_transcript([
+            {"kind": "user", "content": "hi"},
+            {"kind": "cli_session", "id": "old-1"},
+            {"kind": "assistant", "content": "ok"},
+        ])
+        self.assertEqual("old-1", runner.cli_session_id)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -17,7 +17,7 @@ from typing import Any
 
 from .budget import empty_usage, merge_budget, normalize_budget
 
-CURRENT_SCHEMA_VERSION = 25
+CURRENT_SCHEMA_VERSION = 26
 
 DEFAULT_CONTEXT_POLICY = {
     "max_chars": 24_000,
@@ -177,7 +177,7 @@ CREATE TABLE projects (
 CREATE TABLE model_profiles (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    provider TEXT NOT NULL CHECK(provider = 'local'),
+    provider TEXT NOT NULL CHECK(provider IN ('local','claude_code','codex')),
     model_key TEXT NOT NULL,
     quantization TEXT NOT NULL,
     config_json TEXT NOT NULL DEFAULT '{}',
@@ -672,6 +672,25 @@ CREATE TABLE worker_outcomes (
 CREATE INDEX idx_worker_outcomes_task ON worker_outcomes(task_id,created_at DESC);
 """
 
+# 구독형 CLI 실행기(Claude Code·Codex)를 모델 프로바이더로 받는다.
+# SQLite는 CHECK를 못 바꾸므로 테이블을 재생성해 복사한다.
+MIGRATION_26 = """
+CREATE TABLE model_profiles_v26 (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    provider TEXT NOT NULL CHECK(provider IN ('local','claude_code','codex')),
+    model_key TEXT NOT NULL,
+    quantization TEXT NOT NULL,
+    config_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(provider, model_key, quantization)
+);
+INSERT INTO model_profiles_v26 SELECT * FROM model_profiles;
+DROP TABLE model_profiles;
+ALTER TABLE model_profiles_v26 RENAME TO model_profiles;
+"""
+
 MIGRATIONS = {
     1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3, 4: MIGRATION_4,
     5: MIGRATION_5, 6: MIGRATION_6, 7: MIGRATION_7, 8: MIGRATION_8,
@@ -679,7 +698,7 @@ MIGRATIONS = {
     13: MIGRATION_13, 14: MIGRATION_14, 15: MIGRATION_15, 16: MIGRATION_16,
     17: MIGRATION_17, 18: MIGRATION_18, 19: MIGRATION_19, 20: MIGRATION_20,
     21: MIGRATION_21, 22: MIGRATION_22, 23: MIGRATION_23, 24: MIGRATION_24,
-    25: MIGRATION_25,
+    25: MIGRATION_25, 26: MIGRATION_26,
 }
 
 
@@ -775,6 +794,34 @@ class DomainStore:
                     _json(normalize_budget(None)), now, now,
                 ),
             )
+            # 구독형 CLI 실행기 프로필 — 선택은 기존 AgentProfile 피커로 한다.
+            for model_id, model_name, provider in (
+                ("model_claude_code", "Claude Code (구독)", "claude_code"),
+                ("model_codex", "Codex (구독)", "codex"),
+            ):
+                connection.execute(
+                    "INSERT OR IGNORE INTO model_profiles "
+                    "(id,name,provider,model_key,quantization,config_json,created_at,updated_at) "
+                    "VALUES (?,?,?,?,?,?,?,?)",
+                    (model_id, model_name, provider, "default", "subscription", "{}", now, now),
+                )
+            for agent_id, agent_name, description, model_id in (
+                ("agent_claude_code", "Claude Code (구독)",
+                 "Claude 구독으로 claude CLI를 실행기로 사용", "model_claude_code"),
+                ("agent_codex", "Codex (구독)",
+                 "ChatGPT 구독으로 codex CLI를 실행기로 사용", "model_codex"),
+            ):
+                connection.execute(
+                    "INSERT OR IGNORE INTO agent_profiles "
+                    "(id,name,description,system_prompt,tools_json,approval,worker_policy,max_steps,"
+                    "model_profile_id,budget_json,created_at,updated_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        agent_id, agent_name, description, "", _json([]),
+                        "auto", "none", 15, model_id,
+                        _json(normalize_budget(None)), now, now,
+                    ),
+                )
             default_tools = connection.execute(
                 "SELECT tools_json FROM agent_profiles WHERE id='agent_default'"
             ).fetchone()

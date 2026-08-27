@@ -779,3 +779,22 @@ QA 안전 기준 준수: janus-qa-fixture 격리 worktree, 모든 승인 자동 
   재시작 전 경고를 보여주고, supervisor가 새 spec/env로 다시 띄운다.
 - 테스트: 설정 파일 클램프·왕복(node:test), 다이얼로그 로드·변경 경고·저장
   IPC·env 잠금(`SettingsDialog.test.tsx`), 렌더러 34건·tsc 통과.
+
+## 2026-08-27 — 구독형 CLI 실행기: Claude Code·Codex 프로바이더
+
+- 구독 결제는 raw API를 주지 않는다 — 공식 통로는 각사 CLI(claude, codex)뿐.
+  ModelProfile 프로바이더를 local|claude_code|codex로 확장(마이그레이션 26,
+  스키마 v26)하고 "Claude Code (구독)"/"Codex (구독)" 모델·에이전트 프로필을
+  시드했다. 전환은 기존 AgentProfile 피커 그대로.
+- 새 `cli_runner.CliOrchestration`이 sessions의 Orchestration 표면(turn/
+  cancel_all/session.events/snapshot_*)을 덕타이핑으로 구현: 워크스페이스 cwd에서
+  CLI를 headless 스폰하고 구조화 스트림(claude stream-json, codex exec --json)을
+  Janus 세션 이벤트로 매핑한다 — 타임라인·말풍선·usage 스트립·변경사항 패널이
+  그대로 동작. claude는 `--resume`으로 대화가 이어지고(cli_session 이벤트로 재시작
+  복원), codex는 v1에서 턴마다 새 컨텍스트.
+- 경계: CLI가 자체 에이전트 루프를 돌므로 Janus 워커·예산·컨텍스트 압축·승인 UI는
+  이 경로에 적용되지 않는다(HEADLESS 권한: claude acceptEdits+Bash, codex
+  workspace-write). 사용자는 각 CLI에 구독 로그인이 되어 있어야 한다.
+- 테스트: 가짜 CLI로 턴 실행·이벤트 계약·usage(cached 포함)·resume 인자·미설치
+  안내·codex 매핑·재시작 복원 4건(`test_cli_runner.py`) + 시드 어서션 갱신,
+  Python 249건 통과.

@@ -11,7 +11,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
-from .. import adaptive, recovery, runtime, self_improvement, shared
+from .. import adaptive, cli_runner, recovery, runtime, self_improvement, shared
 from .. import domain as D
 from .. import scheduler as scheduler_mod
 from ..shared import (
@@ -44,6 +44,7 @@ def _task_runtime_spec(
         "name": profile["name"],
         "description": profile["description"],
         "model": model["model_key"],
+        "provider": model["provider"],
         "system_prompt": profile["system_prompt"],
         "tools": profile["tools"],
         "approval": profile["approval"],
@@ -609,20 +610,28 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
     def ensure_orchestration() -> runtime.Orchestration:
         nonlocal orch
         if orch is None:
-            orch = runtime.Orchestration(
-                spec,
-                send=send,
-                approver=approver,
-                workspace_context=context,
-                task_id=task_id,
-                session_id=session_id,
-                budget=spec["budget"],
-                budget_usage=dispatch["usage"],
-                on_skill_loaded=skill_loaded,
-                on_worker_outcome=persist_worker_outcome,
-                persisted_worker_outcomes=persisted_worker_outcomes,
-            )
-            orch.session.events = [dict(item) for item in transcript_events]
+            if cli_runner.is_cli_provider(spec.get("provider")):
+                # 구독형 CLI 실행기 — Janus 오케스트레이터 대신 CLI가 턴을 돈다.
+                orch = cli_runner.CliOrchestration(
+                    spec, send=send, workspace_context=context,
+                    task_id=task_id, session_id=session_id,
+                )
+                orch.restore_transcript(transcript_events)
+            else:
+                orch = runtime.Orchestration(
+                    spec,
+                    send=send,
+                    approver=approver,
+                    workspace_context=context,
+                    task_id=task_id,
+                    session_id=session_id,
+                    budget=spec["budget"],
+                    budget_usage=dispatch["usage"],
+                    on_skill_loaded=skill_loaded,
+                    on_worker_outcome=persist_worker_outcome,
+                    persisted_worker_outcomes=persisted_worker_outcomes,
+                )
+                orch.session.events = [dict(item) for item in transcript_events]
             with shared._TASK_RUNTIMES_LOCK:
                 existing = shared._TASK_RUNTIMES.get(session_id)
                 if existing is not None and existing is not orch:

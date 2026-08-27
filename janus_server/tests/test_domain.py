@@ -44,8 +44,18 @@ class DomainStoreTests(unittest.TestCase):
         self.assertEqual(CURRENT_SCHEMA_VERSION, self.store.schema_version())
         models = self.store.list_model_profiles()
         agents = self.store.list_agent_profiles()
-        self.assertEqual(["model_qwen38_27b_4bit"], [item["id"] for item in models])
-        self.assertEqual(["agent_default"], [item["id"] for item in agents])
+        self.assertEqual(
+            ["model_qwen38_27b_4bit", "model_claude_code", "model_codex"],
+            [item["id"] for item in models],
+        )
+        self.assertEqual(
+            {"local", "claude_code", "codex"},
+            {item["provider"] for item in models},
+        )
+        self.assertEqual(
+            ["agent_default", "agent_claude_code", "agent_codex"],
+            [item["id"] for item in agents],
+        )
         self.assertEqual("4-bit MLX", models[0]["quantization"])
         self.assertIn("run_bash", json.loads(agents[0]["tools_json"]))
         self.assertEqual("", agents[0]["system_prompt"])
