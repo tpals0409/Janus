@@ -18,10 +18,14 @@ def call_chunk(index: int, call_id: str, name: str, arguments: str):
             function=SimpleNamespace(name=name, arguments=arguments))]))])
 
 
-def usage_chunk():
-    return SimpleNamespace(
-        usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1, total_tokens=2),
-        choices=[])
+def usage_chunk(cached_tokens: int | None = None):
+    """cached_tokens=None이면 APC 미지원 서버(details 없음)를 흉내낸다."""
+    usage = SimpleNamespace(
+        prompt_tokens=1, completion_tokens=1, total_tokens=2)
+    if cached_tokens is not None:
+        usage.prompt_tokens_details = SimpleNamespace(
+            cached_tokens=cached_tokens)
+    return SimpleNamespace(usage=usage, choices=[])
 
 
 class FakeStream:

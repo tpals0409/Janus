@@ -643,9 +643,14 @@ class Orchestration:
             self.node_events.setdefault(node_id, []).append(ev)
             if kind == "usage":
                 u = self.node_usage.setdefault(
-                    node_id, {"prompt_tokens": 0, "completion_tokens": 0})
+                    node_id, {"prompt_tokens": 0, "completion_tokens": 0,
+                              "cached_tokens": 0})
                 u["prompt_tokens"] += data.get("prompt_tokens", 0)
                 u["completion_tokens"] += data.get("completion_tokens", 0)
+                # APC 적중 누적 — prompt_tokens 대비 비율이 실측 캐시 적중률
+                u["cached_tokens"] = (
+                    u.get("cached_tokens", 0) + data.get("cached_tokens", 0)
+                )
         self.send(ev)
 
     def _open_span(self, node_id: str, *, label: str | None,

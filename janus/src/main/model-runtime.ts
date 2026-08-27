@@ -65,8 +65,11 @@ export function buildMlxLaunchSpec(
   const draftArgs = draft && policy !== 'off'
     ? ` --draft-model ${shellQuote(draft)} --draft-kind mtp`
     : ''
+  // 서버 프롬프트 캐시(APC): 에이전트 루프의 안정 prefix(system+summary)를
+  // 요청 간 재사용해 prefill을 줄인다. JANUS_APC=0으로 끌 수 있다.
+  const apcEnv = process.env.JANUS_APC === '0' ? '' : 'APC_ENABLED=1 '
   return {
-    command: `uv run --frozen mlx_vlm.server --model ${shellQuote(model)} --port 8080${draftArgs}`,
+    command: `${apcEnv}uv run --frozen mlx_vlm.server --model ${shellQuote(model)} --port 8080${draftArgs}`,
     mtp
   }
 }

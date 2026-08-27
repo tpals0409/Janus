@@ -510,3 +510,19 @@ pnpm dev
   `context_token_target`이 `context_window` 이벤트로 노출된다.
 - 테스트: 무보정 시 기존 동작 동일·실측 비율로 조기 압축·클램프와 무시·보정 통계
   노출·run() 배선 5건(`test_context_calibration.py`), 전체 스위트 232건 통과.
+
+### 후속: 안정 prefix를 서버 프롬프트 캐시에 연결 (같은 날, P1-4)
+
+- 지금까지 `prompt_cache_probe`는 안정 prefix(system+summary) 재사용 "가능성"만 계측하고
+  실제 서버 캐시는 없었다. mlx_vlm.server의 APC(Automatic Prefix Caching, 블록 단위
+  KV 재사용)를 앱 기동 커맨드에서 `APC_ENABLED=1`로 켜서 프롬프트 캐시를 실제로 연결했다.
+  `JANUS_APC=0`으로 끌 수 있다(블록 풀 등 세부는 APC_* 환경변수).
+- 엔진이 usage의 `prompt_tokens_details.cached_tokens`(실측 적중)를 추출해 `usage`
+  이벤트로 전파하고, 런타임 `node_usage`에 노드별로 누적한다 — prompt_tokens 대비
+  비율이 곧 실측 캐시 적중률. APC 미지원 서버는 0으로 동작이 동일하다.
+- P1-3 보정과의 상호작용 없음: 서버는 캐시 적중과 무관하게 `prompt_tokens`에 전체
+  프롬프트 수를 보고하므로 chars/token 보정과 예산 회계는 그대로 정확하다.
+- 테스트: cached_tokens 추출·미보고 시 0·run() usage 이벤트 전파 3건
+  (`test_prompt_cache.py`), APC 기동 플래그와 opt-out 1건(`model-runtime.test.ts`).
+  Python 235건·Electron 22건 전체 통과. 실기기 27B 서버에서의 적중률 확인은 다음
+  QA 라운드에서 `usage.cached_tokens`로 본다.

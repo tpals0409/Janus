@@ -42,6 +42,23 @@ test('required MTP fails closed when its validated snapshot is absent', async ()
   }
 })
 
+test('server launch enables prompt caching unless JANUS_APC=0 opts out', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'janus-apc-'))
+  try {
+    config(root, 'models--orcarouter--Qwen3.8-27B-Uncensored-MLX', 'base', '4-bit')
+    config(root, 'models--mlx-community--Qwen3.8-27B-MTP-4bit', 'draft')
+    assert.match(buildMlxLaunchSpec(root).command, /^APC_ENABLED=1 uv run/)
+    process.env.JANUS_APC = '0'
+    try {
+      assert.doesNotMatch(buildMlxLaunchSpec(root).command, /APC_ENABLED/)
+    } finally {
+      delete process.env.JANUS_APC
+    }
+  } finally {
+    await rm(root, { recursive: true })
+  }
+})
+
 test('MTP activation and incompatible fallback are observable', () => {
   const state = buildMlxLaunchSpec('/missing').mtp
   assert.equal(observeMtpOutput(state, 'Drafter ready; speculative decoding enabled.'), 'active')

@@ -326,9 +326,15 @@ def _assemble(stream, emit, cancel=None) -> tuple[str, list[dict], dict | None]:
         # 마지막 청크(choices 비어있음)에 usage가 실려온다
         if getattr(chunk, "usage", None):
             u = chunk.usage
+            # 서버 APC가 켜져 있으면 prompt_tokens_details.cached_tokens로
+            # 실제 prefix cache 적중이 보고된다. 미지원 서버는 0.
+            details = getattr(u, "prompt_tokens_details", None)
             usage = {"prompt_tokens": u.prompt_tokens,
                      "completion_tokens": u.completion_tokens,
-                     "total_tokens": u.total_tokens}
+                     "total_tokens": u.total_tokens,
+                     "cached_tokens": int(
+                         getattr(details, "cached_tokens", 0) or 0
+                     )}
         if not chunk.choices:
             continue
         delta = chunk.choices[0].delta
@@ -436,7 +442,8 @@ def run(
             prefix_hash=context_stats["prefix_hash"],
             prefix_reused=context_stats["prefix_reused"],
             cache_candidate_chars=context_stats["cache_candidate_chars"],
-            # 서버 cache hit을 주장하지 않는다. 안정 prefix 재사용 가능성만 계측한다.
+            # 안정 prefix 재사용 가능성 계측. 실제 서버 적중은 usage 이벤트의
+            # cached_tokens(APC 실측)로 확인한다.
             mode="stable_prefix_probe",
         )
         # 실제 전송분을 트레이스에. 매 step 전체를 실으면 스팬이 비대해지므로
