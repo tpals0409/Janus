@@ -583,3 +583,22 @@ P1에서 "다음 라운드로 미룬다"고 기록한 표시 작업을 정리했
   P1-3·P1-4·P1-6의 실측 루프가 실기기에서 전부 닫혔다.
 - v1.0.11: P1 라운드(역할 재스폰 상한, 토큰 실측 압축, APC 연결, 워커 보고 상한,
   슬롯 게이트 실측)와 P2(Task 화면 실측 표시)를 묶은 릴리스.
+
+## 2026-08-27 — P4: 실사용 QA 라운드 (CHECKLIST §30-A P0)
+
+v1.0.11 앱(실제 27B + APC)에 WS 드라이버로 P0 시나리오 3종을 실측 실행했다.
+QA 안전 기준 준수: janus-qa-fixture 격리 worktree, 모든 승인 자동 거부, 종료 후 clean.
+
+- **결함 발견·수정** — 서킷 브레이커가 `"error" in value`(키 존재)로 실패를 계수해,
+  정상 worker view의 `error: None`까지 실패로 세어 wait_worker 3연속 후
+  `circuit_break:wait_worker`로 턴이 통합 답변 없이 종료됐다(outcome partial).
+  값 기반 판정으로 수정하고 회귀 테스트 2건 추가(`test_circuit_breaker.py`).
+- **단일 워커 위임 통과** — 워커 1개(verifier, read_file만), queued→running→completed,
+  finish_turn 통합 답변에 출처·핵심 포함, workers_started=1, worktree clean.
+- **두 워커 분할 통과 (08-23 실패 건 해소)** — 목표 분리된 scout 2개 동시 실행,
+  격리·통합·workers_started=2 일치, token_limit 붕괴·부모 edit_file 재현 안 됨.
+  관찰: create_worker 스키마 외 인자 2회는 엔진이 거부하고 모델이 자가 교정했으며,
+  scout 보고 품질 부실("!" 1자·step_limit partial)은 부모 보완 조사로 회복됐다.
+- **거짓 실행 방지 통과** — 단순 질문에 워커 0개, 직접 답변.
+- **잔존 결함(미해결 유지)** — 단순 읽기 위임에서 부모가 read_file을 1회 재실행
+  (단일·두 워커 모두 재현). CHECKLIST에 재현 Task ID로 기록.
