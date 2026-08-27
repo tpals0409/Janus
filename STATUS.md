@@ -573,3 +573,13 @@ P1에서 "다음 라운드로 미룬다"고 기록한 표시 작업을 정리했
   판정은 `/operations/dashboard` 스냅샷으로 조회한다(P1-6).
 - 테스트: ContextInspector 보정 표시·폴백 2건(`ContextInspector.test.tsx`),
   Electron 24건·tsc 통과.
+
+## 2026-08-27 — P3: 실기기 검증과 v1.0.11 릴리스
+
+- **실기기 27B 검증 PASS** — APC_ENABLED=1로 mlx_vlm.server를 띄우고 같은 세션에서
+  두 턴을 실행: 2턴째 usage가 `cached_tokens=36/57`(1턴 프롬프트 전체 적중)을 보고했고,
+  chars/token 보정이 4.0 휴리스틱에서 실측 3.57(2회)로 이동했으며, 스케줄러
+  vram_sizing이 대기 실측 2건을 수집해 `insufficient_samples`로 정직하게 유보했다.
+  P1-3·P1-4·P1-6의 실측 루프가 실기기에서 전부 닫혔다.
+- v1.0.11: P1 라운드(역할 재스폰 상한, 토큰 실측 압축, APC 연결, 워커 보고 상한,
+  슬롯 게이트 실측)와 P2(Task 화면 실측 표시)를 묶은 릴리스.
