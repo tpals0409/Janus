@@ -15,6 +15,28 @@ import {
 let openProjectSequence = 0
 let openTaskSequence = 0
 
+/** 세션 소켓은 화면 선택과 무관하게 살아 있다 — Task당 활성 런타임 하나.
+ *  어떤 페이지 이동도 세션을 멈추지 않는다: 뷰 상태만 갈아끼우고, 소켓·이벤트·
+ *  승인·턴 상태는 여기서 계속 쌓인다. 닫는 것은 명시적 행위(새 시도·중지·
+ *  프로젝트 제거)뿐이다. */
+type LiveSessionRuntime = {
+  session: AgentSessionDetail
+  socket: WebSocket
+  events: SessionEvent[]
+  approvals: ApprovalRequest[]
+  turnActive: boolean
+  connected: boolean
+  error: string | null
+}
+const liveRuntimes = new Map<string, LiveSessionRuntime>()
+
+export function closeAllLiveRuntimes(): void {
+  for (const runtime of liveRuntimes.values()) {
+    try { runtime.socket.close() } catch { /* 이미 닫힘 */ }
+  }
+  liveRuntimes.clear()
+}
+
 export const ORCH_ID = 'orchestrator'
 
 function optimisticUserMessage(session: AgentSessionDetail, text: string, events: SessionEvent[]): SessionEvent {
@@ -283,7 +305,7 @@ export const useStore = create<State>((set, get) => ({
     const sequence = ++openProjectSequence
     const projectDefault = get().projects.find((project) => project.id === id)
       ?.default_agent_profile_id
-    get().taskWs?.close()
+    // 화면 이동은 세션을 멈추지 않는다 — 소켓은 liveRuntimes에 살아 있다.
     set({
       projectId: id,
       tasks: [],
@@ -326,7 +348,24 @@ export const useStore = create<State>((set, get) => ({
 
   async selectTask(id) {
     const sequence = ++openTaskSequence
-    get().taskWs?.close()
+    const runtime = liveRuntimes.get(id)
+    const runtimeAlive = runtime && runtime.socket.readyState <= WebSocket.OPEN
+    if (
+      id === get().taskId && runtimeAlive
+      && get().taskSession?.id === runtime.session.id
+    ) {
+      // 같은 Task 재선택(사이드바 클릭·화면 복귀) — 세션은 그대로, 데이터만 갱신.
+      set({
+        taskWs: runtime.socket, taskConnected: runtime.connected,
+        taskTurnActive: runtime.turnActive,
+        taskSessionEvents: [...runtime.events],
+        taskApprovals: [...runtime.approvals],
+        taskRuntimeError: runtime.error
+      })
+      await get().refreshSelectedTask()
+      return
+    }
+    // 화면 이동은 세션을 멈추지 않는다 — 이전 Task의 소켓은 liveRuntimes에 남는다.
     set({
       taskId: id,
       task: null,
@@ -351,11 +390,36 @@ export const useStore = create<State>((set, get) => ({
       if (sequence !== openTaskSequence) return
       set({ task })
       await get().loadLatestTaskSession()
-      // 화면을 떠났다 돌아와도 대화가 이어져야 한다 — 재개 가능한 세션이면
-      // 자동 재연결한다. WS 라우트(created|idle)와 resume 게이트(queued|needs_you)
-      // 조건을 그대로 따르고, 이미 연결돼 있으면 건드리지 않는다.
+      // 화면을 떠났다 돌아와도 대화가 이어져야 한다. 살아 있는 런타임이 있으면
+      // (실행 중이어도) 그대로 재부착하고, 없으면 재개 가능한 세션에 자동
+      // 재연결한다. WS 라우트(created|idle)·resume 게이트(queued|needs_you) 준수.
       const latest = get().taskSession
+      const reattach = liveRuntimes.get(id)
       if (
+        sequence === openTaskSequence && reattach && latest
+        && reattach.session.id === latest.id
+        && reattach.socket.readyState <= WebSocket.OPEN
+      ) {
+        if (reattach.turnActive) {
+          // 자리 비운 사이의 라이브 이벤트까지 그대로 복원한다.
+          set({
+            taskWs: reattach.socket, taskConnected: reattach.connected,
+            taskTurnActive: true,
+            taskSessionEvents: [...reattach.events],
+            taskApprovals: [...reattach.approvals],
+            taskRuntimeError: reattach.error
+          })
+        } else {
+          // 유휴 런타임 — 영속 기록이 진실이므로 버퍼를 그쪽으로 맞춘다.
+          reattach.events = [...get().taskSessionEvents]
+          set({
+            taskWs: reattach.socket, taskConnected: reattach.connected,
+            taskTurnActive: false,
+            taskApprovals: [...reattach.approvals],
+            taskRuntimeError: reattach.error
+          })
+        }
+      } else if (
         sequence === openTaskSequence && !get().taskWs && latest
         && (latest.status === 'created' || latest.status === 'idle')
         && ['queued', 'needs_you'].includes(latest.dispatch.status)
@@ -419,6 +483,8 @@ export const useStore = create<State>((set, get) => ({
         set({ projects })
         return
       }
+      // 지워진 프로젝트의 세션 런타임은 명시적으로 종료한다.
+      closeAllLiveRuntimes()
       const next = projects[0]
       if (next) {
         set({ projects })
@@ -427,7 +493,7 @@ export const useStore = create<State>((set, get) => ({
       }
       openProjectSequence++
       openTaskSequence++
-      get().taskWs?.close()
+      closeAllLiveRuntimes()
       set({
         projects: [], projectId: null, tasks: [], taskId: null, task: null,
         taskSession: null, taskSessionEvents: [], taskWs: null, taskConnected: false,
@@ -1124,11 +1190,64 @@ export const useStore = create<State>((set, get) => ({
   },
 
   connectTaskSession(session, initialMessage) {
-    get().taskWs?.close()
+    const viewing = () => get().taskId === session.task_id
+      && get().taskSession?.id === session.id
+
+    const existing = liveRuntimes.get(session.task_id)
+    if (existing && existing.session.id === session.id
+        && existing.socket.readyState <= WebSocket.OPEN) {
+      // 이미 살아 있는 런타임 — 화면 재부착만 한다. 소켓은 건드리지 않는다.
+      if (viewing()) {
+        set({
+          taskWs: existing.socket, taskConnected: existing.connected,
+          taskTurnActive: existing.turnActive,
+          taskSessionEvents: [...existing.events],
+          taskApprovals: [...existing.approvals],
+          taskRuntimeError: existing.error
+        })
+      }
+      const trimmed = initialMessage?.trim()
+      if (trimmed && existing.socket.readyState === WebSocket.OPEN) {
+        existing.events = [
+          ...existing.events, optimisticUserMessage(session, trimmed, existing.events)
+        ]
+        existing.socket.send(JSON.stringify({ type: 'message', text: trimmed }))
+        existing.turnActive = true
+        if (viewing()) {
+          set({
+            taskSessionEvents: [...existing.events],
+            taskTurnActive: true, taskRuntimeError: null, pendingDelegation: null
+          })
+        }
+      }
+      return
+    }
+    if (existing) {
+      // 같은 Task의 다른 세션(새 시도) — 이전 런타임은 명시적으로 교체한다.
+      liveRuntimes.delete(session.task_id)
+      try { existing.socket.close() } catch { /* 이미 닫힘 */ }
+    }
+
     const socket = new WebSocket(
       websocketUrl(`/tasks/${session.task_id}/sessions/${session.id}`),
       ['janus', janusAuthToken()]
     )
+    const runtime: LiveSessionRuntime = {
+      session, socket,
+      events: [...get().taskSessionEvents],
+      approvals: [], turnActive: false, connected: false, error: null
+    }
+    liveRuntimes.set(session.task_id, runtime)
+    const sync = () => {
+      if (!viewing()) return
+      set({
+        taskWs: socket, taskConnected: runtime.connected,
+        taskTurnActive: runtime.turnActive,
+        taskSessionEvents: [...runtime.events],
+        taskApprovals: [...runtime.approvals],
+        taskRuntimeError: runtime.error
+      })
+    }
     set({
       taskWs: socket,
       taskConnected: false,
@@ -1138,26 +1257,24 @@ export const useStore = create<State>((set, get) => ({
     })
 
     socket.onopen = () => {
-      if (get().taskWs !== socket) return
-      set({ taskConnected: true })
+      runtime.connected = true
       const trimmed = initialMessage?.trim()
       if (trimmed) {
-        const events = get().taskSessionEvents
-        set({
-          taskSessionEvents: [...events, optimisticUserMessage(session, trimmed, events)],
-          pendingDelegation: null
-        })
+        runtime.events = [
+          ...runtime.events, optimisticUserMessage(session, trimmed, runtime.events)
+        ]
         socket.send(JSON.stringify({ type: 'message', text: trimmed }))
-        set({ taskTurnActive: true, taskRuntimeError: null })
+        runtime.turnActive = true
+        runtime.error = null
+        if (viewing()) set({ pendingDelegation: null })
       }
+      sync()
     }
     socket.onmessage = (message) => {
-      if (get().taskWs !== socket) return
       const payload = JSON.parse(message.data) as Record<string, unknown>
-      const current = get().taskSessionEvents
       const liveEvent: SessionEvent = {
         session_id: session.id,
-        seq: (current.at(-1)?.seq ?? 0) + 1,
+        seq: (runtime.events.at(-1)?.seq ?? 0) + 1,
         kind: String(payload.type ?? 'runtime'),
         payload,
         task_id: session.task_id,
@@ -1165,18 +1282,19 @@ export const useStore = create<State>((set, get) => ({
         workspace_id: session.workspace_id,
         created_at: new Date().toISOString()
       }
-      set({ taskSessionEvents: [...current, liveEvent] })
+      runtime.events = [...runtime.events, liveEvent]
 
       if (payload.type === 'run_error') {
-        set({ taskRuntimeError: String(payload.error ?? '작업 실행이 실패했습니다') })
+        runtime.error = String(payload.error ?? '작업 실행이 실패했습니다')
       } else if (payload.type === 'approval_request') {
         const request = payload as unknown as ApprovalRequest
-        if (!get().taskApprovals.some((item) => item.id === request.id)) {
-          set({ taskApprovals: [...get().taskApprovals, request] })
+        if (!runtime.approvals.some((item) => item.id === request.id)) {
+          runtime.approvals = [...runtime.approvals, request]
         }
       } else if (payload.type === 'approval_scope_granted') {
         const activeSession = get().taskSession
-        if (activeSession && !activeSession.approval_scopes?.some((item) => item.scope === payload.scope)) {
+        if (viewing() && activeSession
+            && !activeSession.approval_scopes?.some((item) => item.scope === payload.scope)) {
           set({ taskSession: {
             ...activeSession,
             approval_scopes: [...(activeSession.approval_scopes ?? []), {
@@ -1189,7 +1307,7 @@ export const useStore = create<State>((set, get) => ({
         }
       } else if (payload.type === 'approval_scope_revoked') {
         const activeSession = get().taskSession
-        if (activeSession) {
+        if (viewing() && activeSession) {
           set({ taskSession: {
             ...activeSession,
             approval_scopes: (activeSession.approval_scopes ?? []).filter(
@@ -1199,7 +1317,7 @@ export const useStore = create<State>((set, get) => ({
         }
       } else if (payload.type === 'skill_loaded') {
         const activeSession = get().taskSession
-        if (activeSession) {
+        if (viewing() && activeSession) {
           set({ taskSession: {
             ...activeSession,
             skills: (activeSession.skills ?? []).map((skill) =>
@@ -1215,38 +1333,40 @@ export const useStore = create<State>((set, get) => ({
           } })
         }
       } else if (payload.type === 'skill_load_failed') {
-        set({
-          taskRuntimeError: `스킬 ${String(payload.requested ?? '')} 로드 실패: ${String(payload.reason ?? '알 수 없는 오류')}`
-        })
+        runtime.error = `스킬 ${String(payload.requested ?? '')} 로드 실패: ${String(payload.reason ?? '알 수 없는 오류')}`
       } else if (payload.type === 'stale_dispatch') {
-        set({
-          taskRuntimeError: String(payload.error ?? '이 디스패치는 이미 만료됐습니다'),
-          taskTurnActive: false
-        })
-      } else if (payload.type === 'turn_end') {
-        set({ taskTurnActive: false, taskApprovals: [] })
-        void get().refreshSelectedTask()
-        void get().loadLatestTaskSession()
-      } else if (payload.type === 'session_stopped') {
-        set({ taskTurnActive: false, taskApprovals: [] })
-        void get().refreshSelectedTask()
-        void get().loadLatestTaskSession()
+        runtime.error = String(payload.error ?? '이 디스패치는 이미 만료됐습니다')
+        runtime.turnActive = false
+      } else if (payload.type === 'turn_end' || payload.type === 'session_stopped') {
+        runtime.turnActive = false
+        runtime.approvals = []
+        if (viewing()) {
+          void get().refreshSelectedTask()
+          void get().loadLatestTaskSession()
+        }
       }
+      sync()
     }
     socket.onerror = () => {
-      if (get().taskWs === socket) {
-        set({ taskRuntimeError: 'Task runtime에 연결할 수 없습니다', taskTurnActive: false })
-      }
+      runtime.error = 'Task runtime에 연결할 수 없습니다'
+      runtime.turnActive = false
+      sync()
     }
     socket.onclose = (event) => {
-      if (get().taskWs === socket) {
+      if (liveRuntimes.get(session.task_id) === runtime) {
+        liveRuntimes.delete(session.task_id)
+      }
+      runtime.connected = false
+      runtime.turnActive = false
+      if (event.code !== 1000) {
+        runtime.error = `세션 연결이 종료됐습니다 (code ${event.code})`
+      }
+      if (viewing()) {
         set({
           taskWs: null,
           taskConnected: false,
           taskTurnActive: false,
-          ...(event.code === 1000 ? {} : {
-            taskRuntimeError: `세션 연결이 종료됐습니다 (code ${event.code})`
-          })
+          ...(event.code === 1000 ? {} : { taskRuntimeError: runtime.error })
         })
       }
     }
@@ -1258,8 +1378,15 @@ export const useStore = create<State>((set, get) => ({
     if (!trimmed || !socket || socket.readyState !== WebSocket.OPEN) return
     const session = get().taskSession
     if (!session) return
+    const runtime = liveRuntimes.get(session.task_id)
     const events = get().taskSessionEvents
-    set({ taskSessionEvents: [...events, optimisticUserMessage(session, trimmed, events)] })
+    const optimistic = optimisticUserMessage(session, trimmed, events)
+    if (runtime && runtime.socket === socket) {
+      runtime.events = [...runtime.events, optimistic]
+      runtime.turnActive = true
+      runtime.error = null
+    }
+    set({ taskSessionEvents: [...events, optimistic] })
     socket.send(JSON.stringify({ type: 'message', text: trimmed }))
     set({ taskTurnActive: true, taskRuntimeError: null })
   },

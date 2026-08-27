@@ -1,8 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useStore } from './store'
+import { closeAllLiveRuntimes, useStore } from './store'
 
 class FakeSocket {
+  static CONNECTING = 0
+  static OPEN = 1
+  static CLOSING = 2
+  static CLOSED = 3
   static created: string[] = []
+  static closed = 0
   onopen: (() => void) | null = null
   onmessage: unknown = null
   onerror: unknown = null
@@ -11,7 +16,7 @@ class FakeSocket {
   constructor(url: string, _protocols?: string[]) {
     FakeSocket.created.push(url)
   }
-  close() {}
+  close() { FakeSocket.closed += 1 }
   send() {}
 }
 
@@ -44,8 +49,10 @@ function stubFetch(latest: unknown): void {
 
 describe('selectTask auto-reconnect', () => {
   afterEach(() => {
+    closeAllLiveRuntimes()
     FakeSocket.created = []
-    useStore.setState({ taskWs: null, taskSession: null })
+    FakeSocket.closed = 0
+    useStore.setState({ taskWs: null, taskSession: null, taskId: null })
     vi.unstubAllGlobals()
   })
 
@@ -63,5 +70,32 @@ describe('selectTask auto-reconnect', () => {
     stubFetch(sessionDetail('idle', 'succeeded'))
     await useStore.getState().selectTask('task_1')
     expect(FakeSocket.created).toEqual([])
+  })
+
+  it('keeps the session socket alive across navigation and reattaches on return', async () => {
+    vi.stubGlobal('WebSocket', FakeSocket)
+    stubFetch(sessionDetail('idle', 'needs_you'))
+    await useStore.getState().selectTask('task_1')
+    expect(FakeSocket.created).toHaveLength(1)
+    const socket = useStore.getState().taskWs
+
+    // 다른 Task로 이동: 소켓을 닫지 않는다. (task_2에는 세션이 없다)
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/tasks/task_2')) {
+        return jsonResponse({ id: 'task_2', title: 'T2', workspace: { id: 'ws_2', state: 'ready' } })
+      }
+      if (url.endsWith('/sessions/latest')) return jsonResponse({ detail: 'none' }, 404)
+      return jsonResponse([])
+    }))
+    await useStore.getState().selectTask('task_2')
+    expect(FakeSocket.closed).toBe(0)
+    expect(useStore.getState().taskWs).toBeNull()
+
+    // 돌아오면 새 소켓 없이 기존 런타임에 재부착된다.
+    stubFetch(sessionDetail('idle', 'needs_you'))
+    await useStore.getState().selectTask('task_1')
+    expect(FakeSocket.created).toHaveLength(1)
+    expect(useStore.getState().taskWs).toBe(socket)
   })
 })
