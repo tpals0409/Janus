@@ -2152,24 +2152,22 @@ button {
   padding: 30px max(24px, calc((100% - 760px) / 2)) 22px;
 }
 
+/* 대화는 말풍선으로: 내 메시지는 오른쪽, Janus는 왼쪽.
+   도구 행·사고 과정은 발화가 아니므로 전폭 왼쪽을 유지한다. */
 .task-message {
-  display: grid;
-  grid-template-columns: 30px minmax(0, 1fr);
-  gap: 14px;
-  padding: 12px 0 24px;
-  border-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 8px 0;
 }
 
-.task-message[data-role='user'] > p {
-  color: var(--text-primary);
-}
-
-.task-message:last-child {
-  border-bottom: 0;
+.task-message[data-role='user'] {
+  align-items: flex-end;
 }
 
 .task-message > span {
-  padding-top: 3px;
+  padding: 0 2px;
   color: var(--color-faint);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
   font-size: 9px;
@@ -2181,6 +2179,15 @@ button {
   color: var(--text-secondary);
 }
 
+.task-message > p,
+.task-message > .task-markdown {
+  max-width: min(82%, 720px);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-panel-2);
+  padding: 8px 12px;
+}
+
 .task-message > p {
   white-space: pre-wrap;
   color: var(--color-muted);
@@ -2188,13 +2195,16 @@ button {
   line-height: 1.7;
 }
 
-/* Assistant output reads as a document. */
+.task-message[data-role='user'] > p {
+  color: var(--text-primary);
+  background: var(--color-raised);
+  border-color: var(--color-border-strong);
+  border-bottom-right-radius: var(--radius-xs);
+}
+
+.task-message[data-role='assistant'] > p,
 .task-message[data-role='assistant'] > .task-markdown {
-  width: 100%;
-  max-width: none;
-  border: 0;
-  background: transparent;
-  padding: 0;
+  border-bottom-left-radius: var(--radius-xs);
 }
 
 .task-markdown {
