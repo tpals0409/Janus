@@ -4,6 +4,7 @@ import {
   Archive,
   ArrowUp,
   Check,
+  ChevronDown,
   CircleDot,
   FolderGit2,
   GitPullRequest,
@@ -147,6 +148,7 @@ function ComposerModelSelect() {
           <option key={profile.id} value={profile.id}>{profile.name}</option>
         ))}
       </select>
+      <ChevronDown size={11} strokeWidth={1.75} aria-hidden="true" />
       {differs && <em>새 시도부터</em>}
     </span>
   )
