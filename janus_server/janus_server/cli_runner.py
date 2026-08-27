@@ -230,6 +230,22 @@ class CliOrchestration:
 
     # ── 내부 ──
 
+    def _janus_context(self) -> str:
+        """Janus 환경·Task 컨텍스트 — 로컬 경로의 preamble을 CLI에도 전달한다."""
+        parts = [
+            "You are running inside Janus, a local-first agent workbench. "
+            "The current directory is the task's workspace; Janus tracks your "
+            "file changes via git and shows them to the user. Answer in the "
+            "user's language.",
+        ]
+        custom = str(self.spec.get("system_prompt") or "").strip()
+        if custom:
+            parts.append(custom)
+        preamble = str(self.spec.get("context_preamble") or "").strip()
+        if preamble:
+            parts.append(preamble)
+        return "\n\n".join(parts)
+
     def _command(self, text: str) -> list[str]:
         if self.provider == "claude_code":
             command = [
@@ -240,12 +256,16 @@ class CliOrchestration:
                 "--allowedTools", "Bash",
             ]
             if self.cli_session_id:
+                # 대화가 이어지므로 컨텍스트는 첫 턴에만 주입한다.
                 command += ["--resume", self.cli_session_id]
+            else:
+                command += ["--append-system-prompt", self._janus_context()]
             return command
-        # codex: exec는 JSONL 이벤트를 낸다. 세션 연속은 v1 미지원(턴마다 새로).
+        # codex: exec는 JSONL 이벤트를 낸다. 세션 연속이 없어 매 턴 컨텍스트를 앞에 싣는다.
         return [
             CLI_BINS["codex"](), "exec", "--json",
-            "--sandbox", "workspace-write", text,
+            "--sandbox", "workspace-write",
+            f"[Janus environment context]\n{self._janus_context()}\n\n{text}",
         ]
 
     def _emit(self, kind: str, **data) -> None:

@@ -84,6 +84,8 @@ class CliRunnerTests(unittest.TestCase):
         self.assertEqual(4, usage["cached_tokens"])
         # 다음 턴은 --resume으로 이어진다.
         self.assertIn("--resume", runner._command("again"))
+        # 컨텍스트는 첫 턴에만 시스템 프롬프트로 주입된다.
+        self.assertNotIn("--append-system-prompt", runner._command("again"))
         self.assertEqual(
             ["user", "cli_session", "assistant", "assistant"],
             [event["kind"] for event in runner.session.events],
@@ -153,6 +155,25 @@ class CliRunnerTests(unittest.TestCase):
                 self.assertIsNone(cli_runner.check_cli_auth("claude_code", home=home))
             finally:
                 os.environ.pop("JANUS_SKIP_KEYCHAIN", None)
+
+    def test_first_turn_injects_janus_context_for_both_providers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            claude, _ = make_runner(tmp)
+            claude.spec["system_prompt"] = "팀 규칙을 지켜라"
+            claude.spec["context_preamble"] = "Task 목표: 할일 앱"
+            command = claude._command("hello")
+            self.assertIn("--append-system-prompt", command)
+            context = command[command.index("--append-system-prompt") + 1]
+            self.assertIn("running inside Janus", context)
+            self.assertIn("팀 규칙을 지켜라", context)
+            self.assertIn("Task 목표: 할일 앱", context)
+
+            codex, _ = make_runner(tmp, provider="codex")
+            codex.spec["context_preamble"] = "Task 목표: 할일 앱"
+            prompt = codex._command("hello")[-1]
+            self.assertIn("[Janus environment context]", prompt)
+            self.assertIn("Task 목표: 할일 앱", prompt)
+            self.assertTrue(prompt.endswith("hello"))
 
     def test_transcript_restore_recovers_the_cli_session_id(self):
         with tempfile.TemporaryDirectory() as tmp:
