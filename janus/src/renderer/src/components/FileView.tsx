@@ -1,10 +1,50 @@
 import { useEffect, useState } from 'react'
-import Editor, { loader, type OnMount } from '@monaco-editor/react'
+import Editor, { DiffEditor, loader, type OnMount } from '@monaco-editor/react'
 import { ChevronRight, FileCode2, GitCompareArrows, LockKeyhole, X } from 'lucide-react'
 import { languageIdFor, monaco } from './monacoSetup'
 import { useStore } from '../store'
 
 loader.config({ monaco })
+
+/** unified diff에서 좌(원본)/우(수정) 텍스트를 재구성한다.
+ *
+ * 서버는 통짜 diff만 주므로 양쪽 전체 파일은 없다 — hunk의 컨텍스트 3줄과
+ * 변경 줄로 양쪽 발췌를 만들고, hunk 사이는 @@ 헤더를 양쪽에 같은 줄로 넣어
+ * 정렬을 유지한다. 어떤 diff 레이어(unstaged/staged/committed)든 원본 diff와
+ * 항상 일치한다는 것이 이 방식의 존재 이유다.
+ * ponytail: 전체 파일·실제 줄번호가 필요해지면 base 버전 API를 추가할 것. */
+export function diffToSides(diff: string): { original: string; modified: string } | null {
+  const original: string[] = []
+  const modified: string[] = []
+  let hunks = 0
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('@@')) {
+      hunks += 1
+      if (hunks > 1) {
+        original.push('')
+        modified.push('')
+      }
+      original.push(line)
+      modified.push(line)
+    } else if (hunks === 0 || line.startsWith('\\')) {
+      continue
+    } else if (line === '') {
+      continue // diff 말미 개행의 split 잔여 — 실제 빈 컨텍스트 줄은 ' ' 접두다
+    } else if (line.startsWith('-')) {
+      original.push(line.slice(1))
+    } else if (line.startsWith('+')) {
+      modified.push(line.slice(1))
+    } else if (line.startsWith(' ')) {
+      original.push(line.slice(1))
+      modified.push(line.slice(1))
+    } else {
+      // 다음 파일 헤더(diff --git …) — rename 등 복수 파일 diff 경계
+      hunks = 0
+    }
+  }
+  if (hunks === 0 && original.length === 0) return null
+  return { original: original.join('\n'), modified: modified.join('\n') }
+}
 
 function basename(path: string): string {
   return path.split('/').filter(Boolean).pop() ?? path
@@ -40,6 +80,7 @@ export default function FileView() {
     : undefined
   const diff = changedFile?.diff ?? null
   const showingDiff = view === 'diff' && Boolean(changedFile)
+  const sides = showingDiff && diff ? diffToSides(diff) : null
   const editorValue = showingDiff
     ? diff ?? `Binary file changed · ${changedFile?.diff_bytes ?? 0} bytes`
     : openedFile.content
@@ -86,6 +127,32 @@ export default function FileView() {
         ))}
       </nav>
       <div className="file-ide__editor">
+        {sides ? (
+          <DiffEditor
+            height="100%"
+            language={languageId}
+            theme="janus-ide"
+            original={sides.original}
+            modified={sides.modified}
+            options={{
+              readOnly: true,
+              renderSideBySide: true,
+              useInlineViewWhenSpaceIsLimited: false,
+              hideUnchangedRegions: { enabled: false },
+              minimap: { enabled: false },
+              fontFamily: 'Geist Mono, JetBrains Mono, SFMono-Regular, Menlo, monospace',
+              fontSize: 12.5,
+              lineHeight: 20,
+              lineNumbers: 'off',
+              folding: false,
+              renderLineHighlight: 'none',
+              smoothScrolling: true,
+              scrollBeyondLastLine: false,
+              automaticLayout: true,
+              padding: { top: 10, bottom: 18 }
+            }}
+          />
+        ) : (
         <Editor
           height="100%"
           path={showingDiff ? `${openedFile.path}.janus-diff` : openedFile.path}
@@ -117,12 +184,13 @@ export default function FileView() {
             padding: { top: 10, bottom: 18 }
           }}
         />
+        )}
       </div>
       <footer className="file-ide__status">
         <span>Ln {cursor.line}, Col {cursor.column}</span>
         <span>Spaces: 2</span>
         <span>UTF-8</span>
-        <span>{showingDiff ? 'Git Diff' : language}</span>
+        <span>{showingDiff ? (sides ? 'Git Diff · Split' : 'Git Diff') : language}</span>
         <span className="file-ide__readonly"><LockKeyhole size={10} /> 읽기 전용</span>
       </footer>
     </main>
