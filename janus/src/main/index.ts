@@ -24,6 +24,9 @@ import {
 } from './task-browser'
 import { resolveRuntimePaths } from './runtime-paths'
 import {
+  loadRuntimeSettings, saveRuntimeSettings, type RuntimeSettings
+} from './runtime-settings'
+import {
   buildMlxLaunchSpec, observeMtpOutput, type MtpPolicy
 } from './model-runtime'
 
@@ -59,11 +62,24 @@ const env: NodeJS.ProcessEnv = {
 
 type ServiceLabel = 'server' | 'mlx'
 
-const requestedMtpPolicy = process.env.JANUS_MTP_POLICY
-const mtpPolicy: MtpPolicy = requestedMtpPolicy === 'preferred' || requestedMtpPolicy === 'off'
-  ? requestedMtpPolicy
-  : 'required'
-const mlxLaunch = buildMlxLaunchSpec(homedir(), mtpPolicy)
+const runtimeSettingsFile = join(app.getPath('userData'), 'runtime-settings.json')
+let runtimeSettings = loadRuntimeSettings(runtimeSettingsFile)
+// 환경변수가 있으면 설정 파일보다 우선한다 — 운영 오버라이드 통로를 유지.
+const envMtpPolicy = process.env.JANUS_MTP_POLICY
+const mtpPolicyLocked = envMtpPolicy === 'required' || envMtpPolicy === 'preferred' || envMtpPolicy === 'off'
+const slotsLocked = process.env.JANUS_MODEL_SLOTS !== undefined
+const apcLocked = process.env.JANUS_APC !== undefined
+function effectiveMtpPolicy(): MtpPolicy {
+  return mtpPolicyLocked ? (envMtpPolicy as MtpPolicy) : runtimeSettings.mtpPolicy
+}
+function effectiveModelSlots(): number {
+  return slotsLocked ? Number(process.env.JANUS_MODEL_SLOTS) : runtimeSettings.modelSlots
+}
+function effectiveApc(): boolean {
+  return apcLocked ? process.env.JANUS_APC !== '0' : runtimeSettings.apc
+}
+let mtpPolicy: MtpPolicy = effectiveMtpPolicy()
+let mlxLaunch = buildMlxLaunchSpec(homedir(), mtpPolicy, effectiveApc())
 
 const serviceSpecs: Record<ServiceLabel, {
   port: number; command: string; cwd: string; environment: string; logPath: string
@@ -240,7 +256,13 @@ function spawnLogged(label: ServiceLabel): void {
     // detached: 프로세스 그룹을 따로 만들어 uv가 낳는 python 자식까지 한 번에 죽인다.
     p = spawn('/bin/zsh', ['-c', spec.command], {
       cwd: spec.cwd,
-      env: { ...env, UV_PROJECT_ENVIRONMENT: spec.environment },
+      env: {
+        ...env,
+        UV_PROJECT_ENVIRONMENT: spec.environment,
+        ...(label === 'server'
+          ? { JANUS_MODEL_SLOTS: String(effectiveModelSlots()) }
+          : {})
+      },
       detached: true
     })
   } catch (error) {
@@ -407,6 +429,51 @@ function createWindow(): void {
 }
 
 // 렌더러가 못 하는 유일한 일 — 네이티브 폴더 선택. 나머지는 전부 Python 서버가 한다.
+function restartService(label: ServiceLabel): void {
+  const service = services[label]
+  const pid = service.process?.pid
+  if (pid == null) return
+  try { globalThis.process.kill(-pid, 'SIGTERM') } catch { service.process?.kill('SIGTERM') }
+  // 종료는 supervisor의 scheduleRestart가 받아 새 spec/env로 다시 띄운다.
+}
+
+function applyRuntimeSettings(next: RuntimeSettings): {
+  settings: RuntimeSettings
+  restarted: ServiceLabel[]
+} {
+  const before = {
+    mtpPolicy: effectiveMtpPolicy(),
+    modelSlots: effectiveModelSlots(),
+    apc: effectiveApc()
+  }
+  runtimeSettings = saveRuntimeSettings(runtimeSettingsFile, next)
+  mtpPolicy = effectiveMtpPolicy()
+  const launch = buildMlxLaunchSpec(homedir(), mtpPolicy, effectiveApc())
+  mlxLaunch = launch
+  serviceSpecs.mlx.command = launch.command
+  const restarted: ServiceLabel[] = []
+  if (before.mtpPolicy !== effectiveMtpPolicy() || before.apc !== effectiveApc()) {
+    restartService('mlx')
+    restarted.push('mlx')
+  }
+  if (before.modelSlots !== effectiveModelSlots()) {
+    restartService('server')
+    restarted.push('server')
+  }
+  return { settings: runtimeSettings, restarted }
+}
+
+ipcMain.handle('runtime-settings-get', () => ({
+  settings: runtimeSettings,
+  effective: {
+    mtpPolicy: effectiveMtpPolicy(),
+    modelSlots: effectiveModelSlots(),
+    apc: effectiveApc()
+  },
+  locked: { mtpPolicy: mtpPolicyLocked, modelSlots: slotsLocked, apc: apcLocked }
+}))
+ipcMain.handle('runtime-settings-set', (_event, next: RuntimeSettings) => applyRuntimeSettings(next))
+
 ipcMain.handle('pick-folder', async () => {
   const r = await dialog.showOpenDialog({ properties: ['openDirectory'] })
   return r.canceled ? null : r.filePaths[0]

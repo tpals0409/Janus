@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ReactFlowProvider } from '@xyflow/react'
-import { Loader2, PanelLeft, PanelLeftClose, ShieldAlert } from 'lucide-react'
+import { Loader2, PanelLeft, PanelLeftClose, Settings2, ShieldAlert } from 'lucide-react'
 import { useStore } from './store'
 import Canvas from './components/Canvas'
 import { AgentProfilePicker, StatusBar } from './components/Shell'
@@ -10,6 +10,7 @@ import PromptEditor from './components/PromptEditor'
 import SkillLibrary from './components/SkillLibrary'
 import ContextPolicyEditor from './components/ContextPolicyEditor'
 import { Status, Tabs } from './components/ui'
+import SettingsDialog from './components/SettingsDialog'
 import CommandPalette from './components/CommandPalette'
 import EvaluationLab from './components/EvaluationLab'
 import AgentOverview from './components/AgentOverview'
@@ -34,6 +35,7 @@ export default function App() {
 
   const [nav, setNav] = useState('tasks')
   const [newConversation, setNewConversation] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     try { return localStorage.getItem('janus.sidebarOpen') !== '0' } catch { return true }
   })
@@ -179,8 +181,18 @@ export default function App() {
           <Status tone={mlxUp ? 'success' : 'warning'} pulse={!mlxUp}>
             {mlxUp ? '모델 준비' : '모델 로딩'}
           </Status>
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            title="설정"
+            aria-label="설정"
+            className="app-titlebar__sidebar-toggle"
+          >
+            <Settings2 size={14} />
+          </button>
         </div>
       </header>
+      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
       <div className="flex min-h-0 flex-1">
         {sidebarOpen && <TaskSidebar

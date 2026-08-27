@@ -33,7 +33,8 @@ function snapshots(root: string, suffix = ''): string[] {
 
 export function buildMlxLaunchSpec(
   homeDir: string,
-  policy: MtpPolicy = 'required'
+  policy: MtpPolicy = 'required',
+  apc: boolean = process.env.JANUS_APC !== '0'
 ): MlxLaunchSpec {
   const hub = join(homeDir, '.cache', 'huggingface', 'hub')
   const model = snapshots(join(
@@ -66,8 +67,8 @@ export function buildMlxLaunchSpec(
     ? ` --draft-model ${shellQuote(draft)} --draft-kind mtp`
     : ''
   // 서버 프롬프트 캐시(APC): 에이전트 루프의 안정 prefix(system+summary)를
-  // 요청 간 재사용해 prefill을 줄인다. JANUS_APC=0으로 끌 수 있다.
-  const apcEnv = process.env.JANUS_APC === '0' ? '' : 'APC_ENABLED=1 '
+  // 요청 간 재사용해 prefill을 줄인다. 설정 다이얼로그 또는 JANUS_APC=0으로 끈다.
+  const apcEnv = apc ? 'APC_ENABLED=1 ' : ''
   return {
     command: `${apcEnv}uv run --frozen mlx_vlm.server --model ${shellQuote(model)} --port 8080${draftArgs}`,
     mtp

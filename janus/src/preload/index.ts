@@ -7,5 +7,7 @@ contextBridge.exposeInMainWorld('janus', {
   taskBrowserStatus: (taskId: string) => ipcRenderer.invoke('task-browser-status', taskId),
   taskBrowserScreenshot: (taskId: string) => ipcRenderer.invoke('task-browser-screenshot', taskId),
   taskBrowserInspect: (taskId: string) => ipcRenderer.invoke('task-browser-inspect', taskId),
+  runtimeSettingsGet: () => ipcRenderer.invoke('runtime-settings-get'),
+  runtimeSettingsSet: (settings: unknown) => ipcRenderer.invoke('runtime-settings-set', settings),
   authToken: process.env.JANUS_AUTH_TOKEN ?? ''
 })

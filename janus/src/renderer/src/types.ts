@@ -592,9 +592,25 @@ export interface TaskBrowserInspection {
   screenshotDataUrl: string
 }
 
+export interface RuntimeSettingsValues {
+  mtpPolicy: 'required' | 'preferred' | 'off'
+  modelSlots: number
+  apc: boolean
+}
+
+export interface RuntimeSettingsSnapshot {
+  settings: RuntimeSettingsValues
+  effective: RuntimeSettingsValues
+  locked: { mtpPolicy: boolean; modelSlots: boolean; apc: boolean }
+}
+
 declare global {
   interface Window {
     janus?: {
+      runtimeSettingsGet?: () => Promise<RuntimeSettingsSnapshot>
+      runtimeSettingsSet?: (settings: RuntimeSettingsValues) => Promise<{
+        settings: RuntimeSettingsValues; restarted: string[]
+      }>
       pickFolder(): Promise<string | null>
       backendStatus(): Promise<BackendStatus>
       taskBrowserOpen(input: { taskId: string; url: string }): Promise<TaskBrowserStatus>

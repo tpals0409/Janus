@@ -3017,3 +3017,78 @@ textarea:focus-visible {
 .diff-emphasis-remove {
   background: rgb(190 100 100 / 28%);
 }
+
+/* ── 설정 다이얼로그 ── */
+.settings-dialog {
+  width: min(440px, calc(100vw - 48px));
+}
+.settings-dialog__header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 14px 16px 12px;
+}
+.settings-dialog__header strong { font-size: 13px; }
+.settings-dialog__header span { font-size: 10.5px; color: var(--color-faint); }
+.settings-dialog__loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 16px;
+  color: var(--color-faint);
+  font-size: 11px;
+}
+.settings-dialog__body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px 16px 16px;
+}
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.settings-field__name { font-size: 11.5px; font-weight: 600; }
+.settings-field select,
+.settings-field input[type='number'] {
+  height: 28px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-base);
+  padding: 0 8px;
+  color: var(--color-fg);
+  font-size: 11.5px;
+}
+.settings-field em {
+  font-style: normal;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--color-faint);
+}
+.settings-field--row {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  justify-content: start;
+  column-gap: 8px;
+}
+.settings-field--row em { grid-column: 1 / -1; }
+.settings-dialog__warning {
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-raised);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--color-warn);
+}
+.settings-dialog__result { font-size: 10.5px; color: var(--color-ok); }
+.settings-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 12px;
+}
