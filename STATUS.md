@@ -526,3 +526,18 @@ pnpm dev
   (`test_prompt_cache.py`), APC 기동 플래그와 opt-out 1건(`model-runtime.test.ts`).
   Python 235건·Electron 22건 전체 통과. 실기기 27B 서버에서의 적중률 확인은 다음
   QA 라운드에서 `usage.cached_tokens`로 본다.
+
+### 후속: 반환 방향 핸드오프 예산 — 워커 보고 상한 (같은 날, P1-5)
+
+- 스폰 방향은 이미 캡이 있었다(system 8K·task 6K·context 4K, 절단 이벤트 포함).
+  반대 방향이 뚫려 있었다: `wait_worker`/`worker_status`가 돌려주는 `result`가
+  무제한이라, 장황한 워커 보고가 가장 비싼 오케스트레이터 컨텍스트에 그대로 실렸다.
+- `WORKER_RESULT_MAX_CHARS`(4,000, context 캡과 대칭)를 신설하고 `_worker_view`에서
+  상한 초과 시 머리 3,000자(요약·계획)와 꼬리 800자(결론·검증)를 남기고 가운데를
+  접는다. 절단 표식에 생략 분량과 "전문은 이벤트 로그·성과 스토어에 보존"을 명시하고,
+  `result_chars`(원본 길이)·`result_truncated`를 뷰에 노출한다.
+- 절단은 모델 컨텍스트 전용이다: 영속 훅(`on_worker_outcome`)은 전문을 복원해 받고,
+  UI로 가는 `worker_state` 이벤트·quiesce 스냅샷(500자)·재시작 다이제스트(200자)는
+  기존 경로 그대로다.
+- 테스트: 상한 이하 통과·상한 초과 시 머리/꼬리 보존과 영속 전문 보존 2건
+  (`test_worker_result_budget.py`), 전체 237건 통과.

@@ -48,6 +48,10 @@ MLX_BASE_URL = "http://localhost:8080/v1"
 WORKER_SYSTEM_MAX_CHARS = 8_000
 WORKER_TASK_MAX_CHARS = 6_000
 WORKER_CONTEXT_MAX_CHARS = 4_000
+# 반환 방향 핸드오프 예산 — 워커 보고가 오케스트레이터 컨텍스트로 돌아올 때의
+# 상한. 스폰 방향(system/task/context)과 대칭으로, 장황한 보고가 가장 비싼
+# 컨텍스트를 오염하지 못하게 엔진이 강제한다. 전문은 이벤트·성과 스토어에 보존.
+WORKER_RESULT_MAX_CHARS = 4_000
 WORKER_ROLES = {
     "scout", "researcher", "planner", "prototyper",
     "implementer", "verifier", "operator",
@@ -1138,6 +1142,8 @@ class Orchestration:
             if self.on_worker_outcome is not None:
                 try:
                     view = self._worker_view(record)
+                    # 영속 계약은 전문을 보존한다 — 절단은 모델 컨텍스트 전용.
+                    view["result"] = str(record.get("result") or "")
                     # 영속 계약에 필요한 실행 식별자를 훅 페이로드에 보강한다.
                     view.update({
                         "task_id": self.telemetry.task_id,
@@ -1166,11 +1172,23 @@ class Orchestration:
             else "continue_in_parent" if status in {"failed", "cancelled"}
             else "wait_or_stop"
         )
+        raw_result = str(record.get("result") or "")
+        result = raw_result
+        if len(raw_result) > WORKER_RESULT_MAX_CHARS:
+            # 머리(요약·계획)와 꼬리(결론·검증)를 남기고 가운데를 접는다.
+            head, tail = raw_result[:3_000], raw_result[-800:]
+            elided = len(raw_result) - len(head) - len(tail)
+            result = (
+                head + f"\n… [{elided} chars elided — full report is preserved "
+                "in the event log and worker outcome store] …\n" + tail
+            )
         return {
             "worker": record["worker"], "name": record["name"],
             "role": record["role"], "requested_role": record["requested_role"],
             "status": status, "terminal": terminal, "recovery_action": recovery_action,
-            "result": record.get("result") or "",
+            "result": result,
+            "result_chars": len(raw_result),
+            "result_truncated": len(raw_result) > WORKER_RESULT_MAX_CHARS,
             "error": record.get("error"), "tools": list(record.get("tools") or []),
             "queued_followups": len(record.get("followups") or []),
             "changed_paths": sorted(record.get("changed_paths") or []),
