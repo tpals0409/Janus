@@ -40,6 +40,18 @@ class DomainStoreTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def test_referenced_table_rebuild_survives_populated_foreign_keys(self):
+        """참조 행이 있는 DB에서 model_profiles 재생성이 FK에 막히지 않는다 (v26 사고)."""
+        from janus_server.domain import MIGRATION_26
+        with self.store._connect() as connection:
+            self.assertGreater(
+                connection.execute("SELECT COUNT(*) FROM agent_profiles").fetchone()[0], 0
+            )
+            connection.execute("PRAGMA foreign_keys = OFF")
+            connection.executescript(f"BEGIN IMMEDIATE;\n{MIGRATION_26}\nCOMMIT;")
+            self.assertEqual([], connection.execute("PRAGMA foreign_key_check").fetchall())
+            connection.execute("PRAGMA foreign_keys = ON")
+
     def test_schema_and_seed_profiles(self):
         self.assertEqual(CURRENT_SCHEMA_VERSION, self.store.schema_version())
         models = self.store.list_model_profiles()

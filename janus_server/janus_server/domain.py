@@ -754,6 +754,10 @@ class DomainStore:
                 )
             if applied and applied != set(range(1, max(applied) + 1)):
                 raise MigrationError("schema_migrations 이력이 연속적이지 않습니다")
+            # 테이블 재생성 마이그레이션(예: 26)은 참조되는 테이블을 DROP한다 —
+            # FK 강제를 끄고 돌린 뒤 무결성 검사를 통과해야 켠다. (참조 행이 있는
+            # 실사용 DB에서만 터지고 빈 테스트 DB는 통과하던 함정이었다.)
+            connection.execute("PRAGMA foreign_keys = OFF")
             for version in range(1, CURRENT_SCHEMA_VERSION + 1):
                 if version in applied:
                     continue
@@ -765,6 +769,12 @@ class DomainStore:
                     f"VALUES ({version}, '{stamp}');\n"
                     f"PRAGMA user_version = {version};\nCOMMIT;"
                 )
+            violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+            if violations:
+                raise MigrationError(
+                    f"마이그레이션 후 FK 위반 {len(violations)}건 — 롤백 없이 진행할 수 없습니다"
+                )
+            connection.execute("PRAGMA foreign_keys = ON")
             self._seed_defaults(connection)
         finally:
             connection.close()
