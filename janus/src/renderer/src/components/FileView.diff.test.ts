@@ -47,6 +47,13 @@ describe('diffToSides', () => {
     expect(headerAt(sides!.original)).toBe(headerAt(sides!.modified))
   })
 
+  it('renders an untracked pseudo-diff as empty-vs-content', () => {
+    const untracked = 'diff --git a/src/new.js b/src/new.js\nnew file mode 100644\n'
+      + '--- /dev/null\n+++ b/src/new.js\n+const a = 1\n+export { a }\n'
+    const sides = diffToSides(untracked)
+    expect(sides).toEqual({ original: '', modified: 'const a = 1\nexport { a }' })
+  })
+
   it('returns null when the text has no hunks (binary placeholder)', () => {
     expect(diffToSides('Binary files a/x and b/x differ')).toBeNull()
   })

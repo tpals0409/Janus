@@ -14,6 +14,17 @@ loader.config({ monaco })
  * 항상 일치한다는 것이 이 방식의 존재 이유다.
  * ponytail: 전체 파일·실제 줄번호가 필요해지면 base 버전 API를 추가할 것. */
 export function diffToSides(diff: string): { original: string; modified: string } | null {
+  if (!diff.includes('@@')) {
+    // untracked/신규 파일의 의사-diff: 헤더 뒤 +줄만 있고 hunk가 없다.
+    const header = diff.indexOf('\n+++ ')
+    if (header === -1) return null
+    const body = diff.slice(diff.indexOf('\n', header + 1) + 1)
+    const added = body.split('\n')
+      .filter((line) => line.startsWith('+'))
+      .map((line) => line.slice(1))
+    if (added.length === 0) return null
+    return { original: '', modified: added.join('\n') }
+  }
   const original: string[] = []
   const modified: string[] = []
   let hunks = 0
