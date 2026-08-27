@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
+import { useStore } from '../store'
 import type { RuntimeSettingsSnapshot, RuntimeSettingsValues } from '../types'
 import { Dialog } from './ui'
 
@@ -11,6 +12,9 @@ const MTP_LABEL: Record<RuntimeSettingsValues['mtpPolicy'], string> = {
 
 /** 모델 런타임 손잡이 설정. 저장하면 영향을 받는 서비스만 재시작해 적용한다. */
 export default function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const agentProfiles = useStore((state) => state.agentProfiles)
+  const selectedAgentProfileId = useStore((state) => state.selectedAgentProfileId)
+  const selectAgentProfile = useStore((state) => state.selectAgentProfile)
   const [snapshot, setSnapshot] = useState<RuntimeSettingsSnapshot | null>(null)
   const [draft, setDraft] = useState<RuntimeSettingsValues | null>(null)
   const [saving, setSaving] = useState(false)
@@ -68,6 +72,21 @@ export default function SettingsDialog({ open, onClose }: { open: boolean; onClo
         <div className="settings-dialog__loading"><Loader2 size={14} className="animate-spin" /> 불러오는 중</div>
       ) : (
         <div className="settings-dialog__body">
+          {agentProfiles.length > 0 && (
+            <label className="settings-field">
+              <span className="settings-field__name">모델 (에이전트 프로필)</span>
+              <select
+                value={selectedAgentProfileId}
+                onChange={(event) => selectAgentProfile(event.target.value)}
+              >
+                {agentProfiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>{profile.name}</option>
+                ))}
+              </select>
+              <em>즉시 저장되며 새 시도·새 대화부터 적용됩니다. 진행 중인 세션은 시작 시점의 모델을 유지합니다.</em>
+            </label>
+          )}
+
           <label className="settings-field">
             <span className="settings-field__name">MTP (speculative decoding)</span>
             <select

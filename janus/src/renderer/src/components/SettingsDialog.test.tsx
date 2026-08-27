@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import SettingsDialog from './SettingsDialog'
+import { useStore } from '../store'
 import type { RuntimeSettingsSnapshot } from '../types'
 
 const snapshot: RuntimeSettingsSnapshot = {
@@ -35,6 +36,25 @@ describe('SettingsDialog', () => {
       expect.objectContaining({ modelSlots: 4 })
     ))
     expect(await screen.findByText(/백엔드 재시작 중/)).toBeVisible()
+  })
+
+  it('switches the default model profile immediately from settings', async () => {
+    ;(window as { janus?: unknown }).janus = {
+      runtimeSettingsGet: vi.fn().mockResolvedValue(snapshot)
+    }
+    useStore.setState({
+      agentProfiles: [
+        { id: 'agent_default', name: 'Janus Local' },
+        { id: 'agent_claude_code', name: 'Claude Code (구독)' }
+      ] as never,
+      selectedAgentProfileId: 'agent_default'
+    })
+    const user = userEvent.setup()
+    render(<SettingsDialog open onClose={() => {}} />)
+    const select = await screen.findByLabelText(/모델 \(에이전트 프로필\)/)
+    await user.selectOptions(select, 'agent_claude_code')
+    expect(useStore.getState().selectedAgentProfileId).toBe('agent_claude_code')
+    useStore.setState({ agentProfiles: [], selectedAgentProfileId: 'agent_default' })
   })
 
   it('locks env-pinned fields', async () => {
