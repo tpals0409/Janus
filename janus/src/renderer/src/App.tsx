@@ -9,7 +9,7 @@ import TaskSidebar from './components/tasks/TaskSidebar'
 import PromptEditor from './components/PromptEditor'
 import SkillLibrary from './components/SkillLibrary'
 import ContextPolicyEditor from './components/ContextPolicyEditor'
-import { BrandMark, Status, Tabs } from './components/ui'
+import { Status, Tabs } from './components/ui'
 import CommandPalette from './components/CommandPalette'
 import EvaluationLab from './components/EvaluationLab'
 import AgentOverview from './components/AgentOverview'
@@ -156,7 +156,6 @@ export default function App() {
     <div className="flex h-full flex-col">
       <header className="app-titlebar">
         <div className="flex items-center gap-1.5">
-          <BrandMark />
           <button
             type="button"
             onClick={() => setSidebarOpen((value) => !value)}
