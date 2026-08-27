@@ -26,10 +26,13 @@ class ResourceClass(StrEnum):
     VERIFICATION = "verification"
 
 
-# 오케스트레이터 1 + 워커 4 = 5가 동시에 생성할 수 있다. 가중치는 공유되지만 KV 캐시는
-# 스트림마다 따로 잡히므로, 스왑이 보이면 JANUS_MODEL_SLOTS를 낮춰 되돌린다.
-# ponytail: 고정 슬롯 수. 남은 메모리로 자동 산정이 필요해지면 그때 재보자.
-MODEL_GENERATION_SLOTS = max(1, int(os.environ.get("JANUS_MODEL_SLOTS", "5")))
+# 오케스트레이터 1 + 워커 2 = 3이 동시에 생성할 수 있다. 가중치는 공유되지만 KV 캐시는
+# 스트림마다 따로 잡히고(48GB 머신에서 5스트림 최악 케이스는 스왑행), Metal 1개라
+# 동시 디코딩의 실이득(도구 I/O 겹침)은 2~3에서 포화되며 MTP 승인율도 동시성에
+# 반비례한다. 실측 사이클 전체에서 슬롯 대기 p95 0.012ms·최대 동시 생성 3이었다.
+# 증설은 snapshot()의 vram_sizing이 측정 병목(p95 ≥ 1s, 표본 ≥ 10)으로
+# recommended를 띄울 때만 — 그때 JANUS_MODEL_SLOTS로 올린다.
+MODEL_GENERATION_SLOTS = max(1, int(os.environ.get("JANUS_MODEL_SLOTS", "3")))
 DEFAULT_CAPS: dict[ResourceClass, int] = {
     ResourceClass.MODEL_GENERATION: MODEL_GENERATION_SLOTS,
     ResourceClass.CPU_TOOL: 2,
