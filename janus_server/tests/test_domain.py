@@ -128,6 +128,33 @@ class DomainStoreTests(unittest.TestCase):
         self.assertFalse(self.store.revoke_session_approval_scope(
             session["id"], self.workspace["id"], "workspace_write",
         ))
+
+        # 승인 기억은 작업 단위 — 새 시도(다른 세션)에서도 보이고, 회수는 전 세션에 미친다.
+        self.store.grant_session_approval_scope(
+            session["id"], self.workspace["id"], "workspace_write",
+        )
+        retry_dispatch = self.store.create_dispatch(
+            task_id=self.task["id"], workspace_id=self.workspace["id"],
+            agent_profile_id="agent_default",
+        )
+        retry_session = self.store.create_session(
+            task_id=self.task["id"], dispatch_id=retry_dispatch["id"],
+            agent_profile_id="agent_default",
+        )
+        self.assertEqual([], self.store.list_session_approval_scopes(retry_session["id"]))
+        self.assertEqual(
+            ["workspace_shell", "workspace_write"],
+            sorted({item["scope"] for item in
+                    self.store.list_workspace_approval_scopes(self.workspace["id"])}),
+        )
+        self.assertTrue(self.store.revoke_workspace_approval_scope(
+            self.workspace["id"], "workspace_write",
+        ))
+        self.assertEqual(
+            ["workspace_shell"],
+            sorted({item["scope"] for item in
+                    self.store.list_workspace_approval_scopes(self.workspace["id"])}),
+        )
         self.assertTrue(self.store.revoke_session_approval_scope(
             session["id"], self.workspace["id"], "workspace_shell",
         ))

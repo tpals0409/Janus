@@ -114,7 +114,7 @@ function ApprovalCard({ approval, variant }: { approval: ApprovalRequest; varian
         {approval.rememberable && (
           // 반복 승인 피로의 주범은 '이번만'이 primary였던 것 — 기억 옵션을 기본으로.
           <button type="button" onClick={() => respond(approval.id, true, 'session_workspace')} className="task-primary-action">
-            {approval.approval_scope === 'workspace_shell' ? '이 세션에서 명령 허용' : '이 세션에서 파일 수정 허용'}
+            {approval.approval_scope === 'workspace_shell' ? '이 작업에서 명령 허용' : '이 작업에서 파일 수정 허용'}
           </button>
         )}
       </div>
@@ -1009,7 +1009,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
 
         {session?.approval_scopes?.some((item) => item.scope === 'workspace_write') && (
         <div className="task-session-notice">
-          <span className="text-[10.5px] text-muted">이 세션에서 작업 공간 파일 수정을 허용했습니다.</span>
+          <span className="text-[10.5px] text-muted">이 작업에서 파일 수정을 허용했습니다 — 새 시도에도 유지됩니다.</span>
           <button
             type="button"
             onClick={() => void revokeApprovalScope('workspace_write')}
@@ -1022,7 +1022,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
         )}
         {session?.approval_scopes?.some((item) => item.scope === 'workspace_shell') && (
         <div className="task-session-notice">
-          <span className="text-[10.5px] text-muted">이 세션에서 작업 공간 명령 실행을 허용했습니다.</span>
+          <span className="text-[10.5px] text-muted">이 작업에서 명령 실행을 허용했습니다 — 새 시도에도 유지됩니다.</span>
           <button
             type="button"
             onClick={() => void revokeApprovalScope('workspace_shell')}

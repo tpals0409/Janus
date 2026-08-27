@@ -2287,6 +2287,32 @@ class DomainStore:
                 "ORDER BY workspace_id,scope", (session_id,),
             )]
 
+    def list_workspace_approval_scopes(self, workspace_id: str) -> list[dict]:
+        """승인 기억은 작업(워크스페이스) 단위다 — 새 시도(새 세션)에도 유지된다."""
+        with self._connect() as connection:
+            self._one(
+                connection, "SELECT * FROM workspaces WHERE id=?",
+                (workspace_id,), "Workspace",
+            )
+            return [dict(row) for row in connection.execute(
+                "SELECT * FROM session_approval_scopes WHERE workspace_id=? "
+                "ORDER BY scope,session_id", (workspace_id,),
+            )]
+
+    def revoke_workspace_approval_scope(self, workspace_id: str, scope: str) -> bool:
+        """어느 세션에서 허용했든 이 작업의 해당 범위를 전부 회수한다."""
+        with self.transaction(immediate=True) as connection:
+            self._one(
+                connection, "SELECT * FROM workspaces WHERE id=?",
+                (workspace_id,), "Workspace",
+            )
+            removed = connection.execute(
+                "DELETE FROM session_approval_scopes "
+                "WHERE workspace_id=? AND scope=?",
+                (workspace_id, scope),
+            ).rowcount
+        return bool(removed)
+
     def revoke_session_approval_scope(
         self, session_id: str, workspace_id: str, scope: str,
     ) -> bool:

@@ -242,7 +242,7 @@ describe('Janus renderer fixture', () => {
     await user.click(screen.getByRole('button', { name: '워커 impl_worker 상세' }))
     const modal = screen.getByRole('dialog', { name: '워커 impl_worker' })
     expect(within(modal).getByText('edit_file')).toBeVisible()
-    await user.click(within(modal).getByRole('button', { name: '이 세션에서 파일 수정 허용' }))
+    await user.click(within(modal).getByRole('button', { name: '이 작업에서 파일 수정 허용' }))
     expect(respondTaskApproval).toHaveBeenCalledWith('req-1', true, 'session_workspace')
   })
 

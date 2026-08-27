@@ -273,7 +273,7 @@ def _task_session_detail(store: D.DomainStore, session_id: str) -> dict:
         "workspace_id": workspace["id"],
         "workspace_root": workspace["root_path"],
         "skills": [_skill_summary(item) for item in skills],
-        "approval_scopes": store.list_session_approval_scopes(session_id),
+        "approval_scopes": store.list_workspace_approval_scopes(workspace["id"]),
         "context": context,
         "events": events,
     }
@@ -400,7 +400,7 @@ def revoke_agent_session_approval(session_id: str, scope: str, workspace_id: str
     dispatch = store.get_dispatch(session["dispatch_id"])
     if dispatch["workspace_id"] != workspace_id:
         raise D.Conflict("AgentSession과 작업 공간이 일치하지 않습니다")
-    store.revoke_session_approval_scope(session_id, workspace_id, scope)
+    store.revoke_workspace_approval_scope(workspace_id, scope)
     return {"session_id": session_id, "workspace_id": workspace_id, "scope": scope}
 
 
@@ -471,9 +471,10 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
     pending_lock = shared._PENDING_APPROVALS_LOCK
     with pending_lock:
         pending = shared._PENDING_APPROVALS.setdefault(session_id, {})
+    # 승인 기억은 작업 단위 — 이전 시도(다른 세션)에서 허용한 것도 유효하다.
     approved_scopes: set[tuple[str, str]] = {
         (str(item["scope"]), str(item["workspace_id"]))
-        for item in store.list_session_approval_scopes(session_id)
+        for item in store.list_workspace_approval_scopes(workspace["id"])
     }
     turn_task: asyncio.Task | None = None
     queued_texts: list[str] = []
@@ -829,7 +830,7 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
             elif kind == "approval_scope_revoke":
                 scope = str(message.get("scope") or "")
                 scope_key = (scope, workspace["id"])
-                store.revoke_session_approval_scope(session_id, workspace["id"], scope)
+                store.revoke_workspace_approval_scope(workspace["id"], scope)
                 approved_scopes.discard(scope_key)
                 await _safe_send(_payload_with_ids({
                     "type": "approval_scope_revoked",
