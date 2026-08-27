@@ -19,8 +19,23 @@ export default function ContextInspector({ session, events }: { session: AgentSe
   const window = liveWindow ?? context.latest_window
   const sentTokens = number(window?.sent_token_estimate)
   const savedTokens = number(window?.saved_token_estimate)
-  const limitTokens = Math.round(context.policy.max_chars / 4)
+  // 엔진이 실측 보정한 토큰 목표치가 있으면 그것이 진짜 한도다 (P1-3).
+  const limitTokens = number(window?.context_token_target) || Math.round(context.policy.max_chars / 4)
+  const charsPerToken = number(window?.chars_per_token)
+  const calibrationSamples = number(window?.token_calibration_samples)
   const fill = Math.min(100, Math.round((sentTokens || context.estimated_static_tokens) / Math.max(1, limitTokens) * 100))
+
+  // 서버 프롬프트 캐시(APC) 실측 적중률 — usage 이벤트 누적 (P1-4).
+  let promptTotal = 0
+  let cachedTotal = 0
+  for (const event of events) {
+    if (event.kind !== 'agent_event' || event.payload.kind !== 'usage') continue
+    promptTotal += number(event.payload.prompt_tokens)
+    cachedTotal += number(event.payload.cached_tokens)
+  }
+  const cacheRate = promptTotal > 0 && cachedTotal > 0
+    ? Math.round((cachedTotal / promptTotal) * 100)
+    : null
 
   return (
     <div className="workspace-surface min-h-0 overflow-y-auto p-4">
@@ -37,6 +52,8 @@ export default function ContextInspector({ session, events }: { session: AgentSe
             <div className="flex justify-between"><dt className="text-faint">압축 절감</dt><dd className="font-mono text-ok">{savedTokens.toLocaleString()}</dd></div>
             <div className="flex justify-between"><dt className="text-faint">요약 크기</dt><dd className="font-mono text-muted">{number(window?.summary_chars).toLocaleString()}자</dd></div>
             <div className="flex justify-between"><dt className="text-faint">제외 블록</dt><dd className="font-mono text-muted">{number(window?.omitted_blocks)}</dd></div>
+            <div className="flex justify-between"><dt className="text-faint">토큰 보정</dt><dd className="font-mono text-muted">{charsPerToken > 0 ? `${charsPerToken.toFixed(1)}자/tok · ${calibrationSamples > 0 ? `실측 ${calibrationSamples}회` : '휴리스틱'}` : '—'}</dd></div>
+            <div className="flex justify-between"><dt className="text-faint">캐시 적중</dt><dd className={`font-mono ${cacheRate !== null ? 'text-ok' : 'text-muted'}`}>{cacheRate !== null ? `${cacheRate}%` : '미측정'}</dd></div>
           </dl>
           <div className="mt-4 border border-border bg-base px-3 py-2 text-[10px] leading-relaxed text-faint">
             정책 · {context.policy.max_chars.toLocaleString()}자 · 최근 {context.policy.recent_blocks}블록 · 요약 {context.policy.summary_max_chars.toLocaleString()}자

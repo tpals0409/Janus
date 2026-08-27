@@ -500,6 +500,8 @@ export interface AgentEvent {
   total_messages?: number
   prompt_tokens?: number
   completion_tokens?: number
+  /** 서버 프롬프트 캐시(APC) 실측 적중 — 미지원 서버는 0 */
+  cached_tokens?: number
   step?: number
   /** 병렬 동명 호출을 짝짓는 tool call id */
   call_id?: string

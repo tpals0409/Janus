@@ -534,6 +534,17 @@ function TaskRuntimeCard({ task }: { task: Task }) {
   const budget = session?.dispatch.budget ?? selectedProfile?.budget
   const usage = session?.dispatch.usage
   const adaptive = session?.dispatch.adaptive_decision
+  // 서버 프롬프트 캐시(APC) 실측 적중률 — usage 이벤트 누적. 미보고 서버는 null.
+  const cacheRate = useMemo(() => {
+    let prompt = 0
+    let cached = 0
+    for (const event of events) {
+      if (event.kind !== 'agent_event' || event.payload.kind !== 'usage') continue
+      prompt += Number(event.payload.prompt_tokens) || 0
+      cached += Number(event.payload.cached_tokens) || 0
+    }
+    return prompt > 0 && cached > 0 ? Math.round((cached / prompt) * 100) : null
+  }, [events])
   const [priority, setPriority] = useState(selectedProfile?.budget.queue.priority ?? 0)
   const [queueTimeout, setQueueTimeout] = useState(
     Math.round((selectedProfile?.budget.queue.timeout_ms ?? 300000) / 1000)
@@ -825,18 +836,19 @@ function TaskRuntimeCard({ task }: { task: Task }) {
       )}
 
       {budget && (
-        <div className="mt-3 grid grid-cols-4 gap-2 border border-border bg-base px-3 py-2 font-mono text-[10px] text-faint">
+        <div className={`mt-3 grid ${cacheRate !== null ? 'grid-cols-5' : 'grid-cols-4'} gap-2 border border-border bg-base px-3 py-2 font-mono text-[10px] text-faint`}>
           <span>토큰 · {usage ? usage.prompt_tokens + usage.completion_tokens : 0}/{budget.dispatch.token_limit}</span>
           <span>단계 · {usage?.steps ?? 0}/{budget.dispatch.step_limit}</span>
           <span>시간 · {Math.round((usage?.active_time_ms ?? 0) / 1000)}초/{Math.round(budget.dispatch.time_limit_ms / 1000)}초</span>
           <span>워커 · {usage?.workers_started ?? 0}/{budget.workers.total_limit}</span>
+          {cacheRate !== null && <span>캐시 · {cacheRate}%</span>}
           {session?.dispatch.budget_exhausted_reason && (
-            <strong className="col-span-4 text-danger">
+            <strong className="col-span-full text-danger">
               예산 소진 · {session.dispatch.budget_exhausted_reason}
             </strong>
           )}
           {latestMtpMetrics && (
-            <span className="col-span-4 text-secondary">
+            <span className="col-span-full text-secondary">
               MTP · 승인 {(latestMtpMetrics.acceptance * 100).toFixed(1)}%
               {' '}({latestMtpMetrics.accepted}/{latestMtpMetrics.drafted})
               {' · '}{latestMtpMetrics.tokensPerSecond.toFixed(1)} tok/s

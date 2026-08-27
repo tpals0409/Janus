@@ -555,3 +555,21 @@ pnpm dev
   p95 ≥ 1초·표본 ≥ 10일 때만 `recommended`가 뜬다 — 그때가 슬롯 증설을 검토할 시점.
 - 테스트: 경합 시 대기 실측 기록·tool 리스 미포함·판정 노출 1건(`test_scheduler.py`),
   전체 238건 통과. UI 배지 표시는 다음 디자인 라운드로 미룬다(데이터는 이미 API에 있음).
+
+## 2026-08-27 — P2: P1 실측 신호의 UI 노출
+
+P1에서 "다음 라운드로 미룬다"고 기록한 표시 작업을 정리했다. Operations Monitor는
+화면이 의도적으로 없으므로(CHECKLIST §19) 살아있는 Task 화면에만 노출한다.
+
+- **ContextInspector 실측화** — 토큰 한도가 `max_chars/4` 하드코딩이었는데, 이제
+  `context_window` 이벤트의 실측 보정치(`context_token_target`)를 우선 사용하고
+  이벤트가 없을 때만 휴리스틱으로 폴백한다. "토큰 보정" 행(`chars_per_token`자/tok ·
+  실측 n회/휴리스틱)과 "캐시 적중" 행(usage 이벤트 누적 cached/prompt %, 미보고 시
+  '미측정')을 추가했다.
+- **TaskWorkspace 예산 스트립** — 토큰·단계·시간·워커 옆에 `캐시 · n%` 셀을 추가.
+  APC 미보고 서버에서는 셀 자체가 안 보인다(0% 노이즈 방지). 전폭 행(예산 소진·MTP)은
+  `col-span-full`로 바꿔 5열에서도 안전하다.
+- **VRAM 판정 표시는 종결** — 화면 제거가 의도된 결정이므로 배지를 새로 만들지 않는다.
+  판정은 `/operations/dashboard` 스냅샷으로 조회한다(P1-6).
+- 테스트: ContextInspector 보정 표시·폴백 2건(`ContextInspector.test.tsx`),
+  Electron 24건·tsc 통과.
