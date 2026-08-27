@@ -609,3 +609,19 @@ QA 안전 기준 준수: janus-qa-fixture 격리 worktree, 모든 승인 자동 
   값으로 실패 계수)을 담은 패치 릴리스. 이 결함은 워커 위임 턴이 wait_worker 정상
   호출 3연속만으로 통합 답변 없이 종료되게 만들었다.
 - QA 재검증: 단일 워커·두 워커 분할·거짓 실행 방지 P0 시나리오 통과 (§30-A 기록).
+
+## 2026-08-27 — P5: 렌더링 근본 원인 해소와 QA 확장
+
+- **read_file 재실행 결함의 진짜 원인 발견·수정** — fc039f2와 같은 키-존재 버그가 두
+  층 더 있었다: `T.render()`가 `"error" in value`로 판정해 정상 worker view(`error:
+  None`)를 전부 "ERROR: None"으로 렌더링했고, 모델은 워커 보고 본문을 아예 못 봤다.
+  wait_worker를 반복하고 파일을 재독한 것은 모델 규율 문제가 아니라 이 결함의 증상.
+  `tool_run_end` 상태 분류도 같은 패턴이었다. 둘 다 값 판정으로 수정(b2807b3).
+- **실기기 재검증** — 단일 워커: create_worker→wait_worker→finish_turn 3콜로 종료,
+  parent 재독 0회 (§30-A 미해결 항목 해소). 두 워커: 통합 답변 1000자(워커별 출처·상태
+  인용), 남은 parent read 1회는 completed_partial 복구 계약대로의 정상 동작.
+- **create_worker 필드 거부 정리** — 27B가 두 실행 연속 objective/allowed_scope 같은
+  계약 필드를 발명해 TypeError 노이즈를 받았다. 허용 필드 목록과 "계약은 task 본문에"
+  지침을 담은 `invalid_worker_fields` 거부로 교체 — 교정 비용(턴당 ~25초)을 줄인다.
+- **P1 채팅 QA** — 후속 질문 기억 통과: 2턴째 도구 0회, 1턴 결과를 기억으로 정답.
+- 테스트: render·tool_run_end·스폰 필드 거부 회귀 3건 추가, 전체 243건 통과.

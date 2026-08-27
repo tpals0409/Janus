@@ -741,7 +741,20 @@ class Orchestration:
         def handler(name: str = "", system_prompt: str = "", task: str = "",
                     tools: list | None = None, max_steps: int = 8,
                     role: str = "implementer", context: str = "",
-                    owned_paths: list | None = None) -> dict:
+                    owned_paths: list | None = None, **unknown) -> dict:
+            if unknown:
+                # 27B가 objective/allowed_scope 같은 구조화 계약 필드를 반복적으로
+                # 발명한다. TypeError의 내부 함수명 노이즈 대신, 허용 필드와 함께
+                # "계약은 task 본문에 쓰라"는 즉시 교정 가능한 거부를 돌려준다.
+                return {
+                    "error": (
+                        f"unknown fields: {sorted(unknown)}. Accepted fields are "
+                        "name, system_prompt, task, tools, max_steps, role, "
+                        "context, owned_paths. Put the delegation contract "
+                        "(objective, scope, done-when) inside the task text."
+                    ),
+                    "reason": "invalid_worker_fields",
+                }
             workspace_context = self.active_workspace_context
             if workspace_context is None:
                 return {"error": "active WorkspaceContext가 없습니다"}

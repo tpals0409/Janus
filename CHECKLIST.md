@@ -480,10 +480,14 @@
 - [x] `workers_started=1`, span 시작·종료, Task·Dispatch·Session 최종 상태가 서로 일치한다.
       — 2026-08-23 Task `task_65aa12e2f7dc4f3e81593bc4949c5793`, worker span
       `w1-readme-reader` success, session `idle`, 실제 README 내용 일치
-- [ ] 단순 읽기 위임에서는 오케스트레이터가 워커와 동일한 `read_file`을 다시 실행하지 않는다.
-      — 현재 실패: worker 1회 + parent 1회로 `read_file` 총 2회 실행
-      — 2026-08-27 재현 확인: Task `task_36497ea6f4d640e7a7cbbcc0ac02b95a`(단일)·
-      `task_97b0558c21b74077b8b0c50d48cbc6b2`(두 워커) 모두 parent read_file 1회 재실행
+- [x] 단순 읽기 위임에서는 오케스트레이터가 워커와 동일한 `read_file`을 다시 실행하지 않는다.
+      — 2026-08-27 해소: 근본 원인은 모델 규율이 아니라 렌더링 결함이었다.
+      `T.render()`가 error 키 존재로 판정해 worker view(`error: None`)를 전부
+      "ERROR: None"으로 렌더링 → 모델이 워커 보고를 못 보고 재독(b2807b3에서 값 판정으로
+      수정). 수정 후 Task `task_0deec509579647a5b980914f9fca1ce4`에서
+      create_worker→wait_worker→finish_turn 3콜, parent 재독 0회 확인.
+      두 워커 재검증(`task_59d359bcf7a44bda8142cc7e7a509496`)의 parent read 1회는
+      completed_partial 복구 계약(변경 경로 1회 읽기)에 따른 정상 동작
 
 #### P0. 두 워커 분할과 결과 통합
 
@@ -531,7 +535,9 @@
       — 2026-08-23 사용자 직접 QA로 줄바꿈·Enter 전송 정상 확인
 - [ ] 한글 IME 조합 중 Enter는 메시지를 잘못 전송하지 않는다.
 - [ ] 응답 중 `실행 중`, 응답 후 `대화 가능` 상태로 전이하며 상태가 반복 진동하지 않는다.
-- [ ] 후속 질문이 같은 대화의 앞선 지시와 결과를 기억한다.
+- [x] 후속 질문이 같은 대화의 앞선 지시와 결과를 기억한다.
+      — 2026-08-27 통과: Task `task_6fa23dcd9a5d4132ba893de62c6ab9a5`, 2턴째 도구 호출
+      0회로 1턴 나열 결과(2번 항목)를 정확히 기억으로 답변
 - [ ] 앱을 닫았다 다시 열어도 메시지의 순서와 개수가 그대로 복원된다.
 - [ ] 새 대화·다른 프로젝트에 이전 대화의 컨텍스트나 워커 그래프가 섞이지 않는다.
 

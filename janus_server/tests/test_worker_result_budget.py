@@ -27,6 +27,17 @@ class WorkerResultBudgetTests(unittest.TestCase):
         self.assertFalse(view["result_truncated"])
         self.assertEqual(len("concise handoff"), view["result_chars"])
 
+    def test_unknown_spawn_fields_are_rejected_with_the_accepted_field_list(self):
+        """27B가 발명하는 계약 필드(objective 등)는 교정 가능한 거부를 받는다."""
+        with tempfile.TemporaryDirectory() as tmp:
+            orch = make_orchestration(FakeClient([]), Path(tmp))
+            result = spawn(orch, name="w", task="t", role="scout", tools=[],
+                           max_steps=2, objective="x", done_when="y")
+            self.assertEqual("invalid_worker_fields", result["reason"])
+            self.assertIn("objective", result["error"])
+            self.assertIn("inside the task text", result["error"])
+            self.assertEqual({}, orch.worker_records)
+
     def test_verbose_result_is_bounded_with_head_and_tail_kept(self):
         verbose = "HEAD-SUMMARY " + ("x" * 20_000) + " TAIL-CONCLUSION"
         outcomes: list[dict] = []
