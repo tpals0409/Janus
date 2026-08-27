@@ -84,10 +84,11 @@ class CliRunnerTests(unittest.TestCase):
         self.assertEqual(4, usage["cached_tokens"])
         # 다음 턴은 --resume으로 이어진다.
         self.assertIn("--resume", runner._command("again"))
-        # 컨텍스트는 첫 턴에만 시스템 프롬프트로 주입된다.
+        # 주입 마커가 남아 같은 대화에는 다시 주입하지 않는다.
+        self.assertIn("cli_context", [e["kind"] for e in runner.session.events])
         self.assertNotIn("--append-system-prompt", runner._command("again"))
         self.assertEqual(
-            ["user", "cli_session", "assistant", "assistant"],
+            ["user", "cli_context", "cli_session", "assistant", "assistant"],
             [event["kind"] for event in runner.session.events],
         )
 
@@ -184,6 +185,18 @@ class CliRunnerTests(unittest.TestCase):
             {"kind": "assistant", "content": "ok"},
         ])
         self.assertEqual("old-1", runner.cli_session_id)
+        # 주입된 적 없는 기존 대화 — 재개여도 컨텍스트를 1회 주입한다.
+        command = runner._command("continue")
+        self.assertIn("--resume", command)
+        self.assertIn("--append-system-prompt", command)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            injected, _ = make_runner(tmp)
+        injected.restore_transcript([
+            {"kind": "cli_session", "id": "old-2"},
+            {"kind": "cli_context", "injected": True},
+        ])
+        self.assertNotIn("--append-system-prompt", injected._command("continue"))
 
 
 if __name__ == "__main__":

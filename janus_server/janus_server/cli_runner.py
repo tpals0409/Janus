@@ -108,6 +108,7 @@ class CliOrchestration:
         }
         self._process: subprocess.Popen[str] | None = None
         self._auth_checked = False
+        self._context_injected = False
         self._seq = 0
         # claude는 --resume으로 대화가 이어진다. 재시작 복원을 위해 transcript의
         # cli_session 이벤트에서 마지막 id를 되살린다.
@@ -121,6 +122,10 @@ class CliOrchestration:
             if event.get("kind") == "cli_session" and event.get("id"):
                 self.cli_session_id = str(event["id"])
                 break
+        # 주입 마커가 있으면 이 대화는 이미 Janus 컨텍스트를 안다.
+        self._context_injected = any(
+            event.get("kind") == "cli_context" for event in self.session.events
+        )
 
     def cancel_all(self) -> None:
         self.cancel.set()
@@ -170,6 +175,9 @@ class CliOrchestration:
                 return
 
         command = self._command(text)
+        if "--append-system-prompt" in command and not self._context_injected:
+            self._context_injected = True
+            self.session.append("cli_context", injected=True)
         try:
             self._process = subprocess.Popen(
                 command,
@@ -256,9 +264,9 @@ class CliOrchestration:
                 "--allowedTools", "Bash",
             ]
             if self.cli_session_id:
-                # 대화가 이어지므로 컨텍스트는 첫 턴에만 주입한다.
                 command += ["--resume", self.cli_session_id]
-            else:
+            if not self._context_injected:
+                # 주입된 적 없는 대화(신규·구버전에서 만든 세션)에 1회 주입한다.
                 command += ["--append-system-prompt", self._janus_context()]
             return command
         # codex: exec는 JSONL 이벤트를 낸다. 세션 연속이 없어 매 턴 컨텍스트를 앞에 싣는다.
