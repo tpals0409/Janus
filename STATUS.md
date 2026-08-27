@@ -693,3 +693,8 @@ QA 안전 기준 준수: janus-qa-fixture 격리 worktree, 모든 승인 자동 
 - 운영 계약: 증설은 vram_sizing 게이트(p95 ≥ 1초·표본 ≥ 10)가 recommended를 띄울
   때만, JANUS_MODEL_SLOTS로. 슬롯이 차면 스폰은 suppression(사유 표시)으로 처리되는
   경로가 P6에서 검증돼 있다.
+
+## 2026-08-27 — v1.0.15 릴리스
+
+- 모델 생성 슬롯 기본값 5 → 3(9c75cf8)을 담은 패치 릴리스. 48GB 머신의 KV 스왑
+  위험 제거, 증설은 vram_sizing 실측 게이트로만.
