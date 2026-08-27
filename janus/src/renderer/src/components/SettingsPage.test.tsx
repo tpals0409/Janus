@@ -6,9 +6,9 @@ import { useStore } from '../store'
 import type { RuntimeSettingsSnapshot } from '../types'
 
 const snapshot: RuntimeSettingsSnapshot = {
-  settings: { mtpPolicy: 'required', modelSlots: 3, apc: true },
-  effective: { mtpPolicy: 'required', modelSlots: 3, apc: true },
-  locked: { mtpPolicy: false, modelSlots: false, apc: false }
+  settings: { localServer: true, mtpPolicy: 'required', modelSlots: 3, apc: true },
+  effective: { localServer: true, mtpPolicy: 'required', modelSlots: 3, apc: true },
+  locked: { localServer: false, mtpPolicy: false, modelSlots: false, apc: false }
 }
 
 describe('SettingsPage', () => {
@@ -18,7 +18,7 @@ describe('SettingsPage', () => {
 
   it('loads runtime knobs and applies changes with a restart warning', async () => {
     const runtimeSettingsSet = vi.fn().mockResolvedValue({
-      settings: { mtpPolicy: 'required', modelSlots: 4, apc: true }, restarted: ['server']
+      settings: { localServer: true, mtpPolicy: 'required', modelSlots: 4, apc: true }, restarted: ['server']
     })
     ;(window as { janus?: unknown }).janus = {
       runtimeSettingsGet: vi.fn().mockResolvedValue(snapshot),
@@ -57,10 +57,35 @@ describe('SettingsPage', () => {
     useStore.setState({ agentProfiles: [], selectedAgentProfileId: 'agent_default' })
   })
 
+  it('warns subscription users and lets them turn the local server off', async () => {
+    ;(window as { janus?: unknown }).janus = {
+      runtimeSettingsGet: vi.fn().mockResolvedValue(snapshot)
+    }
+    useStore.setState({
+      agentProfiles: [
+        { id: 'agent_claude_code', name: 'Claude Code (구독)', model_profile_id: 'model_claude_code' }
+      ] as never,
+      modelProfiles: [
+        { id: 'model_claude_code', provider: 'claude_code' }
+      ] as never,
+      selectedAgentProfileId: 'agent_claude_code'
+    })
+    const user = userEvent.setup()
+    render(<SettingsPage />)
+    expect(await screen.findByText(/구독형이라 이 섹션의 영향을 받지 않습니다/)).toBeVisible()
+    await user.click(screen.getByLabelText(/로컬 모델 서버/))
+    expect(screen.getByText(/모델 서버가 재시작됩니다/)).toBeVisible()
+    // 로컬 전용 손잡이는 서버가 꺼지면 비활성화된다.
+    expect(screen.getByLabelText(/MTP/)).toBeDisabled()
+    useStore.setState({
+      agentProfiles: [], modelProfiles: [], selectedAgentProfileId: 'agent_default'
+    })
+  })
+
   it('locks env-pinned fields', async () => {
     ;(window as { janus?: unknown }).janus = {
       runtimeSettingsGet: vi.fn().mockResolvedValue({
-        ...snapshot, locked: { mtpPolicy: true, modelSlots: false, apc: false }
+        ...snapshot, locked: { localServer: false, mtpPolicy: true, modelSlots: false, apc: false }
       })
     }
     render(<SettingsPage />)

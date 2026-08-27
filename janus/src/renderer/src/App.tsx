@@ -179,8 +179,11 @@ export default function App() {
         </div>
         <div className="app-titlebar__status">
           <span className="font-mono text-[10px] text-faint">local</span>
-          <Status tone={mlxUp ? 'success' : 'warning'} pulse={!mlxUp}>
-            {mlxUp ? '모델 준비' : '모델 로딩'}
+          <Status
+            tone={backendStatus?.mlx.phase === 'disabled' ? 'muted' : mlxUp ? 'success' : 'warning'}
+            pulse={!mlxUp && backendStatus?.mlx.phase !== 'disabled'}
+          >
+            {backendStatus?.mlx.phase === 'disabled' ? '로컬 모델 꺼짐' : mlxUp ? '모델 준비' : '모델 로딩'}
           </Status>
         </div>
       </header>

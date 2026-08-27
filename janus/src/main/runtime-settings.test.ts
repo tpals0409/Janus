@@ -22,11 +22,11 @@ test('save clamps values and load round-trips them', async () => {
     const saved = saveRuntimeSettings(file, {
       mtpPolicy: 'weird' as never, modelSlots: 99, apc: false
     })
-    assert.deepEqual(saved, { mtpPolicy: 'required', modelSlots: 8, apc: false })
+    assert.deepEqual(saved, { localServer: true, mtpPolicy: 'required', modelSlots: 8, apc: false })
     assert.deepEqual(loadRuntimeSettings(file), saved)
     assert.deepEqual(
-      saveRuntimeSettings(file, { mtpPolicy: 'off', modelSlots: 0, apc: true }),
-      { mtpPolicy: 'off', modelSlots: 1, apc: true }
+      saveRuntimeSettings(file, { localServer: false, mtpPolicy: 'off', modelSlots: 0, apc: true }),
+      { localServer: false, mtpPolicy: 'off', modelSlots: 1, apc: true }
     )
   } finally {
     await rm(root, { recursive: true })

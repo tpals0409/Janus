@@ -3,6 +3,7 @@ import type { ChildProcess } from 'child_process'
 export type ServicePhase =
   | 'starting'
   | 'up'
+  | 'disabled'
   | 'restarting'
   | 'failed'
   | 'external'

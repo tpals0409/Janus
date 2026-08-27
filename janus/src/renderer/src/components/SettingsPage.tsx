@@ -12,8 +12,12 @@ const MTP_LABEL: Record<RuntimeSettingsValues['mtpPolicy'], string> = {
 /** 설정 화면 — 모델 선택은 즉시 적용, 런타임 손잡이는 저장 시 해당 서비스만 재시작. */
 export default function SettingsPage() {
   const agentProfiles = useStore((state) => state.agentProfiles)
+  const modelProfiles = useStore((state) => state.modelProfiles)
   const selectedAgentProfileId = useStore((state) => state.selectedAgentProfileId)
   const selectAgentProfile = useStore((state) => state.selectAgentProfile)
+  const selectedProvider = modelProfiles.find((model) =>
+    model.id === agentProfiles.find((profile) => profile.id === selectedAgentProfileId)?.model_profile_id
+  )?.provider ?? 'local'
   const [snapshot, setSnapshot] = useState<RuntimeSettingsSnapshot | null>(null)
   const [draft, setDraft] = useState<RuntimeSettingsValues | null>(null)
   const [saving, setSaving] = useState(false)
@@ -27,13 +31,16 @@ export default function SettingsPage() {
   }, [])
 
   const changed = snapshot && draft && (
-    draft.mtpPolicy !== snapshot.effective.mtpPolicy
+    draft.localServer !== snapshot.effective.localServer
+    || draft.mtpPolicy !== snapshot.effective.mtpPolicy
     || draft.modelSlots !== snapshot.effective.modelSlots
     || draft.apc !== snapshot.effective.apc
   )
   const restartTargets = snapshot && draft
     ? [
-        ...(draft.mtpPolicy !== snapshot.effective.mtpPolicy || draft.apc !== snapshot.effective.apc
+        ...(draft.localServer !== snapshot.effective.localServer
+          || draft.mtpPolicy !== snapshot.effective.mtpPolicy
+          || draft.apc !== snapshot.effective.apc
           ? ['모델 서버'] : []),
         ...(draft.modelSlots !== snapshot.effective.modelSlots ? ['백엔드'] : [])
       ]
@@ -92,15 +99,34 @@ export default function SettingsPage() {
 
         <section className="task-card settings-section">
           <h3>로컬 모델 런타임</h3>
+          {selectedProvider !== 'local' && (
+            <p className="settings-section__note">
+              현재 선택된 모델은 구독형이라 이 섹션의 영향을 받지 않습니다.
+              구독형 위주로 쓴다면 로컬 모델 서버를 꺼서 메모리(약 16GB)를 아낄 수 있습니다.
+            </p>
+          )}
           {!draft || !snapshot ? (
             <div className="settings-dialog__loading"><Loader2 size={14} className="animate-spin" /> 불러오는 중</div>
           ) : (
             <>
+              <label className="settings-field settings-field--row">
+                <input
+                  type="checkbox"
+                  checked={draft.localServer}
+                  onChange={(event) => setDraft({ ...draft, localServer: event.target.checked })}
+                />
+                <span className="settings-field__name">로컬 모델 서버</span>
+                <em>
+                  끄면 로컬 27B를 띄우지 않아 메모리를 아낍니다. 로컬 모델(Janus Local)
+                  프로필은 이 서버가 켜져 있어야 실행됩니다.
+                </em>
+              </label>
+
               <label className="settings-field">
                 <span className="settings-field__name">MTP (speculative decoding)</span>
                 <select
                   value={draft.mtpPolicy}
-                  disabled={snapshot.locked.mtpPolicy}
+                  disabled={snapshot.locked.mtpPolicy || !draft.localServer}
                   onChange={(event) => setDraft({
                     ...draft, mtpPolicy: event.target.value as RuntimeSettingsValues['mtpPolicy']
                   })}
@@ -119,7 +145,7 @@ export default function SettingsPage() {
                   min={1}
                   max={8}
                   value={draft.modelSlots}
-                  disabled={snapshot.locked.modelSlots}
+                  disabled={snapshot.locked.modelSlots || !draft.localServer}
                   onChange={(event) => setDraft({ ...draft, modelSlots: Number(event.target.value) })}
                 />
                 <em>
@@ -133,7 +159,7 @@ export default function SettingsPage() {
                 <input
                   type="checkbox"
                   checked={draft.apc}
-                  disabled={snapshot.locked.apc}
+                  disabled={snapshot.locked.apc || !draft.localServer}
                   onChange={(event) => setDraft({ ...draft, apc: event.target.checked })}
                 />
                 <span className="settings-field__name">프롬프트 캐시 (APC)</span>

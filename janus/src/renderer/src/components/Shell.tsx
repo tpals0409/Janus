@@ -69,7 +69,9 @@ export function StatusBar({ mode, onOpenSettings }: { mode: string; onOpenSettin
   const loadClock = elapsed === null
     ? ''
     : ` · ${elapsed}초${lastSeconds !== null ? ` (지난번 ${lastSeconds}초)` : ''}`
-  const mlxText = mlxUp
+  const mlxText = mlxPhase === 'disabled'
+    ? '로컬 모델 꺼짐 (설정)'
+    : mlxUp
     ? mlxPhase === 'external'
       ? '모델 :8080 (외부) · MTP 확인 불가'
       : acceleration?.active
@@ -100,8 +102,8 @@ export function StatusBar({ mode, onOpenSettings }: { mode: string; onOpenSettin
         {serverUp ? `janus-server :8765${serverExternal ? ' (외부)' : ''}` : '서버 연결 안 됨'}
       </Status>
       <Status
-        tone={mlxPhase === 'failed' ? 'danger' : mlxUp ? 'success' : 'warning'}
-        pulse={!mlxUp && mlxPhase !== 'failed'}
+        tone={mlxPhase === 'disabled' ? 'muted' : mlxPhase === 'failed' ? 'danger' : mlxUp ? 'success' : 'warning'}
+        pulse={!mlxUp && mlxPhase !== 'failed' && mlxPhase !== 'disabled'}
         title={mlxPhase === 'failed'
           ? acceleration?.lastError ?? '모델 로그를 확인하세요'
           : acceleration?.draftModelPath ?? undefined}

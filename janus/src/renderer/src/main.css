@@ -3138,3 +3138,13 @@ textarea:focus-visible {
   border-top: 1px solid var(--border-subtle);
   padding-top: 12px;
 }
+
+.settings-section__note {
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-raised);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}

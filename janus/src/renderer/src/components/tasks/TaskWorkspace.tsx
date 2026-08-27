@@ -2633,6 +2633,14 @@ export default function TaskWorkspace({
   const runtimeError = useStore((state) => state.taskRuntimeError)
   const busy = useStore((state) => state.taskBusy)
   const mlxUp = useStore((state) => state.mlxUp)
+  const agentProfilesForGate = useStore((state) => state.agentProfiles)
+  const modelProfilesForGate = useStore((state) => state.modelProfiles)
+  const selectedProfileForGate = useStore((state) => state.selectedAgentProfileId)
+  // 구독형(CLI) 모델은 로컬 MLX 서버가 없어도 실행된다 — 로컬 프로바이더만 게이트.
+  const gateProvider = modelProfilesForGate.find((model) =>
+    model.id === agentProfilesForGate.find((profile) => profile.id === selectedProfileForGate)?.model_profile_id
+  )?.provider ?? 'local'
+  const modelReady = gateProvider === 'local' ? Boolean(mlxUp) : true
   const startTaskSession = useStore((state) => state.startTaskSession)
   const resumeTaskSession = useStore((state) => state.resumeTaskSession)
   const project = useMemo(
@@ -2648,18 +2656,18 @@ export default function TaskWorkspace({
   useEffect(() => {
     if (
       !pendingDelegation || pendingDelegation.taskId !== task?.id ||
-      task.workspace?.state !== 'ready' || session || busy || !mlxUp
+      task.workspace?.state !== 'ready' || session || busy || !modelReady
     ) return
     void startTaskSession({ initialMessage: pendingDelegation.objective })
-  }, [pendingDelegation, task, session, busy, mlxUp, startTaskSession])
+  }, [pendingDelegation, task, session, busy, modelReady, startTaskSession])
 
   useEffect(() => {
     if (
-      pendingDelegation || !session || taskSocket || connected || busy || !mlxUp || runtimeError ||
+      pendingDelegation || !session || taskSocket || connected || busy || !modelReady || runtimeError ||
       (session.status !== 'created' && session.status !== 'idle')
     ) return
     void resumeTaskSession()
-  }, [pendingDelegation, session, taskSocket, connected, busy, mlxUp, runtimeError, resumeTaskSession])
+  }, [pendingDelegation, session, taskSocket, connected, busy, modelReady, runtimeError, resumeTaskSession])
 
   useEffect(() => {
     if (previousTaskId.current !== task?.id) onNewConversationChange(false)

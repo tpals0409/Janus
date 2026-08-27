@@ -213,7 +213,7 @@ export interface AgentProfile {
 export interface ModelProfile {
   id: string
   name: string
-  provider: 'local'
+  provider: 'local' | 'claude_code' | 'codex'
   model_key: string
   quantization: string
   config: Record<string, unknown>
@@ -550,6 +550,7 @@ export interface Span {
 }
 
 export type ServicePhase = 'starting' | 'up' | 'restarting' | 'failed' | 'external' | 'blocked' | 'stopped'
+  | 'disabled'
 
 export interface BackendServiceStatus {
   phase: ServicePhase
@@ -593,6 +594,7 @@ export interface TaskBrowserInspection {
 }
 
 export interface RuntimeSettingsValues {
+  localServer: boolean
   mtpPolicy: 'required' | 'preferred' | 'off'
   modelSlots: number
   apc: boolean
@@ -601,7 +603,7 @@ export interface RuntimeSettingsValues {
 export interface RuntimeSettingsSnapshot {
   settings: RuntimeSettingsValues
   effective: RuntimeSettingsValues
-  locked: { mtpPolicy: boolean; modelSlots: boolean; apc: boolean }
+  locked: { localServer: boolean; mtpPolicy: boolean; modelSlots: boolean; apc: boolean }
 }
 
 declare global {

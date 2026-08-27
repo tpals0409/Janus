@@ -323,6 +323,17 @@ async function endpointHealthy(label: ServiceLabel): Promise<boolean> {
 
 async function ensureService(label: ServiceLabel): Promise<void> {
   const service = services[label]
+  if (label === 'mlx' && !runtimeSettings.localServer) {
+    // 로컬 모델 서버 꺼짐(설정) — 우리가 띄운 프로세스는 정리하고 다시 띄우지 않는다.
+    if (processAlive(service.process)) {
+      const pid = service.process?.pid
+      if (pid != null) {
+        try { globalThis.process.kill(-pid, 'SIGTERM') } catch { service.process?.kill('SIGTERM') }
+      }
+    }
+    if (service.ownership !== 'external') service.phase = 'disabled'
+    return
+  }
   const portUp = await portInUse(serviceSpecs[label].port)
   const endpoint = classifyEndpoint(portUp, portUp && (await endpointHealthy(label)))
 
@@ -442,6 +453,7 @@ function applyRuntimeSettings(next: RuntimeSettings): {
   restarted: ServiceLabel[]
 } {
   const before = {
+    localServer: runtimeSettings.localServer,
     mtpPolicy: effectiveMtpPolicy(),
     modelSlots: effectiveModelSlots(),
     apc: effectiveApc()
@@ -452,8 +464,12 @@ function applyRuntimeSettings(next: RuntimeSettings): {
   mlxLaunch = launch
   serviceSpecs.mlx.command = launch.command
   const restarted: ServiceLabel[] = []
-  if (before.mtpPolicy !== effectiveMtpPolicy() || before.apc !== effectiveApc()) {
-    restartService('mlx')
+  if (before.localServer !== runtimeSettings.localServer) {
+    // 끄기: supervisor가 다음 틱에 종료·disabled 처리. 켜기: 다음 틱에 스폰.
+    if (!runtimeSettings.localServer) restartService('mlx')
+    restarted.push('mlx')
+  } else if (before.mtpPolicy !== effectiveMtpPolicy() || before.apc !== effectiveApc()) {
+    if (runtimeSettings.localServer) restartService('mlx')
     restarted.push('mlx')
   }
   if (before.modelSlots !== effectiveModelSlots()) {
@@ -466,11 +482,15 @@ function applyRuntimeSettings(next: RuntimeSettings): {
 ipcMain.handle('runtime-settings-get', () => ({
   settings: runtimeSettings,
   effective: {
+    localServer: runtimeSettings.localServer,
     mtpPolicy: effectiveMtpPolicy(),
     modelSlots: effectiveModelSlots(),
     apc: effectiveApc()
   },
-  locked: { mtpPolicy: mtpPolicyLocked, modelSlots: slotsLocked, apc: apcLocked }
+  locked: {
+    localServer: false,
+    mtpPolicy: mtpPolicyLocked, modelSlots: slotsLocked, apc: apcLocked
+  }
 }))
 ipcMain.handle('runtime-settings-set', (_event, next: RuntimeSettings) => applyRuntimeSettings(next))
 
