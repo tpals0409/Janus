@@ -3105,3 +3105,36 @@ textarea:focus-visible {
   background: var(--color-raised);
   color: var(--color-fg);
 }
+
+/* ── 설정 페이지 ── */
+.settings-page {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  overflow-y: auto;
+  background: var(--bg-base);
+}
+.settings-page__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 16px 20px 14px;
+}
+.settings-page__header h2 { font-size: 13px; font-weight: 600; }
+.settings-page__header p { margin-top: 2px; font-size: 10.5px; color: var(--color-faint); }
+.settings-page__body {
+  display: flex;
+  max-width: 560px;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 20px 24px;
+}
+.settings-section { display: flex; flex-direction: column; gap: 14px; }
+.settings-section h3 { font-size: 11.5px; font-weight: 600; color: var(--text-secondary); }
+.settings-section__actions {
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 12px;
+}

@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import SettingsDialog from './SettingsDialog'
+import SettingsPage from './SettingsPage'
 import { useStore } from '../store'
 import type { RuntimeSettingsSnapshot } from '../types'
 
@@ -11,7 +11,7 @@ const snapshot: RuntimeSettingsSnapshot = {
   locked: { mtpPolicy: false, modelSlots: false, apc: false }
 }
 
-describe('SettingsDialog', () => {
+describe('SettingsPage', () => {
   afterEach(() => {
     delete (window as { janus?: unknown }).janus
   })
@@ -25,7 +25,7 @@ describe('SettingsDialog', () => {
       runtimeSettingsSet
     }
     const user = userEvent.setup()
-    render(<SettingsDialog open onClose={() => {}} />)
+    render(<SettingsPage />)
 
     const slots = await screen.findByLabelText(/모델 동시 생성 슬롯/)
     await user.clear(slots)
@@ -50,7 +50,7 @@ describe('SettingsDialog', () => {
       selectedAgentProfileId: 'agent_default'
     })
     const user = userEvent.setup()
-    render(<SettingsDialog open onClose={() => {}} />)
+    render(<SettingsPage />)
     const select = await screen.findByLabelText(/모델 \(에이전트 프로필\)/)
     await user.selectOptions(select, 'agent_claude_code')
     expect(useStore.getState().selectedAgentProfileId).toBe('agent_claude_code')
@@ -63,7 +63,7 @@ describe('SettingsDialog', () => {
         ...snapshot, locked: { mtpPolicy: true, modelSlots: false, apc: false }
       })
     }
-    render(<SettingsDialog open onClose={() => {}} />)
+    render(<SettingsPage />)
     const select = await screen.findByLabelText(/MTP/)
     expect(select).toBeDisabled()
     expect(screen.getByText(/JANUS_MTP_POLICY 환경변수로 고정됨/)).toBeVisible()

@@ -10,7 +10,7 @@ import PromptEditor from './components/PromptEditor'
 import SkillLibrary from './components/SkillLibrary'
 import ContextPolicyEditor from './components/ContextPolicyEditor'
 import { Status, Tabs } from './components/ui'
-import SettingsDialog from './components/SettingsDialog'
+import SettingsPage from './components/SettingsPage'
 import CommandPalette from './components/CommandPalette'
 import EvaluationLab from './components/EvaluationLab'
 import AgentOverview from './components/AgentOverview'
@@ -35,7 +35,6 @@ export default function App() {
 
   const [nav, setNav] = useState('tasks')
   const [newConversation, setNewConversation] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     try { return localStorage.getItem('janus.sidebarOpen') !== '0' } catch { return true }
   })
@@ -172,9 +171,11 @@ export default function App() {
         <div className="app-titlebar__context">
           {nav === 'tasks'
             ? task?.title ?? projects.find((project) => project.id === projectId)?.name ?? '작업'
-            : nav === 'evaluations'
-              ? 'Evaluation Lab'
-              : selectedProfile?.name ?? '실행 프로필'}
+            : nav === 'settings'
+              ? '설정'
+              : nav === 'evaluations'
+                ? 'Evaluation Lab'
+                : selectedProfile?.name ?? '실행 프로필'}
         </div>
         <div className="app-titlebar__status">
           <span className="font-mono text-[10px] text-faint">local</span>
@@ -183,8 +184,6 @@ export default function App() {
           </Status>
         </div>
       </header>
-      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-
       <div className="flex min-h-0 flex-1">
         {sidebarOpen && <TaskSidebar
           activeNavigation={nav}
@@ -202,6 +201,8 @@ export default function App() {
             newConversation={newConversation}
             onNewConversationChange={setNewConversation}
           />
+        ) : nav === 'settings' ? (
+          <SettingsPage />
         ) : nav === 'evaluations' ? (
           <EvaluationLab />
         ) : nav !== 'agents' ? (
@@ -236,7 +237,7 @@ export default function App() {
         )}
       </div>
 
-      <StatusBar mode={nav} onOpenSettings={() => setSettingsOpen(true)} />
+      <StatusBar mode={nav} onOpenSettings={() => setNav(nav === 'settings' ? 'tasks' : 'settings')} />
       <CommandPalette onNavigate={setNav} />
     </div>
   )
