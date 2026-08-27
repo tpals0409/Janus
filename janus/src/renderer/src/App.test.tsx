@@ -532,3 +532,29 @@ describe('사이드바 토글', () => {
     expect(screen.getByRole('button', { name: '새 대화' })).toBeVisible()
   })
 })
+
+describe('컴포저 모델 선택', () => {
+  it('switches the profile from the chat composer and flags mid-session changes', async () => {
+    window.history.replaceState({}, '', '/?fixture=task-runtime')
+    seedTaskRuntimeVisualFixture()
+    const session = useStore.getState().taskSession!
+    useStore.setState({
+      taskConnected: true, serverUp: true, mlxUp: true,
+      agentProfiles: [
+        { id: session.agent_profile_id, name: 'Janus Local',
+          budget: { queue: { priority: 0, timeout_ms: 300000 } } },
+        { id: 'agent_claude_code', name: 'Claude Code (구독)',
+          budget: { queue: { priority: 0, timeout_ms: 300000 } } }
+      ] as never,
+      selectedAgentProfileId: session.agent_profile_id
+    })
+    const user = userEvent.setup()
+    render(<App />)
+
+    const select = screen.getByLabelText('모델 선택')
+    expect(select).toBeVisible()
+    await user.selectOptions(select, 'agent_claude_code')
+    expect(useStore.getState().selectedAgentProfileId).toBe('agent_claude_code')
+    expect(screen.getByText('새 시도부터')).toBeVisible()
+  })
+})

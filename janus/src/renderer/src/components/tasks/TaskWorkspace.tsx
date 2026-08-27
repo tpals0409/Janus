@@ -128,6 +128,30 @@ const FileView = lazy(() => import('../FileView'))
 // 마크다운 렌더러는 초기 번들 예산을 넘긴다 — 첫 답변이 올 때 받아온다.
 const TaskMarkdown = lazy(() => import('./TaskMarkdown'))
 
+function ComposerModelSelect() {
+  const profiles = useStore((state) => state.agentProfiles)
+  const selected = useStore((state) => state.selectedAgentProfileId)
+  const selectProfile = useStore((state) => state.selectAgentProfile)
+  const session = useStore((state) => state.taskSession)
+  if (profiles.length === 0) return <span><Zap size={13} /> 로컬 에이전트</span>
+  const differs = Boolean(session && session.agent_profile_id !== selected)
+  return (
+    <span className="janus-composer__model" title="모델 선택 — 새 시도·새 대화부터 적용">
+      <Zap size={13} />
+      <select
+        value={selected}
+        onChange={(event) => selectProfile(event.target.value)}
+        aria-label="모델 선택"
+      >
+        {profiles.map((profile) => (
+          <option key={profile.id} value={profile.id}>{profile.name}</option>
+        ))}
+      </select>
+      {differs && <em>새 시도부터</em>}
+    </span>
+  )
+}
+
 const STATE_LABEL: Record<string, string> = {
   created: '연결 준비', idle: '대화 가능', running: '실행 중', stopped: '중단됨',
   completed: '완료', queued: '대기열', passed: '통과', failed: '실패', error: '오류',
@@ -305,7 +329,7 @@ function DelegationBar({ project }: { project: Project }) {
             프론트 목업부터 시작
           </label>
           <div className="janus-composer__meta">
-            <span><Zap size={13} /> {project.name} · 로컬</span>
+            <ComposerModelSelect />
             <button type="submit" disabled={busy || !objective.trim()} className="janus-composer__send" aria-label={busy ? '준비 중' : '위임'}>
               {busy ? <Loader2 size={15} className="animate-spin" /> : <ArrowUp size={17} />}
             </button>
@@ -1139,7 +1163,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
             </button>
           </div>
           <div className="janus-composer__meta">
-            <span><Zap size={13} /> {selectedProfile?.name ?? '로컬 에이전트'}</span>
+            <ComposerModelSelect />
             {active && (
               <button type="button" onClick={cancelTurn} className="janus-composer__stop" aria-label="턴 취소">
                 <Square size={13} />

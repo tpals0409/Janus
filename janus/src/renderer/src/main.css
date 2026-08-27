@@ -3148,3 +3148,25 @@ textarea:focus-visible {
   line-height: 1.5;
   color: var(--text-secondary);
 }
+
+/* 컴포저 모델 선택 — 라벨처럼 보이는 컴팩트 셀렉트 */
+.janus-composer__model {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--color-faint);
+}
+.janus-composer__model select {
+  max-width: 180px;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+.janus-composer__model select:hover { color: var(--color-fg); }
+.janus-composer__model em {
+  font-style: normal;
+  font-size: 9.5px;
+  color: var(--color-warn);
+}
