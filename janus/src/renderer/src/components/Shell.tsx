@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
-import { Bot, ChevronDown } from 'lucide-react'
+import { Settings, Bot, ChevronDown } from 'lucide-react'
 import { Status } from './ui'
 
 const MODEL_LOAD_KEY = 'janus.model-load-seconds'
@@ -52,7 +52,7 @@ export function AgentProfilePicker() {
   </div>
 }
 
-export function StatusBar({ mode }: { mode: string }) {
+export function StatusBar({ mode, onOpenSettings }: { mode: string; onOpenSettings?: () => void }) {
   const serverUp = useStore((s) => s.serverUp)
   const mlxUp = useStore((s) => s.mlxUp)
   const serverVersion = useStore((s) => s.serverVersion)
@@ -85,6 +85,17 @@ export function StatusBar({ mode }: { mode: string }) {
 
   return (
     <footer className="status-bar">
+      {onOpenSettings && (
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          title="설정"
+          aria-label="설정"
+          className="status-bar__settings"
+        >
+          <Settings size={13} />
+        </button>
+      )}
       <Status tone={serverUp ? 'success' : 'danger'}>
         {serverUp ? `janus-server :8765${serverExternal ? ' (외부)' : ''}` : '서버 연결 안 됨'}
       </Status>

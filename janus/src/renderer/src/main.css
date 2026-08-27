@@ -3092,3 +3092,16 @@ textarea:focus-visible {
   border-top: 1px solid var(--border-subtle);
   padding-top: 12px;
 }
+
+.status-bar__settings {
+  display: grid;
+  height: 20px;
+  width: 20px;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--color-faint);
+}
+.status-bar__settings:hover {
+  background: var(--color-raised);
+  color: var(--color-fg);
+}

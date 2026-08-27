@@ -2,12 +2,13 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import SettingsDialog from './SettingsDialog'
+import type { RuntimeSettingsSnapshot } from '../types'
 
-const snapshot = {
+const snapshot: RuntimeSettingsSnapshot = {
   settings: { mtpPolicy: 'required', modelSlots: 3, apc: true },
   effective: { mtpPolicy: 'required', modelSlots: 3, apc: true },
   locked: { mtpPolicy: false, modelSlots: false, apc: false }
-} as never
+}
 
 describe('SettingsDialog', () => {
   afterEach(() => {

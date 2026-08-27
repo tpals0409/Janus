@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ReactFlowProvider } from '@xyflow/react'
-import { Loader2, PanelLeft, PanelLeftClose, Settings2, ShieldAlert } from 'lucide-react'
+import { Loader2, PanelLeft, PanelLeftClose, ShieldAlert } from 'lucide-react'
 import { useStore } from './store'
 import Canvas from './components/Canvas'
 import { AgentProfilePicker, StatusBar } from './components/Shell'
@@ -181,15 +181,6 @@ export default function App() {
           <Status tone={mlxUp ? 'success' : 'warning'} pulse={!mlxUp}>
             {mlxUp ? '모델 준비' : '모델 로딩'}
           </Status>
-          <button
-            type="button"
-            onClick={() => setSettingsOpen(true)}
-            title="설정"
-            aria-label="설정"
-            className="app-titlebar__sidebar-toggle"
-          >
-            <Settings2 size={14} />
-          </button>
         </div>
       </header>
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
@@ -245,7 +236,7 @@ export default function App() {
         )}
       </div>
 
-      <StatusBar mode={nav} />
+      <StatusBar mode={nav} onOpenSettings={() => setSettingsOpen(true)} />
       <CommandPalette onNavigate={setNav} />
     </div>
   )
