@@ -516,3 +516,19 @@ describe('Janus renderer fixture', () => {
     vi.unstubAllGlobals()
   })
 })
+
+describe('사이드바 토글', () => {
+  it('hides and restores the sidebar from the titlebar toggle', async () => {
+    window.history.replaceState({}, '', '/?fixture=task-runtime')
+    seedTaskRuntimeVisualFixture()
+    useStore.setState({ taskConnected: true, serverUp: true, mlxUp: true })
+    const user = userEvent.setup()
+    render(<App />)
+
+    expect(screen.getByRole('button', { name: '새 대화' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '사이드바 닫기' }))
+    expect(screen.queryByRole('button', { name: '새 대화' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: '사이드바 열기' }))
+    expect(screen.getByRole('button', { name: '새 대화' })).toBeVisible()
+  })
+})

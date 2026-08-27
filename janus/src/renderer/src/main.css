@@ -381,6 +381,20 @@ button {
   line-height: 1.55;
 }
 
+.app-titlebar__sidebar-toggle {
+  display: grid;
+  height: 24px;
+  width: 24px;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--color-faint);
+  -webkit-app-region: no-drag;
+}
+.app-titlebar__sidebar-toggle:hover {
+  background: var(--color-raised);
+  color: var(--color-fg);
+}
+
 .app-titlebar {
   display: grid;
   height: 44px;

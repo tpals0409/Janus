@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ReactFlowProvider } from '@xyflow/react'
-import { Loader2, ShieldAlert } from 'lucide-react'
+import { Loader2, PanelLeft, PanelLeftClose, ShieldAlert } from 'lucide-react'
 import { useStore } from './store'
 import Canvas from './components/Canvas'
 import { AgentProfilePicker, StatusBar } from './components/Shell'
@@ -34,6 +34,22 @@ export default function App() {
 
   const [nav, setNav] = useState('tasks')
   const [newConversation, setNewConversation] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    try { return localStorage.getItem('janus.sidebarOpen') !== '0' } catch { return true }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('janus.sidebarOpen', sidebarOpen ? '1' : '0') } catch { /* 저장 불가 환경 */ }
+  }, [sidebarOpen])
+  useEffect(() => {
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'b') {
+        event.preventDefault()
+        setSidebarOpen((value) => !value)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
   const [tab, setTab] = useState<(typeof DESIGN_TABS)[number]>('대시보드')
   const selectedProfile = agentProfiles.find((profile) => profile.id === selectedAgentProfileId)
 
@@ -139,7 +155,19 @@ export default function App() {
   return (
     <div className="flex h-full flex-col">
       <header className="app-titlebar">
-        <BrandMark />
+        <div className="flex items-center gap-1.5">
+          <BrandMark />
+          <button
+            type="button"
+            onClick={() => setSidebarOpen((value) => !value)}
+            title={sidebarOpen ? '사이드바 닫기 (⌘B)' : '사이드바 열기 (⌘B)'}
+            aria-label={sidebarOpen ? '사이드바 닫기' : '사이드바 열기'}
+            aria-pressed={sidebarOpen}
+            className="app-titlebar__sidebar-toggle"
+          >
+            {sidebarOpen ? <PanelLeftClose size={14} /> : <PanelLeft size={14} />}
+          </button>
+        </div>
         <div className="app-titlebar__context">
           {nav === 'tasks'
             ? task?.title ?? projects.find((project) => project.id === projectId)?.name ?? '작업'
@@ -156,7 +184,7 @@ export default function App() {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <TaskSidebar
+        {sidebarOpen && <TaskSidebar
           activeNavigation={nav}
           onNavigate={(destination) => {
             setNav(destination)
@@ -166,7 +194,7 @@ export default function App() {
             setNav('tasks')
             setNewConversation(true)
           }}
-        />
+        />}
         {nav === 'tasks' ? (
           <TaskWorkspace
             newConversation={newConversation}
