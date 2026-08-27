@@ -668,7 +668,8 @@ def run(
                     raise
                 emit("tool_run_end", operation_id=operation_id, name=name,
                      call_id=call["id"],
-                     status="error" if "error" in value else "success")
+                     status=("error" if isinstance(value, dict) and value.get("error")
+                             else "success"))
             return name, value
 
         if len(calls) > 1:

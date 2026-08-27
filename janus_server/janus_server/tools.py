@@ -384,7 +384,9 @@ def resource_class_for(name: str, registry: dict | None = None) -> str:
 def render(name: str, value: dict, registry: dict | None = None) -> str:
     """모델에게 보낼 텍스트. 여기서만 자른다 — 원본 dict는 온전히 남는다."""
     reg = registry or REGISTRY
-    if "error" in value:
+    # 키 존재가 아니라 값으로 판정한다: worker view처럼 정상 결과에 error=None을
+    # 싣는 dict가 "ERROR: None"으로 렌더링되면 모델이 결과 본문을 아예 못 본다.
+    if isinstance(value, dict) and value.get("error"):
         return f"ERROR: {value['error']}"
     return _clip(reg[name]["render"](value), int(reg[name].get("render_chars", MAX_RENDER_CHARS)))
 

@@ -47,6 +47,26 @@ class CircuitBreakerTests(unittest.TestCase):
         reasons = [e.get("reason") for e in events if e["kind"] == "done"]
         self.assertNotIn("circuit_break:probe", reasons)
 
+    def test_null_error_field_renders_the_result_body_not_an_error_banner(self):
+        # wait_worker view가 "ERROR: None"으로 렌더링되면 모델이 결과를 못 본다.
+        view = {"worker": "w1", "status": "completed",
+                "result": "full report", "error": None}
+        rendered = T.render("wait_worker", view, registry={
+            "wait_worker": T._t("wait_worker", lambda: view,
+                                lambda v: v["result"], T._obj([]), "wait"),
+        })
+        self.assertEqual("full report", rendered)
+        self.assertEqual("ERROR: boom", T.render("wait_worker", {"error": "boom"}))
+
+    def test_tool_run_end_reports_success_for_null_error_results(self):
+        calls = [("probe", "{}")]
+        events = run_with_tool(
+            lambda: {"status": "completed", "error": None},
+            [{"calls": calls}, {"text": "done"}],
+        )
+        ends = [e for e in events if e["kind"] == "tool_run_end"]
+        self.assertEqual(["success"], [e.get("status") for e in ends])
+
     def test_repeated_real_errors_still_trip_the_breaker(self):
         calls = [("probe", "{}")]
         events = run_with_tool(
