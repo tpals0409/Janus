@@ -719,3 +719,10 @@ QA 안전 기준 준수: janus-qa-fixture 격리 worktree, 모든 승인 자동 
   가능한 세션에 자동 재연결(a2c3976 — "재개" 수동 클릭 강요 해소), 대화 말풍선
   UI(ad162d9 — 사용자 오른쪽·Janus 왼쪽), 파일 뷰 Git diff의 VS Code식 좌/우
   분할(125f39e — hunk에서 양쪽 재구성, 실제 언어 하이라이팅).
+
+## 2026-08-27 — v1.0.17 릴리스
+
+- 실기기 QA 이어달리기 2건: untracked 신규 파일의 hunk 없는 의사-diff도 분할
+  뷰로 렌더링(d6a97dc — "적용 안 됨"으로 보이던 원인), 변경사항 패널에 리뷰
+  게이트 없는 직접 커밋 버튼 + POST /tasks/{id}/workspace/commit(9a945c4 —
+  안전장치는 commit_changes가 그대로 강제, shipment 기록으로 push 게이트 정합).

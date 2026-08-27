@@ -1,6 +1,6 @@
 [project]
 name = "janus-server"
-version = "1.0.16"
+version = "1.0.17"
 requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.141.1",
