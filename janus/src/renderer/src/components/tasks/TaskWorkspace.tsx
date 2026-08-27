@@ -17,6 +17,7 @@ import {
   Plus,
   RefreshCw,
   RotateCcw,
+  GitCommitHorizontal,
   Send,
   Settings2,
   ShieldCheck,
@@ -1303,6 +1304,9 @@ async function colorizeDiffLines(
 function ChangeSetCard() {
   const changeSet = useStore((state) => state.changeSet)
   const refresh = useStore((state) => state.inspectWorkspace)
+  const commitChanges = useStore((state) => state.commitWorkspaceChanges)
+  const busy = useStore((state) => state.taskBusy)
+  const [commitMessage, setCommitMessage] = useState('')
   const [layer, setLayer] = useState<ChangeLayer>('unstaged')
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [commentLine, setCommentLine] = useState<ReturnType<typeof diffLines>[number] | null>(null)
@@ -1437,6 +1441,32 @@ function ChangeSetCard() {
           </button>
         </div>
       </div>
+      {(changeSet.counts.staged + changeSet.counts.unstaged + changeSet.counts.untracked) > 0 && (
+        <form
+          className="mt-3 flex items-center gap-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            const message = commitMessage.trim()
+            if (!message) return
+            void commitChanges(message).then((ok) => { if (ok) setCommitMessage('') })
+          }}
+        >
+          <input
+            value={commitMessage}
+            onChange={(event) => setCommitMessage(event.target.value)}
+            placeholder="commit 메시지"
+            className="h-7 min-w-0 flex-1 border border-border bg-base px-2 font-mono text-[11px] text-fg placeholder:text-faint"
+          />
+          <button
+            type="submit"
+            disabled={busy || !commitMessage.trim()}
+            className="task-quiet-action"
+            title="staged·unstaged·untracked 변경을 모두 commit합니다"
+          >
+            <GitCommitHorizontal size={12} /> 커밋
+          </button>
+        </form>
+      )}
       {changeSet.unmerged.length > 0 && (
         <div className="error-strip mt-3">
           <AlertTriangle size={12} className="mr-1.5 inline" />

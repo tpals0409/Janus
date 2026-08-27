@@ -157,6 +157,34 @@ def inspect_task_workspace(task_id: str):
 
 
 
+@router.post("/tasks/{task_id}/workspace/commit")
+def commit_workspace_changes(task_id: str, body: dict):
+    """변경사항 패널의 직접 commit — 리뷰 게이트 없는 수동 git commit.
+
+    review 수락을 요구하는 ship/commit과 별개의 편의 경로다. 안전장치는
+    service.commit_changes가 그대로 강제한다(빈 메시지·빈 커밋·unmerged·
+    detached HEAD 거부). 성공은 shipment로 기록해 push 게이트("Janus가 기록한
+    현재 commit")와 정합을 유지한다.
+    """
+    store = get_domain_store()
+    store.get_task(task_id)
+    workspace = store.get_task_workspace(task_id)
+    if workspace is None:
+        raise D.NotFound(f"Task의 Workspace가 없습니다: {task_id}")
+    if workspace["state"] != "ready" or not workspace.get("root_path"):
+        raise D.Conflict("ready Workspace가 있어야 commit할 수 있습니다")
+    result = get_workspace_service().commit_changes(
+        repo_path=workspace["repo_path"], root_path=workspace["root_path"],
+        message=str(body.get("message") or ""),
+    )
+    shipment = store.record_task_shipment(
+        task_id=task_id, action="commit", commit_sha=result["commit_sha"],
+        branch_name=result["branch_name"],
+    )
+    return {"result": result, "shipment": shipment}
+
+
+
 def _workspace_for_removal(task_id: str, body: dict) -> dict:
     store = get_domain_store()
     workspace = store.get_task_workspace(task_id)

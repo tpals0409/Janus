@@ -117,6 +117,8 @@ interface State {
     confirm_workspace_id?: string; confirm_discard?: string
   }): Promise<void>
   loadShipments(): Promise<void>
+  /** 변경사항 패널의 직접 commit — 리뷰 게이트 없는 수동 커밋 */
+  commitWorkspaceChanges(message: string): Promise<boolean>
   commitTask(message: string): Promise<void>
   pushTask(remote?: string): Promise<void>
   loadShipHandoff(): Promise<void>
@@ -541,6 +543,27 @@ export const useStore = create<State>((set, get) => ({
       if (get().taskId === taskId) await get().loadReview()
     } catch (error) {
       if (get().taskId === taskId) set({ taskActionError: errorMessage(error) })
+    }
+  },
+
+  async commitWorkspaceChanges(message) {
+    const taskId = get().taskId
+    if (!taskId) return false
+    set({ taskBusy: true, taskActionError: null })
+    try {
+      await apiJson(`${BASE}/tasks/${taskId}/workspace/commit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message })
+      })
+      await get().inspectWorkspace()
+      await get().loadShipments()
+      return true
+    } catch (error) {
+      set({ taskActionError: errorMessage(error) })
+      return false
+    } finally {
+      set({ taskBusy: false })
     }
   },
 

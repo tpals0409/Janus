@@ -72,6 +72,44 @@ class VerificationApiTests(unittest.TestCase):
         self.assertEqual(202, response.status_code, response.text)
         self._wait_workspace()
 
+
+    def test_direct_commit_works_without_a_review_and_records_a_shipment(self):
+        """변경사항 패널의 직접 commit — 리뷰 게이트 없이 동작하고 shipment를 남긴다."""
+        workspace = self.client.get(
+            f"/tasks/{self.task_id}/workspace", headers=self.headers
+        ).json()
+        root = Path(workspace["root_path"])
+        (root / "direct.txt").write_text("panel commit\n", encoding="utf-8")
+
+        committed = self.client.post(
+            f"/tasks/{self.task_id}/workspace/commit", headers=self.headers,
+            json={"message": "chore: commit from changes panel"},
+        )
+        self.assertEqual(200, committed.status_code, committed.text)
+        commit_sha = committed.json()["result"]["commit_sha"]
+        self.assertEqual(commit_sha, git(root, "rev-parse", "HEAD").stdout.strip())
+        self.assertEqual("", git(root, "status", "--porcelain").stdout.strip())
+        shipments = self.client.get(
+            f"/tasks/{self.task_id}/shipments", headers=self.headers
+        ).json()
+        self.assertEqual(
+            [("commit", "completed", commit_sha)],
+            [(s["action"], s["status"], s["commit_sha"]) for s in shipments],
+        )
+
+    def test_direct_commit_refuses_empty_message_and_empty_changes(self):
+        empty_message = self.client.post(
+            f"/tasks/{self.task_id}/workspace/commit", headers=self.headers,
+            json={"message": "  "},
+        )
+        self.assertEqual(409, empty_message.status_code, empty_message.text)
+        nothing = self.client.post(
+            f"/tasks/{self.task_id}/workspace/commit", headers=self.headers,
+            json={"message": "chore: nothing"},
+        )
+        self.assertEqual(409, nothing.status_code, nothing.text)
+        self.assertIn("commit할 변경이 없습니다", nothing.json()["detail"])
+
     def tearDown(self):
         with shared._VERIFICATION_JOBS_LOCK:
             threads = list(shared._VERIFICATION_JOBS.values())
