@@ -4,8 +4,13 @@
   "description": "Janus — Agent Development Environment",
   "author": "SeMin Kim",
   "license": "Apache-2.0",
-  "repository": { "type": "git", "url": "git+https://github.com/tpals0409/Janus.git" },
-  "bugs": { "url": "https://github.com/tpals0409/Janus/issues" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tpals0409/Janus.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tpals0409/Janus/issues"
+  },
   "homepage": "https://github.com/tpals0409/Janus#readme",
   "main": "./out/main/index.js",
   "type": "module",
@@ -15,20 +20,17 @@
     "build": "electron-vite build",
     "check:bundle": "pnpm build && node scripts/check-bundle-size.mjs",
     "generate:icon": "swift scripts/generate-macos-icon.swift build/icon.png",
-    "package:mac": "pnpm generate:icon && pnpm build && electron-builder --config electron-builder.config.cjs --mac dir --publish never",
-    "package:mac:signed": "pnpm generate:icon && pnpm build && JANUS_SIGNED_RELEASE=1 electron-builder --config electron-builder.config.cjs --mac dmg zip --publish never",
+    "package:mac": "pnpm generate:icon && pnpm notices && pnpm build && electron-builder --config electron-builder.config.cjs --mac dir --publish never",
+    "package:mac:signed": "pnpm generate:icon && pnpm notices && pnpm build && JANUS_SIGNED_RELEASE=1 electron-builder --config electron-builder.config.cjs --mac dmg zip --publish never",
     "verify:mac:signed": "node scripts/verify-macos-release.mjs dist",
     "start": "electron-vite preview",
     "test:main": "node --test src/main/*.test.ts scripts/*.test.mjs",
     "test:renderer": "vitest run --config vitest.config.ts",
-    "test": "pnpm test:main && pnpm test:renderer"
+    "test": "pnpm test:main && pnpm test:renderer",
+    "notices": "node scripts/generate-notices.mjs",
+    "check:notices": "node scripts/generate-notices.mjs --check"
   },
-  "dependencies": {
-    "@xyflow/react": "^12.11.3",
-    "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1",
-    "zustand": "^5.0.15"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@monaco-editor/react": "^4.7.0",
     "@tailwindcss/vite": "^4.2.4",
@@ -39,6 +41,7 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^5.1.1",
+    "@xyflow/react": "^12.11.3",
     "electron": "^43.4.1",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
@@ -47,9 +50,12 @@
     "monaco-editor": "^0.56.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "tailwindcss": "^4.2.4",
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.11",
+    "zustand": "^5.0.15"
   }
 }

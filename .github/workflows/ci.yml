@@ -101,6 +101,13 @@ jobs:
       - name: Enable Corepack
         run: corepack enable
 
-      - name: Node production dependency audit
+      - name: Third-party notices are current
         working-directory: janus
-        run: pnpm audit --prod --audit-level high
+        run: pnpm check:notices
+
+      - name: Node dependency audit
+        working-directory: janus
+        # --prod가 아니다. Vite가 renderer 의존성을 전부 번들하므로 dependencies가
+        # 비어 있고, 실제로 사용자에게 가는 코드는 devDependencies에서 온다.
+        # --prod를 쓰면 아무것도 감사하지 않는 감사가 된다.
+        run: pnpm audit --audit-level high

@@ -151,6 +151,26 @@ class OpenSourceRequirements(unittest.TestCase):
         for name in declared:
             self.assertIn(f'name = "{name}"', lock, f"{name}이 잠금에서 빠졌다")
 
+    def test_contributing_commands_actually_exist(self):
+        """기여자가 그대로 복사해 돌리는 명령이다. 없는 스크립트를 적으면 첫인상에서 막힌다."""
+        import json
+
+        text = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+        scripts = json.loads((ROOT / "janus/package.json").read_text(encoding="utf-8"))["scripts"]
+        for name in re.findall(r"pnpm ([a-z:]+)", text):
+            if name in {"install", "test", "audit", "dev"}:
+                continue  # pnpm 내장 또는 별도 검증
+            self.assertIn(name, scripts, f"CONTRIBUTING이 없는 스크립트를 안내한다: pnpm {name}")
+
+    def test_third_party_notices_ship_with_the_app(self):
+        """MIT·BSD·ISC·Apache는 고지를 배포물과 함께 제공할 것을 요구한다."""
+        config = (ROOT / "janus/electron-builder.config.cjs").read_text(encoding="utf-8")
+        self.assertIn("THIRD-PARTY-NOTICES.md", config)
+        self.assertIn('from: "../LICENSE"', config)
+        notices = ROOT / "janus/THIRD-PARTY-NOTICES.md"
+        self.assertTrue(notices.exists(), "고지 파일이 없다 — pnpm notices")
+        self.assertIn("Apache-2.0", notices.read_text(encoding="utf-8")[:2000])
+
     def test_security_policy_names_the_gaps(self):
         text = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
         self.assertIn("security/advisories", text, "신고 경로가 없다")

@@ -7,6 +7,10 @@ module.exports = {
   directories: { output: "dist" },
   files: ["out/**/*", "package.json"],
   extraResources: [
+    // MIT·BSD·ISC·Apache는 고지와 라이선스 전문을 배포물과 함께 제공할 것을 요구한다.
+    // Vite가 의존성을 번들해 배포하므로 그 의무가 실제로 발생한다.
+    { from: "THIRD-PARTY-NOTICES.md", to: "THIRD-PARTY-NOTICES.md" },
+    { from: "../LICENSE", to: "LICENSE" },
     {
       from: "../janus_server",
       to: "janus_server",
