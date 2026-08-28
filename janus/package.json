@@ -1,7 +1,7 @@
 {
   "name": "janus",
-  "version": "1.0.29",
-  "description": "Janus — Agent Development Environment",
+  "version": "1.0.30",
+  "description": "Janus \u2014 Agent Development Environment",
   "author": "SeMin Kim",
   "license": "Apache-2.0",
   "repository": {

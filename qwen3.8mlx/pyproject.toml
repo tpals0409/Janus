@@ -1,6 +1,6 @@
 [project]
 name = "janus-model-runtime"
-version = "1.0.29"
+version = "1.0.30"
 description = "Janus MLX model runtime — dependency manifest for the local model server"
 requires-python = ">=3.13"
 license = "Apache-2.0"
