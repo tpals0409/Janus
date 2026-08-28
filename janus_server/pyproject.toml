@@ -1,13 +1,21 @@
 [project]
 name = "janus-server"
 version = "1.0.28"
+description = "Janus backend — Task orchestration, workspaces, verification, and review"
 requires-python = ">=3.13"
+license = "Apache-2.0"
+authors = [{ name = "SeMin Kim" }]
+
 dependencies = [
     "fastapi>=0.141.1",
     "openai>=3.3.1",
     "pyyaml>=6.0.3",
     "uvicorn>=0.52.4",
 ]
+
+[project.urls]
+Homepage = "https://github.com/tpals0409/Janus"
+Issues = "https://github.com/tpals0409/Janus/issues"
 
 [dependency-groups]
 dev = [

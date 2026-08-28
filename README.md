@@ -186,5 +186,11 @@ intent, not as a specification of what ships today. [ROADMAP.md](ROADMAP.md),
 kept for the record; `STATUS.md` in particular is a dated engineering journal
 rather than a changelog.
 
-No license is declared yet, which means the default applies and you cannot
-legally fork or reuse this. That is being fixed.
+## License and security
+
+Apache-2.0 — see [LICENSE](LICENSE). The Qwen3.8 27B MLX builds Janus downloads
+carry their own terms; the advanced (uncensored) option in particular scopes
+itself to research in its model card.
+
+To report a vulnerability, see [SECURITY.md](SECURITY.md), which also states
+plainly what Janus can do on your machine and which boundaries do *not* exist.

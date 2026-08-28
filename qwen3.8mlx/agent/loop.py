@@ -6,6 +6,7 @@
 
 import glob as _glob
 import json
+import os
 
 from openai import OpenAI
 
@@ -16,11 +17,20 @@ MAX_STEPS = 25
 CIRCUIT_BREAK = 3  # 같은 도구가 연속 N회 실패하면 중단
 
 
+def _hub_root() -> str:
+    """HF 캐시 루트 — hf CLI와 같은 우선순위. 홈 경로를 하드코딩하지 않는다."""
+    if os.environ.get("HF_HUB_CACHE"):
+        return os.environ["HF_HUB_CACHE"]
+    if os.environ.get("HF_HOME"):
+        return os.path.join(os.environ["HF_HOME"], "hub")
+    return os.path.expanduser("~/.cache/huggingface/hub")
+
+
 def model_path() -> str:
-    hits = _glob.glob(
-        "/Users/kimsemin/.cache/huggingface/hub/"
-        "models--orcarouter--Qwen3.8-27B-Uncensored-MLX/snapshots/*/4-bit"
-    )
+    hits = _glob.glob(os.path.join(
+        _hub_root(),
+        "models--orcarouter--Qwen3.8-27B-Uncensored-MLX/snapshots/*/4-bit",
+    ))
     if not hits:
         raise RuntimeError("모델을 찾을 수 없음. hf download 로 4-bit를 먼저 받을 것.")
     return hits[0]

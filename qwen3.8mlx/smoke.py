@@ -5,10 +5,19 @@ from PIL import Image, ImageDraw
 from mlx_vlm import load, generate
 from mlx_vlm.prompt_utils import apply_chat_template
 
-MODEL = glob.glob(
-    "/Users/kimsemin/.cache/huggingface/hub/"
-    "models--orcarouter--Qwen3.8-27B-Uncensored-MLX/snapshots/*/4-bit"
-)[0]
+def _hub_root() -> str:
+    """HF 캐시 루트 — hf CLI와 같은 우선순위. 홈 경로를 하드코딩하지 않는다."""
+    if os.environ.get("HF_HUB_CACHE"):
+        return os.environ["HF_HUB_CACHE"]
+    if os.environ.get("HF_HOME"):
+        return os.path.join(os.environ["HF_HOME"], "hub")
+    return os.path.expanduser("~/.cache/huggingface/hub")
+
+
+MODEL = glob.glob(os.path.join(
+    _hub_root(),
+    "models--orcarouter--Qwen3.8-27B-Uncensored-MLX/snapshots/*/4-bit",
+))[0]
 
 
 def run(model, proc, cfg, prompt, image=None, max_tokens=150):

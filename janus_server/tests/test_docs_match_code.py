@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import os
+import pathlib
 import re
 import unittest
 from pathlib import Path
@@ -116,3 +117,68 @@ class DocumentedFactsMatchCode(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OpenSourceRequirements(unittest.TestCase):
+    """공개 레포가 갖춰야 하는 것. 없으면 법적으로 아무도 쓸 수 없거나
+    취약점을 알릴 곳이 없다."""
+
+    def test_license_exists_and_is_declared_everywhere(self):
+        license_text = (ROOT / "LICENSE").read_text(encoding="utf-8")
+        self.assertIn("Apache License", license_text)
+        self.assertIn("Version 2.0", license_text)
+        # 자리표시자를 그대로 두면 저작권 주장이 성립하지 않는다.
+        self.assertNotIn("[name of copyright owner]", license_text)
+
+        import json
+        import tomllib
+
+        package = json.loads((ROOT / "janus/package.json").read_text(encoding="utf-8"))
+        self.assertEqual("Apache-2.0", package.get("license"))
+        for manifest in ("janus_server/pyproject.toml", "qwen3.8mlx/pyproject.toml"):
+            data = tomllib.loads((ROOT / manifest).read_text(encoding="utf-8"))
+            self.assertEqual("Apache-2.0", data["project"].get("license"), manifest)
+
+    def test_backend_dependencies_survive_manifest_edits(self):
+        """pyproject를 손대다 [project.urls] 아래로 dependencies가 밀려
+        잠금에서 uvicorn까지 사라진 적이 있다."""
+        import tomllib
+
+        data = tomllib.loads((ROOT / "janus_server/pyproject.toml").read_text(encoding="utf-8"))
+        declared = {dep.split(">")[0].split("=")[0] for dep in data["project"]["dependencies"]}
+        self.assertEqual({"fastapi", "openai", "pyyaml", "uvicorn"}, declared)
+        lock = (ROOT / "janus_server/uv.lock").read_text(encoding="utf-8")
+        for name in declared:
+            self.assertIn(f'name = "{name}"', lock, f"{name}이 잠금에서 빠졌다")
+
+    def test_security_policy_names_the_gaps(self):
+        text = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
+        self.assertIn("security/advisories", text, "신고 경로가 없다")
+        # 있는 경계만 적고 없는 경계를 숨기면 문서가 다시 거짓말을 시작한다.
+        for gap in ("run_bash", "not path-jailed", "Tasks are not isolated"):
+            self.assertIn(gap, text, gap)
+
+    def test_no_personal_paths_in_tracked_source(self):
+        """남의 홈 경로를 glob하면 clone한 사람에게서 실패한다.
+
+        게시되는 것만 본다 — git 추적 파일 중 소스만. 낡은 worktree나 이 테스트
+        자신(문자열을 담고 있다)은 대상이 아니다.
+        """
+        import subprocess
+
+        listed = subprocess.run(
+            ["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, text=True, check=True,
+        ).stdout.split("\0")
+        suffixes = {".py", ".ts", ".tsx", ".mts", ".cjs", ".mjs", ".sh", ".swift"}
+        offenders: list[str] = []
+        for name in listed:
+            if not name or pathlib.Path(name).suffix not in suffixes:
+                continue
+            if name == "janus_server/tests/test_docs_match_code.py":
+                continue  # 이 검사 자신이 찾는 문자열을 담고 있다
+            path = ROOT / name
+            if not path.exists():
+                continue
+            if "/Users/kimsemin" in path.read_text(encoding="utf-8", errors="ignore"):
+                offenders.append(name)
+        self.assertEqual([], offenders, "추적 중인 소스에 개인 홈 경로가 있다")
