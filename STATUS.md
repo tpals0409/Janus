@@ -856,3 +856,15 @@ QA 안전 기준 준수: janus-qa-fixture 격리 worktree, 모든 승인 자동 
 - EvaluationLab·SkillLibrary의 Select 프리미티브는 API가 event.target.value라
   이관 대상으로 남겨뒀다.
 - 테스트: renderer 38건(컴포저 키보드 조작 추가)·main 31건·tsc 통과.
+
+## 2026-08-28 — v1.0.25 릴리스
+
+- 남은 Select를 전부 Listbox로 옮겼다(2cf947d). EvaluationLab(baseline·candidate·
+  프로필)과 SkillLibrary(호출 방식)까지 이관해 네이티브 select가 앱에서 완전히
+  사라졌다. 쓰는 곳이 없어진 Select 프리미티브와 .ui-select·--select-chevron 삭제.
+- Listbox에 placeholder 추가 — baseline/candidate는 빈 value 옵션으로 안내 문구를
+  냈고, 그 옵션이 목록에 고를 수 있는 항목처럼 남아 있었다.
+- EvaluationLab 프로필 피커도 useAgentProfileOptions를 써서 나머지 네 곳과 같은
+  로컬/구독 힌트를 갖는다.
+- 테스트: renderer 41건(Listbox placeholder·aria-selected·disabled 건너뛰기 3건
+  추가)·main 31건·tsc 통과.
