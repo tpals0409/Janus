@@ -165,8 +165,10 @@ pnpm package:mac
 
 CI runs the same suites plus `pnpm check:bundle` (a bundle-size budget) and a
 separate dependency-audit job, so a local pass is necessary but not sufficient.
-CI runs on Linux, which means packaging, the MLX runtime, and the model server are
-only ever exercised on a developer's own Mac.
+A macOS job packages the app, resolves the MLX runtime lockfile, and checks that
+the packaged bundle carries the backend and the license notices. What no CI job
+covers is the model server actually generating — that needs the 17 GB weights and
+is only ever exercised on a developer's own Mac.
 
 The clean-install smoke copies only distributable source into a temporary
 directory, installs from both lockfiles, builds/packages the app, boots a blank

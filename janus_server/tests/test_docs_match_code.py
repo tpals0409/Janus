@@ -41,7 +41,8 @@ class DocumentedCommandsExist(unittest.TestCase):
 
     def test_relative_doc_links_resolve(self):
         broken: list[str] = []
-        for name in [*DOCS, "janus_server/RECOVERY.md", "janus_server/scripts/README.md"]:
+        for name in [*DOCS, "janus_server/RECOVERY.md", "janus_server/scripts/README.md",
+                     "CONTRIBUTING.md", "SECURITY.md", "CODE_OF_CONDUCT.md"]:
             path = ROOT / name
             for match in re.finditer(r"\[[^\]]+\]\(([^)#:]+\.md)\)", path.read_text(encoding="utf-8")):
                 if not (path.parent / match.group(1)).resolve().exists():
@@ -201,6 +202,26 @@ class OpenSourceRequirements(unittest.TestCase):
                 "/Users/", (ROOT / name).read_text(encoding="utf-8"),
                 f"{name}에 로컬 경로가 남아 있다",
             )
+
+    def test_ci_platform_claims_match_the_workflow(self):
+        """'CI runs on Linux, so packaging은 검증되지 않는다'가 문서 두 곳에 있었다.
+
+        macOS 잡이 생겼으니 그 문장은 거짓이다. 반대로 잡을 걷어내면 문서가 다시
+        거짓말을 시작하므로, 둘을 한 테스트로 묶어 둔다.
+        """
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertIn("runs-on: macos", workflow, "macOS 잡이 사라졌다")
+        self.assertIn("pnpm package:mac", workflow, "패키징이 CI에서 빠졌다")
+        for name in ("README.md", "CONTRIBUTING.md"):
+            self.assertNotIn(
+                "CI runs on Linux, so", (ROOT / name).read_text(encoding="utf-8"), name)
+
+    def test_dependabot_covers_every_manifest(self):
+        """새 매니페스트를 추가하고 dependabot을 안 늘리면 그 의존성만 조용히 늙는다."""
+        config = (ROOT / ".github/dependabot.yml").read_text(encoding="utf-8")
+        covered = set(re.findall(r'directory:\s*"([^"]+)"', config))
+        manifests = {"/janus", "/janus_server", "/qwen3.8mlx", "/"}
+        self.assertEqual(manifests, covered, "dependabot이 놓치는 매니페스트가 있다")
 
     def test_no_personal_paths_in_tracked_source(self):
         """남의 홈 경로를 glob하면 clone한 사람에게서 실패한다.

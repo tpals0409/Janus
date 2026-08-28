@@ -1,0 +1,36 @@
+name: Feature request
+description: Something Janus should do that it does not.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read [PRODUCT.md](https://github.com/tpals0409/Janus/blob/main/PRODUCT.md)
+        first — it says what Janus is deliberately not. A request that argues
+        against a stated non-goal is welcome; one that overlooks it is usually
+        closed.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >
+        What you were trying to do, and where Janus got in the way. Describe the
+        situation, not the solution — the solution is the next field.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried
+      description: Workarounds, other tools, or why the existing behaviour is not enough.
+    validations:
+      required: false
