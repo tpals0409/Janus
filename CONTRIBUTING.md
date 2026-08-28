@@ -43,9 +43,10 @@ pnpm audit --audit-level high
 `check:notices` fails if `THIRD-PARTY-NOTICES.md` is stale after a dependency
 change — regenerate with `pnpm notices`.
 
-CI runs on Linux, so `pnpm package:mac`, the MLX runtime, and the model server
-are only ever exercised on your Mac. If you touch any of them, package and launch
-the app before you open the PR.
+A macOS job packages the app and resolves the MLX lockfile, so those no longer
+depend on your machine alone. The model server itself is still never exercised in
+CI — it needs the 17 GB weights. If you touch the model runtime, launch the
+packaged app and run a real turn before you open the PR.
 
 ## Layout
 
@@ -90,6 +91,11 @@ way that cannot be recovered — `MIGRATION_24` did, and it took a week to notic
 Three version locations must agree — `janus/package.json`,
 `janus_server/pyproject.toml`, `janus_server/janus_server/version.py` — and CI
 enforces it. Full policy in [VERSIONING.md](VERSIONING.md).
+
+## Conduct
+
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) applies to issues, pull requests, and
+every other space this project occupies.
 
 ## Security
 

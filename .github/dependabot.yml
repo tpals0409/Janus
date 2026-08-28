@@ -1,0 +1,52 @@
+# 의존성 갱신. 매니페스트마다 항목이 하나씩 있어야 한다 — 빠진 디렉터리는
+# 조용히 늙는다. janus_server/tests/test_docs_match_code.py가 그것을 잡는다.
+#
+# npm 갱신은 package.json의 직접 의존성 문자열을 바꾸므로 CI의
+# `pnpm check:notices`가 실패한다. 의도된 것이다 — PR에서 `pnpm notices`를
+# 돌리고 결과를 같이 커밋하면 통과한다.
+version: 2
+
+updates:
+  # CI가 액션을 SHA로 고정한다. dependabot이 SHA와 버전 주석을 함께 올린다.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: "/janus"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      # 개별 PR 25개는 아무도 읽지 않는다. 위험도가 다른 것만 갈라 놓는다.
+      electron:
+        patterns: ["electron", "electron-*", "@electron/*"]
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
+      dev:
+        patterns: ["*"]
+        exclude-patterns:
+          ["electron", "electron-*", "@electron/*", "react", "react-dom",
+           "@types/react", "@types/react-dom", "monaco-editor"]
+
+  - package-ecosystem: uv
+    directory: "/janus_server"
+    schedule:
+      interval: monthly
+    groups:
+      backend:
+        patterns: ["*"]
+
+  # MLX는 Apple Silicon에서만 해결된다. Linux CI는 이 잠금을 검증할 수 없고
+  # macOS 잡의 `uv sync --project qwen3.8mlx --locked`만 검증한다.
+  - package-ecosystem: uv
+    directory: "/qwen3.8mlx"
+    schedule:
+      interval: monthly
+    groups:
+      model-runtime:
+        patterns: ["*"]

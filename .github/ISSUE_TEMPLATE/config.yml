@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/tpals0409/Janus/security/advisories/new
+    about: Report privately. Do not open a public issue for a security problem.
+  - name: Code of Conduct
+    url: https://github.com/tpals0409/Janus/blob/main/CODE_OF_CONDUCT.md
+    about: How to report behaviour, and how reports are handled.
