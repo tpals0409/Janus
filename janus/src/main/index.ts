@@ -392,6 +392,14 @@ async function ensureService(label: ServiceLabel): Promise<void> {
   }
 
   if (processAlive(service.process)) return // 시작/모델 로딩 중
+  // 모델이 생겼는지 다시 본다. launch spec은 앱 시작 때 한 번 계산되므로, 그때 모델이
+  // 없었으면 spec은 `exit 78` 스텁이다 — 17GB를 다 받아도 supervisor는 그 스텁만
+  // 영원히 다시 돌리고, 설정을 건드리거나 앱을 재시작해야만 풀렸다. 터미널에서 직접
+  // 받은 경우도 같은 함정이라 이벤트가 아니라 여기서 본다.
+  if (label === 'mlx' && refreshMlxLaunch()) {
+    service.attempts = 0
+    service.nextRetryAt = 0
+  }
   if (Date.now() < service.nextRetryAt) return
   spawnLogged(label)
 }
@@ -476,6 +484,14 @@ function createWindow(): void {
 }
 
 // 렌더러가 못 하는 유일한 일 — 네이티브 폴더 선택. 나머지는 전부 Python 서버가 한다.
+/** mlx launch spec을 현재 디스크 상태로 다시 만든다. 명령이 바뀌었으면 true. */
+function refreshMlxLaunch(): boolean {
+  const previous = serviceSpecs.mlx.command
+  mlxLaunch = buildMlxLaunchSpec(homedir(), mtpPolicy, effectiveApc(), runtimeSettings.modelId)
+  serviceSpecs.mlx.command = mlxLaunch.command
+  return previous !== mlxLaunch.command
+}
+
 function restartService(label: ServiceLabel): void {
   const service = services[label]
   const pid = service.process?.pid
@@ -503,9 +519,7 @@ function applyRuntimeSettings(next: RuntimeSettings): {
   }
   runtimeSettings = saveRuntimeSettings(runtimeSettingsFile, next)
   mtpPolicy = effectiveMtpPolicy()
-  const launch = buildMlxLaunchSpec(homedir(), mtpPolicy, effectiveApc(), runtimeSettings.modelId)
-  mlxLaunch = launch
-  serviceSpecs.mlx.command = launch.command
+  refreshMlxLaunch()
   const restarted: ServiceLabel[] = []
   if (before.localServer !== runtimeSettings.localServer) {
     // 끄기: supervisor가 다음 틱에 종료·disabled 처리. 켜기: 다음 틱에 스폰.

@@ -124,6 +124,28 @@ test('a half-downloaded snapshot is incomplete, not present', async () => {
   }
 })
 
+test('the launch spec flips from stub to real once the download lands', async () => {
+  // supervisor는 앱 시작 때 계산한 spec을 계속 재사용했다. 그래서 17GB를 다 받아도
+  // `exit 78` 스텁만 30초마다 다시 돌았고, 설정을 건드려야 풀렸다. 고침은 스폰 직전에
+  // 이 함수를 다시 부르는 것뿐이다 — 그 전제가 여기서 성립한다.
+  const root = await mkdtemp(join(tmpdir(), 'janus-arrival-'))
+  try {
+    const before = buildMlxLaunchSpec(root)
+    assert.match(before.command, /exit 78/)
+
+    const model = sharded(root, STOCK, 'base', true)
+    const draft = config(root, DRAFT, 'draft')
+
+    const after = buildMlxLaunchSpec(root)
+    assert.notEqual(after.command, before.command)
+    assert.doesNotMatch(after.command, /exit 78/)
+    assert.match(after.command, new RegExp(`--model '${model}'`))
+    assert.match(after.command, new RegExp(`--draft-model '${draft}'`))
+  } finally {
+    await rm(root, { recursive: true })
+  }
+})
+
 test('each model keeps its own snapshot layout', async () => {
   // mlx-community는 스냅샷 루트에, orcarouter는 4-bit/ 아래에 있다.
   const root = await mkdtemp(join(tmpdir(), 'janus-layout-'))
