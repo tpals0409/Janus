@@ -615,6 +615,9 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
                 orch = cli_runner.CliOrchestration(
                     spec, send=send, workspace_context=context,
                     task_id=task_id, session_id=session_id,
+                    # 위험 도구는 MCP로 여기 되돌아와 같은 approver를 탄다 —
+                    # 승인 UI는 로컬 경로가 쓰는 것 그대로다.
+                    approver=approver,
                 )
                 orch.restore_transcript(transcript_events)
             else:

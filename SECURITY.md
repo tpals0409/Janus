@@ -26,7 +26,8 @@ this file could make.
   uncommitted or untracked work.
 - **It runs shell commands.** With the local model, each `run_bash` call requires
   your approval by default. Approval is remembered per workspace once you grant
-  it. With a subscription CLI, shell runs without a per-command prompt.
+  it. Claude Code goes through the same gate; Codex does not — its shell runs
+  without a per-command prompt.
 - **It spawns subprocesses** — the model server, `uv`, `git`, PTY shells, and
   (when selected) the `claude` or `codex` CLI you already have installed.
 - **It serves a local HTTP and WebSocket API** on `127.0.0.1:8765`, authenticated
@@ -47,6 +48,10 @@ this file could make.
 - **Tool scoping.** An AgentProfile grants a specific tool set. Subscription CLIs
   receive exactly that set — if the profile withholds shell, the CLI has no shell
   tool at all.
+- **Per-action approval on Claude Code.** The CLI's own write/edit/shell tools are
+  withheld and Janus serves its own over MCP on a per-session URL, so a mutation
+  cannot happen without the approval callback returning true. There is no built-in
+  tool left to route around it.
 - **Review and ship gates.** Committing through the ship flow requires an accepted
   review at the current revision with all verification runs passing. Pushing
   requires a Janus-recorded commit matching HEAD and an explicit SHA confirmation.
@@ -63,8 +68,10 @@ Stated plainly, because assuming otherwise is how people get hurt:
 - **There is no OS-level sandbox.** The agent runs with your user's privileges.
   Janus's jail is application-level, not a security boundary against deliberate
   escape.
-- **Subscription CLIs do not ask before each action.** Their scope is enforced;
-  individual writes and commands are not gated.
+- **Codex does not ask before each action.** Its scope is enforced; individual
+  writes and commands are not. Claude Code is gated — its write, edit, shell and
+  fetch tools are removed and replaced with Janus's own over MCP, so every one of
+  them reaches the same approval prompt the local model uses.
 - **Tasks are not isolated from each other.** Two Tasks in the same project share
   one working tree, so each sees the other's uncommitted edits and commits onto
   the same branch. Janus refuses to run two of them at once, but it does not undo

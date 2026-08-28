@@ -25,6 +25,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from . import agent as agent_mod
+from . import mcp_bridge
 from . import runtime as runtime_mod
 from .workspace import WorkspaceContext
 
@@ -51,17 +52,31 @@ CLAUDE_TOOLS = {
 CLAUDE_READ_ONLY = ("Read", "Glob", "Grep")
 
 
-def claude_tools(janus_tools: object) -> list[str]:
-    """프로필의 Janus 도구 목록을 Claude 도구 이름으로 옮긴다."""
+def claude_tools(janus_tools: object, *, bridged: list[str] | None = None) -> list[str]:
+    """프로필의 Janus 도구 목록을 Claude 도구 이름으로 옮긴다.
+
+    `bridged`에 든 도구는 내장 대응물을 **붙이지 않는다**. 그래야 CLI 세션에
+    Write/Edit/Bash가 아예 없고, 쓰기를 하려면 MCP로 Janus를 거칠 수밖에 없다 —
+    승인 게이트가 우회 불가능해지는 지점이 여기다.
+    """
     names = [str(item) for item in janus_tools] if isinstance(janus_tools, list) else []
     if not names:
         return list(CLAUDE_READ_ONLY)
+    held = set(bridged or ())
     mapped: list[str] = []
     for name in names:
+        if name in held:
+            continue
         for claude_name in CLAUDE_TOOLS.get(name, ()):
             if claude_name not in mapped:
                 mapped.append(claude_name)
+    mapped += [mcp_tool_name(name) for name in (bridged or ())]
     return mapped or list(CLAUDE_READ_ONLY)
+
+
+def mcp_tool_name(janus_name: str) -> str:
+    """Claude Code가 MCP 도구를 부르는 이름."""
+    return f"mcp__{mcp_bridge.SERVER_NAME}__{janus_name}"
 # 주입한 계약의 판. 이걸 올리면 기존 대화도 새 계약을 1회 다시 받는다.
 # 1 = 3문장 환경 안내(v1.0.21~22). 2 = 페르소나·코딩 규칙·outcome 계약.
 CONTEXT_VERSION = 2
@@ -184,6 +199,7 @@ class CliOrchestration:
         self, spec: dict, *, send: Callable[[dict], None],
         workspace_context: WorkspaceContext,
         task_id: str | None = None, session_id: str | None = None,
+        approver: Callable[[str, str, dict, WorkspaceContext], bool] | None = None,
         **_ignored,
     ) -> None:
         self.spec = spec
@@ -191,6 +207,7 @@ class CliOrchestration:
         if self.provider not in CLI_BINS:
             raise ValueError(f"CLI 실행기가 아닌 프로바이더: {self.provider}")
         self.send = send
+        self.approver = approver
         self.workspace_context = workspace_context
         self.task_id = task_id
         self.session_id = session_id
@@ -293,6 +310,7 @@ class CliOrchestration:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                env=self._env(),
             )
         except FileNotFoundError as error:
             self.turn_failed = True
@@ -372,19 +390,27 @@ class CliOrchestration:
         if inject:
             self._injecting_context = True
         if self.provider == "claude_code":
+            bridged = self.mcp_tool_names()
             command = [
                 CLI_BINS["claude_code"](), "-p", text,
                 "--output-format", "stream-json", "--verbose",
-                # headless에는 승인 UI가 없다 — 건별 승인 대신 범위를 좁혀 강제한다.
+                # 위험 도구는 MCP로 Janus를 거치므로 승인은 Janus가 묻는다. 여기서
+                # 또 물으면 답할 사람이 없는 headless에서 그냥 거부로 끝난다.
                 "--permission-mode", "acceptEdits",
                 # --restricted가 파일 도구를 작업 디렉터리에 가두고(실측: 감옥 밖 읽기
                 # 거부), 사용자·프로젝트·로컬 설정 파일을 무시하고, bypassPermissions를
-                # 거부한다. 개인 훅·플러그인·MCP가 Janus 턴에 끼는 것도 함께 막힌다.
+                # 거부한다. --strict-mcp-config는 개인 MCP를 빼고 우리 것만 남긴다.
                 "--restricted", "--strict-mcp-config",
                 # 프로필이 준 도구만 붙인다. 전에는 --allowedTools Bash 고정이라
                 # 프로필이 run_bash를 안 줘도 셸이 붙었다.
-                "--tools", ",".join(claude_tools(self.spec.get("tools"))),
+                "--tools", ",".join(claude_tools(self.spec.get("tools"), bridged=bridged)),
             ]
+            if bridged:
+                command += [
+                    "--mcp-config", self._mcp_config(),
+                    # CLI 층에서는 통과시킨다 — 실제 게이트는 Janus의 dispatch다.
+                    "--allowedTools", ",".join(mcp_tool_name(n) for n in bridged),
+                ]
             if self.cli_session_id:
                 command += ["--resume", self.cli_session_id]
             if inject:
@@ -409,6 +435,51 @@ class CliOrchestration:
             binary, "exec", "--json", "--sandbox", sandbox,
             "--ignore-user-config", prompt,
         ]
+
+    # ── MCP 다리 (routers/mcp.py가 부른다) ──
+
+    def mcp_tool_names(self) -> list[str]:
+        """이 세션이 MCP로 내주는 Janus 도구. claude 경로에서만 채워진다."""
+        if self.provider != "claude_code":
+            return []
+        return mcp_bridge.bridged_tools(self.spec.get("tools"))
+
+    def mcp_approve(self, name: str, args: dict) -> bool:
+        """MCP 도구 한 건의 승인. 로컬 경로의 approval 정책을 그대로 따른다."""
+        if self.spec.get("approval", "auto") == "auto":
+            return True
+        if self.approver is None:
+            return False  # 브리지 없음 = 거부. tools.dispatch의 기본과 같다.
+        return bool(self.approver(ORCH_ID, name, args, self.workspace_context))
+
+    def _mcp_config(self) -> str:
+        """--mcp-config에 줄 JSON. 세션 경로 + 전역 인증 토큰.
+
+        서버는 127.0.0.1에만 바인딩한다(server.py). 포트는 기동할 때 읽는 값과
+        같은 환경변수에서 가져와야 JANUS_PORT를 바꾼 사용자에게서 어긋나지 않는다.
+        """
+        from .shared import AUTH_TOKEN
+
+        port = os.environ.get("JANUS_PORT", "8765")
+        return json.dumps({"mcpServers": {mcp_bridge.SERVER_NAME: {
+            "type": "http",
+            "url": f"http://127.0.0.1:{port}/mcp/{self.session_id}",
+            "headers": {"x-janus-token": AUTH_TOKEN},
+        }}})
+
+    def _env(self) -> dict:
+        """CLI에 줄 환경. MCP 도구 호출이 승인 대기보다 먼저 끊기면 안 된다.
+
+        claude의 기본 MCP 도구 타임아웃은 사람이 승인 대화상자를 보는 시간보다
+        짧다. APPROVAL_TIMEOUT(300초)이 먼저 만료돼 거부로 정착해야 사용자가 보는
+        결과와 Janus가 기록하는 결과가 같아진다.
+        """
+        from .shared import APPROVAL_TIMEOUT
+
+        env = dict(os.environ)
+        if self.mcp_tool_names():
+            env["MCP_TOOL_TIMEOUT"] = str(int((APPROVAL_TIMEOUT + 60) * 1000))
+        return env
 
     def _may_write(self) -> bool:
         tools = self.spec.get("tools")
