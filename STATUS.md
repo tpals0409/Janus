@@ -892,3 +892,27 @@ QA 안전 기준 준수: janus-qa-fixture 격리 worktree, 모든 승인 자동 
   직후가 그 상태), mlxLoading이 disabled까지 세던 문제.
 - 테스트: pytest 271·renderer 51·main 38·tsc 통과. 실기기에서 기존 설치 감지와
   JANUS_LOCAL_MODEL_PATH 전달, mlx 기동 확인.
+
+## 2026-08-28 — v1.0.27 릴리스
+
+- 오픈소스 배포 전 페르소나 기능 점검에서 나온 결함 5건을 고쳤다(bacc9e1).
+  추측이 아니라 페르소나별 경로를 실제로 실행해 찾았다.
+- **차단급**: 다운로드 버튼이 아예 동작하지 않았다. hf는 이미 캐시된 파일의
+  크기를 "-"로 내는데 parse_size가 거기서 터져
+  `could not convert string to float: '-'`가 그대로 사용자에게 갔다.
+  이 머신은 MTP 드래프터를 이미 받아 둔 상태라 첫 클릭에서 바로 터졌다 —
+  단위·통합 테스트 어느 쪽도 "-"를 몰랐고 실기기에서만 드러났다.
+- 오프라인 사용자에게 파이썬 트레이스백 꼬리가 노출되던 것을 classify_hf_failure로
+  네트워크·권한·404·디스크 구분 한 문장으로 바꿨다.
+- HF_HOME 사용자가 16GB를 받고도 "모델 없음"이 될 수 있었다 — 다운로드 자식에
+  HF_HUB_CACHE를 넘기지 않아 받는 곳과 찾는 곳이 갈렸다. 같은 값으로 못박았다.
+- ETA가 3시간→7시간→10시간으로 요동쳤다(uv 기동·병렬 워커 준비가 초반을 지배,
+  .incomplete 크기는 늦게 반영). 30초·2% 신호 전에는 침묵한다.
+- 새 맥 사용자가 --check-only 통과 뒤 패키징에서 죽었다 — swift(Xcode CLT)와
+  pnpm 메이저를 bootstrap이 검사하지 않았다. 고치는 명령과 함께 사전 차단.
+- 곁다리: check_versions.py 실패 메시지 영문화(CI에서 비한국어 기여자가 사유를
+  못 읽었다), README 검증 절차의 test:renderer 누락, total=0일 때 percent 고착.
+- 실기기 검증: 시작 → 중복 409 → 진행률 상승 → 취소 시 프로세스 그룹 정리·부분
+  파일 163MB 보존 → 재개가 162MB에서 474MB로 이어받음 → cancelled·고아 없음.
+- 페르소나 UI 테스트 6건 추가(personas.test.tsx). pytest 282·renderer 57·
+  main 38·tsc 통과.
