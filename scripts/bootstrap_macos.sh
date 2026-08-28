@@ -28,9 +28,30 @@ if (( NODE_MAJOR < 22 )); then
   print -u2 "Node.js 22 or newer is required (found $(node --version))."
   exit 1
 fi
+
+# package.json pins pnpm via "packageManager"; a mismatched major fails on the
+# lockfile long after this script says everything is fine.
+PNPM_WANT="${$(grep -o '"packageManager": *"pnpm@[0-9]*' "$ROOT/janus/package.json")##*@}"
+PNPM_HAVE="${$(pnpm --version)%%.*}"
+if [[ -n "$PNPM_WANT" ]] && (( PNPM_HAVE < PNPM_WANT )); then
+  print -u2 "pnpm $PNPM_WANT or newer is required (found $(pnpm --version))."
+  print -u2 "  corepack enable && corepack prepare pnpm@latest --activate"
+  exit 1
+fi
+
+# `pnpm package:mac` shells out to swift for the app icon. Without Xcode Command
+# Line Tools the whole packaging step dies with a confusing error, and a
+# --check-only run would have reported success.
+if ! command -v swift >/dev/null 2>&1; then
+  print -u2 "missing swift (Xcode Command Line Tools); required by 'pnpm package:mac'"
+  print -u2 "  xcode-select --install"
+  exit 1
+fi
+
 print "platform: $(uname -m) $(sw_vers -productVersion)"
 print "uv: $(uv --version)"
 print "node: $(node --version), pnpm: $(pnpm --version)"
+print "swift: $(swift --version 2>&1 | head -1)"
 if (( CHECK_ONLY )); then
   exit 0
 fi

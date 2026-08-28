@@ -113,15 +113,21 @@ their exact paths appear in backend status.
 ## Verification
 
 ```bash
+python3 scripts/check_versions.py
+
 cd janus_server
 uv run pytest -q
 
 cd ../janus
-pnpm test:main
+pnpm test          # main process + renderer
 npx tsc --noEmit
 pnpm build
 pnpm package:mac
 ```
+
+That is the same set CI runs, minus the macOS-only `package:mac` step. CI runs on
+Linux, so packaging, the MLX runtime, and the model server are only ever exercised
+on a developer's own Mac.
 
 The clean-install smoke copies only distributable source into a temporary
 directory, installs from both lockfiles, builds/packages the app, boots a blank

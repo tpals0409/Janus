@@ -112,9 +112,11 @@ export default function ModelSetup({ disabled = false }: { disabled?: boolean })
   }
 
   const selected = catalog.find((entry) => entry.id === modelId)
-  const percent = job && job.total_bytes > 0
-    ? Math.min(100, Math.round((job.downloaded_bytes / job.total_bytes) * 100))
-    : 0
+  // total이 0인 경우가 있다 — 이미 캐시된 파일만 남았을 때 hf가 크기를 "-"로 준다.
+  const percent = !job ? 0
+    : job.total_bytes > 0
+      ? Math.min(100, Math.round((job.downloaded_bytes / job.total_bytes) * 100))
+      : 100
 
   return (
     <div className="model-setup">

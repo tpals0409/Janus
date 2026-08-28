@@ -23,6 +23,41 @@ class SizeParsingTests(unittest.TestCase):
         self.assertEqual(0, model_setup.parse_size(""))
         self.assertEqual(0, model_setup.parse_size("   "))
 
+    def test_already_cached_files_report_a_dash(self):
+        """실기기에서 잡은 결함 — hf는 이미 받은 파일의 크기를 "-"로 낸다.
+        여기서 예외가 나면 '내려받기'를 누른 사용자가 파이썬 오류를 본다."""
+        self.assertEqual(0, model_setup.parse_size("-"))
+        self.assertEqual(0, model_setup.parse_size("unknown"))
+        self.assertEqual(0, model_setup.parse_size(None))
+
+
+class FailureMessageTests(unittest.TestCase):
+    """트레이스백 꼬리를 UI에 흘리지 않는다."""
+
+    def test_offline_reads_as_a_network_problem(self):
+        message = model_setup.classify_hf_failure(
+            "huggingface_hub.errors.DryRunError: Dry run cannot be performed as the "
+            "repository cannot be accessed. Please check your internet connection or "
+            "authentication token.", "some/repo")
+        self.assertIn("네트워크", message)
+        self.assertNotIn("Traceback", message)
+
+    def test_gated_repo_tells_the_user_to_log_in(self):
+        message = model_setup.classify_hf_failure("401 Client Error: Unauthorized", "gated/repo")
+        self.assertIn("hf auth login", message)
+        self.assertIn("gated/repo", message)
+
+    def test_missing_repo_is_not_confused_with_being_offline(self):
+        message = model_setup.classify_hf_failure(
+            "RepositoryNotFoundError: 404 Client Error", "gone/repo")
+        self.assertIn("찾을 수 없습니다", message)
+        self.assertNotIn("네트워크", message)
+
+    def test_an_unrecognized_failure_still_says_something_useful(self):
+        message = model_setup.classify_hf_failure("weird explosion", "a/b")
+        self.assertIn("a/b", message)
+        self.assertIn("weird explosion", message)
+
 
 class HubRootTests(unittest.TestCase):
     """Electron이 준 값이 이겨야 한다 — 양쪽이 따로 계산하면 HF_HOME 사용자에게
@@ -217,3 +252,52 @@ class ResolveLocalModelTests(unittest.TestCase):
             set(model_setup.MODEL_CATALOG), set(runtime.LOCAL_MODELS),
             "model_setup과 runtime.LOCAL_MODELS의 모델 id가 어긋나면 폴백 경로가 깨진다",
         )
+
+
+class EtaTests(unittest.TestCase):
+    """실기기에서 ETA가 3시간→7시간→10시간으로 요동쳤다. 신호가 쌓이기 전엔 침묵한다."""
+
+    def _job(self, elapsed_s, downloaded, total=100 * 1024**3):
+        job = model_setup.DownloadJob(
+            model_id="m", repo="r", total_bytes=total, baseline_bytes=0,
+        )
+        job.downloaded_bytes = downloaded
+        job.started_at = -elapsed_s  # time.monotonic()과의 차이가 elapsed가 된다
+        return job
+
+    def test_stays_silent_until_there_is_enough_signal(self):
+        import time as _t
+        now = _t.monotonic()
+        early = model_setup.DownloadJob(
+            model_id="m", repo="r", total_bytes=100 * 1024**3, baseline_bytes=0,
+        )
+        early.started_at = now - 5          # 5초, 0.01%
+        early.downloaded_bytes = 10 * 1024**2
+        self.assertIsNone(early.view()["eta_ms"], "초반 표본으로 ETA를 내면 안 된다")
+
+        slow = model_setup.DownloadJob(
+            model_id="m", repo="r", total_bytes=100 * 1024**3, baseline_bytes=0,
+        )
+        slow.started_at = now - 60          # 60초인데 아직 0.01% — 비율이 모자라다
+        slow.downloaded_bytes = 10 * 1024**2
+        self.assertIsNone(slow.view()["eta_ms"])
+
+    def test_reports_once_the_rate_is_measurable(self):
+        import time as _t
+        job = model_setup.DownloadJob(
+            model_id="m", repo="r", total_bytes=100 * 1024**3, baseline_bytes=0,
+        )
+        job.started_at = _t.monotonic() - 100      # 100초에 10GB = 100MB/s
+        job.downloaded_bytes = 10 * 1024**3
+        eta = job.view()["eta_ms"]
+        self.assertIsNotNone(eta)
+        # 남은 90GB / 100MB/s ≈ 900초
+        self.assertAlmostEqual(900_000, eta, delta=60_000)
+
+    def test_a_zero_byte_job_never_divides(self):
+        import time as _t
+        job = model_setup.DownloadJob(
+            model_id="m", repo="r", total_bytes=0, baseline_bytes=0,
+        )
+        job.started_at = _t.monotonic() - 100
+        self.assertIsNone(job.view()["eta_ms"])

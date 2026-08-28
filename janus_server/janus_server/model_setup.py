@@ -41,18 +41,28 @@ DRAFT_REPO = "mlx-community/Qwen3.8-27B-MTP-4bit"
 DEFAULT_MODEL_ID = "qwen3.8-27b"
 # 받은 뒤에도 로드·KV 캐시에 쓸 자리가 필요하다. 딱 맞게 비어 있으면 받자마자 못 쓴다.
 DISK_HEADROOM_BYTES = 8 * 1024**3
+# ETA를 말하기 전에 필요한 최소 신호 — 아래 근거는 view()에.
+ETA_MIN_ELAPSED_S = 30.0
+ETA_MIN_FRACTION = 0.02
 _SIZE_UNITS = {"K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4}
 
 
 def parse_size(value: str) -> int:
-    """hf --dry-run이 주는 "5.3G" / "632.0" / "20.0M"을 바이트로."""
+    """hf --dry-run이 주는 "5.3G" / "632.0" / "20.0M"을 바이트로.
+
+    이미 캐시된 파일은 크기가 "-"로 온다 — 받을 게 없다는 뜻이라 0이 맞다.
+    알 수 없는 값에 예외를 던지면 "내려받기"를 누른 사용자가 파이썬 오류를 본다.
+    """
     text = str(value).strip()
-    if not text:
+    if not text or text == "-":
         return 0
     unit = text[-1].upper()
-    if unit in _SIZE_UNITS:
-        return int(float(text[:-1]) * _SIZE_UNITS[unit])
-    return int(float(text))
+    try:
+        if unit in _SIZE_UNITS:
+            return int(float(text[:-1]) * _SIZE_UNITS[unit])
+        return int(float(text))
+    except ValueError:
+        return 0
 
 
 def hub_root() -> Path:
@@ -97,6 +107,9 @@ def _model_runtime() -> tuple[str, dict[str, str]]:
     environment = os.environ.get("JANUS_MODEL_ENVIRONMENT")
     if environment:
         env["UV_PROJECT_ENVIRONMENT"] = environment
+    # 받는 곳과 찾는 곳을 같은 값으로 못박는다. 이걸 안 넘기면 hf는 제 기본 위치에
+    # 받고 Janus는 hub_root()를 보므로, 16GB를 받고도 "모델 없음"이 된다.
+    env["HF_HUB_CACHE"] = str(hub_root())
     return root, env
 
 
@@ -106,18 +119,42 @@ def plan(model_id: str) -> dict:
     return _plan_repo(str(entry["repo"]), entry["include"])
 
 
+def classify_hf_failure(stderr: str, repo: str) -> str:
+    """hf 실패를 사람이 읽는 한 문장으로. 트레이스백 꼬리를 UI에 흘리지 않는다."""
+    text = (stderr or "").lower()
+    if any(hint in text for hint in (
+        "internet connection", "connectionerror", "max retries", "name or service not known",
+        "temporary failure in name resolution", "failed to establish",
+    )):
+        return "네트워크에 연결할 수 없습니다. 인터넷 연결을 확인한 뒤 다시 시도하세요."
+    if any(hint in text for hint in ("401", "gated", "authentication", "unauthorized", "access to model")):
+        return (
+            f"{repo}는 접근 권한이 필요한 모델입니다. 터미널에서 `hf auth login`으로 "
+            "HuggingFace 계정에 로그인한 뒤 다시 시도하세요."
+        )
+    if "404" in text or "repositorynotfound" in text or "not found" in text:
+        return f"{repo}를 찾을 수 없습니다. 모델 이름이 바뀌었거나 삭제됐을 수 있습니다."
+    if "no space left" in text or "enospc" in text:
+        return "디스크 공간이 부족합니다."
+    tail = " ".join((stderr or "").split())[-200:]
+    return f"모델 정보를 가져오지 못했습니다 ({repo}). {tail}".strip()
+
+
 def _plan_repo(repo: str, include: str | None) -> dict:
     root, env = _model_runtime()
     command = ["uv", "run", "--frozen", "hf", "download", repo, "--dry-run", "--json"]
     if include:
         command += ["--include", include]
-    result = subprocess.run(
-        command, cwd=root, env=env, capture_output=True, text=True, timeout=120,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"모델 정보를 가져오지 못했습니다: {result.stderr.strip()[-300:] or repo}"
+    try:
+        result = subprocess.run(
+            command, cwd=root, env=env, capture_output=True, text=True, timeout=120,
         )
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError(
+            "HuggingFace 응답이 없습니다. 네트워크를 확인한 뒤 다시 시도하세요."
+        ) from error
+    if result.returncode != 0:
+        raise RuntimeError(classify_hf_failure(result.stderr, repo))
     files = json.loads(result.stdout or "[]")
     return {
         "repo": repo,
@@ -151,7 +188,15 @@ class DownloadJob:
     def view(self) -> dict:
         elapsed = time.monotonic() - self.started_at
         remaining = max(0, self.total_bytes - self.downloaded_bytes)
-        rate = self.downloaded_bytes / elapsed if elapsed > 0.5 else 0.0
+        # 초반 표본으로 ETA를 내면 3시간 → 7시간 → 10시간처럼 요동친다(실측). uv 기동과
+        # 병렬 워커 준비가 초반을 지배하고, .incomplete 파일 크기는 뒤늦게 반영된다.
+        # 신호가 쌓이기 전에는 아무 말도 하지 않는 편이 낫다.
+        settled = (
+            elapsed >= ETA_MIN_ELAPSED_S
+            and self.total_bytes > 0
+            and self.downloaded_bytes >= self.total_bytes * ETA_MIN_FRACTION
+        )
+        rate = self.downloaded_bytes / elapsed if settled else 0.0
         return {
             "model_id": self.model_id,
             "repo": self.repo,
@@ -267,7 +312,10 @@ class ModelDownloader:
             if self._job is not None:
                 self._job.process = None
         if process.returncode != 0 and not self._job_cancelled():
-            raise RuntimeError(stderr.strip() or f"hf download 종료 코드 {process.returncode}")
+            raise RuntimeError(
+                classify_hf_failure(stderr, repo)
+                if stderr.strip() else f"hf download 종료 코드 {process.returncode}"
+            )
 
     def _measure(self) -> None:
         with self._lock:

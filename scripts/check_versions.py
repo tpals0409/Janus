@@ -23,7 +23,7 @@ def product_versions(root: Path = ROOT) -> dict[str, str]:
     )
     match = re.search(r'^__version__\s*=\s*["\']([^"\']+)["\']', version_source, re.MULTILINE)
     if match is None:
-        raise ValueError("janus_server.version.__version__을 찾을 수 없습니다")
+        raise ValueError("could not find janus_server.version.__version__")
     return {
         "desktop": str(desktop["version"]),
         "backend": str(backend["project"]["version"]),
@@ -34,10 +34,13 @@ def product_versions(root: Path = ROOT) -> dict[str, str]:
 def verify(expected: str | None = None, root: Path = ROOT) -> dict[str, str]:
     versions = product_versions(root)
     if len(set(versions.values())) != 1:
-        raise ValueError("제품 버전 불일치: " + ", ".join(f"{key}={value}" for key, value in versions.items()))
+        raise ValueError(
+            "product versions disagree: "
+            + ", ".join(f"{key}={value}" for key, value in versions.items())
+        )
     actual = next(iter(versions.values()))
     if expected is not None and actual != expected.removeprefix("v"):
-        raise ValueError(f"릴리스 태그와 제품 버전 불일치: tag={expected}, product={actual}")
+        raise ValueError(f"release tag does not match product version: tag={expected}, product={actual}")
     return versions
 
 

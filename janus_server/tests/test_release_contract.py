@@ -38,12 +38,12 @@ class ReleaseContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             write_fixture(root, "1.2.3", "1.2.4", "1.2.3")
-            with self.assertRaisesRegex(ValueError, "제품 버전 불일치"):
+            with self.assertRaisesRegex(ValueError, "product versions disagree"):
                 check_versions.verify(root=root)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             write_fixture(root, "1.2.3", "1.2.3", "1.2.3")
-            with self.assertRaisesRegex(ValueError, "릴리스 태그"):
+            with self.assertRaisesRegex(ValueError, "release tag does not match"):
                 check_versions.verify("v1.2.4", root)
 
 
