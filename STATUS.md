@@ -920,3 +920,29 @@ QA 안전 기준 준수: janus-qa-fixture 격리 worktree, 모든 승인 자동 
   파일 163MB 보존 → 재개가 162MB에서 474MB로 이어받음 → cancelled·고아 없음.
 - 페르소나 UI 테스트 6건 추가(personas.test.tsx). pytest 282·renderer 57·
   main 38·tsc 통과.
+
+## 2026-08-28 — v1.0.28 릴리스
+
+- 문서 실사 중 **제품이 문서를 어긴 사실**을 발견했다. 0d53440이 오케스트레이션
+  엔진을 지우며 Task 격리 배선까지 끊었고(MIGRATION_24 + `_owned_root` 완화 +
+  `janus/` 브랜치 가드 삭제), 그 뒤로 에이전트가 사용자의 실제 저장소·실제
+  브랜치에서 작업하고 있었다. 그런데 앱은 화면에서 계속 그 반대를 약속하고 있었다
+  — 사용자의 체크아웃을 건드리지 않고 Task 전용 워크트리를 만든다고.
+- 격리를 복원했다가(0477ea9) 사용자 판단으로 철회했다(ab313f7). 원본 체크아웃에서
+  직접 작업하고 되돌리는 수단은 git 하나로 둔다. 넘긴 위험은 커밋 메시지와
+  PRODUCT.md P2에 기록했다 — 미저장 변경, 추적 안 되는 파일, run_bash의 경로 이탈,
+  같은 프로젝트 Task 간 충돌.
+- **UI 문구는 되돌리지 않았다.** 지키지 않을 약속을 화면에 띄우지 않는 것이 이
+  작업의 핵심이라, 동작은 사용자 결정대로 두고 설명만 사실에 맞췄다.
+- 구독형 CLI에 범위를 강제했다(9c8b106). claude `--restricted`(파일 도구를 작업
+  디렉터리에 가둠·개인 설정 무시·bypassPermissions 거부) + AgentProfile의 tools에서
+  파생한 `--tools`, codex 샌드박스도 프로필에서 파생. 실 CLI 검증: 워크스페이스 밖
+  읽기 거부, 프로필이 run_bash를 안 주면 셸 도구 자체가 없음. 건별 승인은 여전히 없다.
+- 문서 20건 이상 정정(413849f). README에 "Where the agent writes" 신설,
+  PRODUCT.md §9 경계를 경로별 표로, ORCHESTRATION_CHECKLIST를 역사 기록으로 표기
+  (§7이 존재하지 않는 네트워크 격리를 보증하고 있었다), scripts/README의 삭제된
+  스크립트 2개 교체, V1_AUDIT 거짓 3행, 1-slot 4곳, 살아 있는 Evaluation Lab.
+- test_docs_match_code.py 추가 — 드리프트를 사람이 아니라 CI가 기억한다.
+- 곁다리: tools.py self-check가 DANGEROUS를 3개로 단언해 계속 실패하고 있었다
+  (실제 4개, http_get 포함). 아무도 안 돌려서 몰랐다. pytest가 부르게 했다.
+- 테스트: pytest 295(문서 검사 8건 포함)·renderer 57·main 38·tsc 통과.
