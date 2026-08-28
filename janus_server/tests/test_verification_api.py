@@ -478,12 +478,29 @@ class VerificationApiTests(unittest.TestCase):
         self.assertEqual(self.repo.resolve(), Path(first_workspace["root_path"]).resolve())
         self.assertEqual(first_workspace["branch_name"], second_workspace["branch_name"])
 
-        for task_id in (self.task_id, second["id"]):
-            started = self.client.post(
-                f"/tasks/{task_id}/sessions", headers=self.headers,
-                json={"agent_profile_id": "agent_default"},
-            )
-            self.assertEqual(200, started.status_code, started.text)
+        # 트리를 공유하는 이상 둘이 동시에 돌 수는 없다 — 서로의 편집 위에 커밋한다.
+        first_session = self.client.post(
+            f"/tasks/{self.task_id}/sessions", headers=self.headers,
+            json={"agent_profile_id": "agent_default"},
+        )
+        self.assertEqual(200, first_session.status_code, first_session.text)
+        blocked = self.client.post(
+            f"/tasks/{second['id']}/sessions", headers=self.headers,
+            json={"agent_profile_id": "agent_default"},
+        )
+        self.assertEqual(409, blocked.status_code, blocked.text)
+        self.assertIn("Verify", blocked.json()["detail"], "막은 Task를 이름으로 알려야 한다")
+
+        # 영구 차단이 아니다. 앞선 Task를 멈추면 다음 Task가 트리를 넘겨받는다.
+        self.client.post(
+            f"/sessions/{first_session.json()['id']}/stop", headers=self.headers,
+        )
+        released = self.client.post(
+            f"/tasks/{second['id']}/sessions", headers=self.headers,
+            json={"agent_profile_id": "agent_default"},
+        )
+        self.assertEqual(200, released.status_code, released.text)
+
         Path(first_workspace["root_path"], "first-only.txt").write_text(
             "first\n", encoding="utf-8"
         )

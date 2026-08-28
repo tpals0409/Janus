@@ -2023,6 +2023,24 @@ class DomainStore:
                 if task["status"] == "preparing":
                     raise Conflict("Workspace 준비 중에는 Task를 시작할 수 없습니다")
 
+                # 두 Task가 한 저장소를 가리키면 작업 트리도 하나다 — v1.0.28에서 Task별
+                # worktree를 걷어냈기 때문이다. 동시에 돌면 서로의 편집 위에 커밋하고
+                # 브랜치를 옮긴다. 화면 경고로는 못 막고, immediate 트랜잭션인 여기가
+                # 경합 없이 판단할 수 있는 유일한 지점이다.
+                rival = connection.execute(
+                    "SELECT t.title AS title FROM dispatches d "
+                    "JOIN workspaces w ON w.id=d.workspace_id "
+                    "JOIN tasks t ON t.id=d.task_id "
+                    "WHERE d.status IN ('queued','running','needs_you') "
+                    "AND d.task_id<>? AND w.root_path=?",
+                    (task_id, workspace["root_path"]),
+                ).fetchone()
+                if rival is not None:
+                    raise Conflict(
+                        f"'{rival['title']}'이(가) 같은 작업 트리에서 실행 중입니다. "
+                        "두 Task가 저장소 하나를 공유하므로 그 Task를 먼저 중지하세요."
+                    )
+
                 # A newer attempt owns the Task immediately. Old threads may still emit,
                 # but append_session_event(require_latest=True) rejects those events.
                 old_dispatch_ids = [

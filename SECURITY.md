@@ -66,7 +66,9 @@ Stated plainly, because assuming otherwise is how people get hurt:
 - **Subscription CLIs do not ask before each action.** Their scope is enforced;
   individual writes and commands are not gated.
 - **Tasks are not isolated from each other.** Two Tasks in the same project share
-  one working tree.
+  one working tree, so each sees the other's uncommitted edits and commits onto
+  the same branch. Janus refuses to run two of them at once, but it does not undo
+  what an earlier Task left behind.
 - **`PUT /tasks/{id}/development/file`** writes into the workspace with no
   approval, lease, or budget. It is the human editor's path and is intended, but
   it is another door into the same directory.
