@@ -946,3 +946,35 @@ QA 안전 기준 준수: janus-qa-fixture 격리 worktree, 모든 승인 자동 
 - 곁다리: tools.py self-check가 DANGEROUS를 3개로 단언해 계속 실패하고 있었다
   (실제 4개, http_get 포함). 아무도 안 돌려서 몰랐다. pytest가 부르게 했다.
 - 테스트: pytest 295(문서 검사 8건 포함)·renderer 57·main 38·tsc 통과.
+
+## 2026-08-28 — v1.0.29 릴리스
+
+- 오픈소스 공개 P0·P1·P2를 처리했다. 레포는 2026-08-21부터 public이었지만
+  라이선스가 없어 법적으로는 아무도 fork·사용할 수 없는 상태였다.
+- **LICENSE (Apache-2.0)** — 전문과 저작권자. package.json·pyproject 3곳에 선언.
+  의존성 509개에 GPL/AGPL/LGPL 없음(약한 copyleft certifi MPL-2.0, tqdm 듀얼뿐).
+- **SECURITY.md** — 신고 경로와 함께 **없는 경계**를 명시한다. run_bash는 경로
+  감옥 밖, OS 샌드박스 없음, 구독형은 건별로 안 물음, Task끼리 격리 안 됨,
+  development/file은 승인 없이 씀. 있는 것만 적으면 문서가 다시 거짓말을 시작한다.
+- **개인 경로 제거** — vite.web.config.mts 삭제(참조 0건), qwen3.8mlx 두 파일이
+  남의 홈 경로를 glob하던 것을 HF_HUB_CACHE>HF_HOME>기본 순으로. 프로젝트명
+  local-llm-lab → janus-model-runtime.
+- **벤치마크 산출물 정리** — artifacts가 추적 파일의 46%(216/446)를 차지하고 54개에
+  개인 경로가 박혀 있었다. audit_v1.py가 읽는 4개만 남기고 212개 언트래킹(디스크
+  보존). 남긴 4개의 model_path도 살균. 추적 파일 446 → 235개. .gitignore를 경로
+  15개 나열에서 allowlist로. .claude/도 여기로 옮겼다 — .git/info/exclude는 로컬
+  전용이라 기여자를 보호하지 못한다.
+- **의존성 분류의 진단이 반대였다.** "실리는 6개를 dependencies로 옮기자"였는데,
+  Vite가 전부 번들하므로 그 필드는 무엇이 실리는지를 정하지 않고 electron-builder가
+  asar에 **추가로 복사**할 목록을 정한다. asar 안 node_modules 8.3MB가 전부 중복
+  이었다(빌드 산출물 6.9MB보다 크다). 방향을 뒤집어 dependencies를 비웠다 —
+  asar 10MB → 6.9MB. `pnpm audit --prod`는 이제 빈 집합을 감사하므로 전체 감사로.
+- **서드파티 고지** — generate-notices.mjs가 509개 패키지의 라이선스 전문 482개를
+  모은다. package:mac이 재생성하고 LICENSE와 함께 앱에 실린다. CI가 최신 검사.
+- **CONTRIBUTING.md** — 개발 루프를 ci.yml에서 역추적하지 않아도 되게.
+- test_docs_match_code.py를 15건으로 확장 — 라이선스 선언, SECURITY가 없는 경계를
+  적는지, 추적 소스의 개인 경로, artifacts 집합, CONTRIBUTING 명령 실존, 고지 패키징,
+  그리고 pyproject 편집이 의존성을 날리지 않는지(이번에 실제로 겪었다).
+- 테스트: pytest 302·renderer 57·main 38·tsc·check:bundle·check:notices·audit 통과.
+- 백로그: check-bundle-size가 "development surface" 예산으로 26K 청크를 재고 있다.
+  Monaco 4.9MB는 register-*.js에 있어 아무 예산도 지키지 않는다.
