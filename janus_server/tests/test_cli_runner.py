@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import stat
 import tempfile
@@ -11,7 +12,7 @@ from pathlib import Path
 os.environ.setdefault("JANUS_AUTH_TOKEN", "test-token")
 os.environ.setdefault("JANUS_ALLOWED_ORIGINS", "http://localhost:5173")
 
-from janus_server import cli_runner
+from janus_server import cli_runner, mcp_bridge
 from janus_server.workspace import WorkspaceContext
 
 OUTCOME = (
@@ -262,9 +263,15 @@ class CliRunnerTests(unittest.TestCase):
             self.assertEqual(["Read", "Glob", "Grep"], tools)
             self.assertNotIn("Bash", tools)
 
+            # 위험 도구는 내장 대응물을 주지 않는다. Bash/Edit/Write가 세션에 아예
+            # 없어야 쓰기가 MCP로 Janus를 거치고, 승인 게이트에 우회로가 없다.
             runner.spec["tools"] = ["read_file", "run_bash", "edit_file"]
-            tools = runner._command("x")[runner._command("x").index("--tools") + 1]
-            self.assertEqual(["Read", "Bash", "Edit"], tools.split(","))
+            command = runner._command("x")
+            tools = command[command.index("--tools") + 1].split(",")
+            self.assertEqual(
+                ["Read", "mcp__janus__run_bash", "mcp__janus__edit_file"], tools)
+            for builtin in ("Bash", "Edit", "Write"):
+                self.assertNotIn(builtin, tools)
 
     def test_an_undeclared_profile_gets_read_only_not_everything(self):
         """도구 선언을 잊은 프로필이 조용히 최대 권한을 받으면 안 된다."""
@@ -331,3 +338,93 @@ class SelfCheckTests(unittest.TestCase):
 
     def test_cli_runner_self_check_passes(self):
         cli_runner._self_check()
+
+
+class McpApprovalTests(unittest.TestCase):
+    """구독형 CLI의 건별 승인 — 위험 도구는 MCP로 Janus를 거쳐야만 실행된다.
+
+    범위 제한(--restricted, --tools)은 무엇을 만질 수 있는지만 정했다. 이 계층이
+    "이 파일을 고쳐도 됩니까?"를 묻는다.
+    """
+
+    def test_the_mcp_server_is_wired_only_when_a_dangerous_tool_is_granted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runner, _ = make_runner(tmp)
+
+            runner.spec["tools"] = ["read_file", "glob"]
+            self.assertEqual([], runner.mcp_tool_names())
+            self.assertNotIn("--mcp-config", runner._command("x"))
+            self.assertNotIn("MCP_TOOL_TIMEOUT", runner._env())
+
+            runner.spec["tools"] = ["read_file", "write_file"]
+            self.assertEqual(["write_file"], runner.mcp_tool_names())
+            command = runner._command("x")
+            self.assertIn("--mcp-config", command)
+            config = json.loads(command[command.index("--mcp-config") + 1])
+            server = config["mcpServers"]["janus"]
+            self.assertEqual("http", server["type"])
+            # 세션마다 경로가 갈려야 다른 Task의 워크스페이스에 쓸 수 없다.
+            self.assertTrue(server["url"].endswith("/mcp/session-cli"), server["url"])
+            self.assertIn("x-janus-token", server["headers"])
+
+    def test_the_tool_timeout_outlasts_the_approval_dialog(self):
+        """CLI가 먼저 끊으면 사용자가 승인해도 이미 실패한 뒤다."""
+        from janus_server.shared import APPROVAL_TIMEOUT
+
+        with tempfile.TemporaryDirectory() as tmp:
+            runner, _ = make_runner(tmp)
+            runner.spec["tools"] = ["run_bash"]
+            self.assertGreater(
+                int(runner._env()["MCP_TOOL_TIMEOUT"]), APPROVAL_TIMEOUT * 1000)
+
+    def test_a_denied_approval_stops_the_write_and_tells_the_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runner, _ = make_runner(tmp)
+            runner.spec["tools"] = ["write_file"]
+            runner.spec["approval"] = "ask"
+            asked: list[tuple[str, dict]] = []
+
+            def refuse(node_id, tool, args, context):
+                asked.append((tool, args))
+                return False
+
+            runner.approver = refuse
+            text = mcp_bridge.invoker(
+                approve=runner.mcp_approve, context=runner.workspace_context,
+            )("write_file", {"path": "secret.txt", "content": "x"})
+
+            self.assertEqual([("write_file", {"path": "secret.txt", "content": "x"})], asked)
+            self.assertTrue(text.startswith("ERROR: "), text)
+            self.assertFalse((Path(tmp) / "secret.txt").exists(), "거부됐는데 파일이 생겼다")
+
+    def test_an_approved_call_actually_writes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runner, _ = make_runner(tmp)
+            runner.spec["tools"] = ["write_file"]
+            runner.spec["approval"] = "ask"
+            runner.approver = lambda *_: True
+            mcp_bridge.invoker(
+                approve=runner.mcp_approve, context=runner.workspace_context,
+            )("write_file", {"path": "ok.txt", "content": "hello\n"})
+            self.assertEqual("hello\n", (Path(tmp) / "ok.txt").read_text())
+
+    def test_no_approver_denies_rather_than_falling_through(self):
+        """브리지가 없는데 통과시키면 승인이 있다고 믿는 사용자를 배신한다."""
+        with tempfile.TemporaryDirectory() as tmp:
+            runner, _ = make_runner(tmp)
+            runner.spec["tools"] = ["write_file"]
+            runner.spec["approval"] = "ask"
+            runner.approver = None
+            self.assertFalse(runner.mcp_approve("write_file", {"path": "a", "content": "b"}))
+
+            # approval=auto 프로필은 로컬 경로와 같이 그대로 통과한다.
+            runner.spec["approval"] = "auto"
+            self.assertTrue(runner.mcp_approve("write_file", {"path": "a", "content": "b"}))
+
+    def test_codex_gets_no_mcp_bridge_yet(self):
+        """codex는 streamable HTTP MCP를 지원하지만 헤더 인증이 아니라 bearer다.
+        검증되지 않은 배선을 붙이는 대신, 범위 제한만 걸린 상태를 명시한다."""
+        with tempfile.TemporaryDirectory() as tmp:
+            runner, _ = make_runner(tmp, provider="codex")
+            runner.spec["tools"] = ["write_file", "run_bash"]
+            self.assertEqual([], runner.mcp_tool_names())
