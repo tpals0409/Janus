@@ -246,11 +246,43 @@ class CliRunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             claude, _ = make_runner(tmp)
             command = claude._command("hello")
-            self.assertEqual(
-                "project,local", command[command.index("--setting-sources") + 1],
-            )
+            # --restricted가 사용자·프로젝트·로컬 설정을 통째로 무시한다.
+            self.assertIn("--restricted", command)
+            self.assertIn("--strict-mcp-config", command)
             codex, _ = make_runner(tmp, provider="codex")
             self.assertIn("--ignore-user-config", codex._command("hello"))
+
+    def test_only_the_profile_tools_reach_the_cli(self):
+        """전에는 --allowedTools Bash 고정이라 프로필이 셸을 안 줘도 붙었다."""
+        with tempfile.TemporaryDirectory() as tmp:
+            runner, _ = make_runner(tmp)
+            runner.spec["tools"] = ["read_file", "glob", "grep"]
+            command = runner._command("hello")
+            tools = command[command.index("--tools") + 1].split(",")
+            self.assertEqual(["Read", "Glob", "Grep"], tools)
+            self.assertNotIn("Bash", tools)
+
+            runner.spec["tools"] = ["read_file", "run_bash", "edit_file"]
+            tools = runner._command("x")[runner._command("x").index("--tools") + 1]
+            self.assertEqual(["Read", "Bash", "Edit"], tools.split(","))
+
+    def test_an_undeclared_profile_gets_read_only_not_everything(self):
+        """도구 선언을 잊은 프로필이 조용히 최대 권한을 받으면 안 된다."""
+        self.assertEqual(["Read", "Glob", "Grep"], cli_runner.claude_tools([]))
+        self.assertEqual(["Read", "Glob", "Grep"], cli_runner.claude_tools(None))
+        # 대응물이 없는 Janus 도구는 빠지고, 남는 게 없으면 읽기 전용으로 떨어진다.
+        self.assertEqual(["Read", "Glob", "Grep"], cli_runner.claude_tools(["create_worker"]))
+
+    def test_codex_sandbox_follows_the_profile_write_tools(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runner, _ = make_runner(tmp, provider="codex")
+            runner.spec["tools"] = ["read_file", "glob"]
+            command = runner._command("hello")
+            self.assertEqual("read-only", command[command.index("--sandbox") + 1])
+
+            runner.spec["tools"] = ["read_file", "edit_file"]
+            command = runner._command("hello")
+            self.assertEqual("workspace-write", command[command.index("--sandbox") + 1])
 
     def test_transcript_restore_recovers_the_cli_session_id(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -287,3 +319,15 @@ class CliRunnerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SelfCheckTests(unittest.TestCase):
+    """모듈 self-check를 pytest가 부른다 — 아무도 안 돌려서 썩는 걸 막는다."""
+
+    def test_tools_self_check_passes(self):
+        from janus_server import tools
+
+        tools.demo()
+
+    def test_cli_runner_self_check_passes(self):
+        cli_runner._self_check()

@@ -488,7 +488,9 @@ def demo():
     assert "error" in dispatch("nope", {})
 
     # 승인 분류가 보존됐는지 — agent 노드 안전 규칙이 여기 기댄다
-    assert DANGEROUS == {"write_file", "edit_file", "run_bash"}, DANGEROUS
+    # http_get도 승인 대상이다 — 이 단언이 3개만 기대해 self-check가 실패하고 있었고,
+    # 아무도 이 모듈을 돌리지 않아 드러나지 않았다.
+    assert DANGEROUS == {"write_file", "edit_file", "run_bash", "http_get"}, DANGEROUS
     assert "run_bash" not in READ_ONLY and "grep" in READ_ONLY
     assert all("fn" not in d and "handler" not in d for d in listing())
     assert len(schemas_for(["grep", "nope"])) == 1

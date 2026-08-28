@@ -34,6 +34,34 @@ CLI_BINS = {
     "codex": lambda: os.environ.get("JANUS_CODEX_BIN", "codex"),
 }
 OUTCOME_VALUES = ("completed", "partial", "input_required", "mockup_review")
+# Janus 도구 → Claude Code 내장 도구. skills.TOOL_MAP의 역방향이다(그쪽은 스킬을
+# 들여올 때 Claude 이름을 Janus 이름으로 접는다). 여기서는 프로필이 준 도구만
+# CLI에 붙이려고 쓴다 — 매핑이 없는 Janus 도구는 CLI에 대응물이 없다는 뜻이라 뺀다.
+CLAUDE_TOOLS = {
+    "read_file": ("Read",),
+    "glob": ("Glob",),
+    "grep": ("Grep",),
+    "write_file": ("Write",),
+    "edit_file": ("Edit",),
+    "run_bash": ("Bash",),
+    "http_get": ("WebFetch",),
+}
+# 프로필이 도구를 선언하지 않았을 때의 바닥값. 읽기만 준다 — 쓰기를 기본으로 주면
+# 선언을 잊은 프로필이 조용히 최대 권한을 받는다.
+CLAUDE_READ_ONLY = ("Read", "Glob", "Grep")
+
+
+def claude_tools(janus_tools: object) -> list[str]:
+    """프로필의 Janus 도구 목록을 Claude 도구 이름으로 옮긴다."""
+    names = [str(item) for item in janus_tools] if isinstance(janus_tools, list) else []
+    if not names:
+        return list(CLAUDE_READ_ONLY)
+    mapped: list[str] = []
+    for name in names:
+        for claude_name in CLAUDE_TOOLS.get(name, ()):
+            if claude_name not in mapped:
+                mapped.append(claude_name)
+    return mapped or list(CLAUDE_READ_ONLY)
 # 주입한 계약의 판. 이걸 올리면 기존 대화도 새 계약을 1회 다시 받는다.
 # 1 = 3문장 환경 안내(v1.0.21~22). 2 = 페르소나·코딩 규칙·outcome 계약.
 CONTEXT_VERSION = 2
@@ -347,14 +375,15 @@ class CliOrchestration:
             command = [
                 CLI_BINS["claude_code"](), "-p", text,
                 "--output-format", "stream-json", "--verbose",
-                # headless에는 승인 UI가 없다 — 워크스페이스 안 편집과 셸만 허용.
+                # headless에는 승인 UI가 없다 — 건별 승인 대신 범위를 좁혀 강제한다.
                 "--permission-mode", "acceptEdits",
-                "--allowedTools", "Bash",
-                # 사용자 개인 전역 설정(~/.claude의 훅·플러그인·MCP)이 Janus 턴 안에서
-                # 발동하지 않게 한다. 레포의 CLAUDE.md는 계속 읽는다 — coding-rules 12번이
-                # 레포 지침 우선을 요구한다. 한계: ~/.claude/CLAUDE.md(전역 메모리)만
-                # 골라 끄는 플래그는 없다.
-                "--setting-sources", "project,local",
+                # --restricted가 파일 도구를 작업 디렉터리에 가두고(실측: 감옥 밖 읽기
+                # 거부), 사용자·프로젝트·로컬 설정 파일을 무시하고, bypassPermissions를
+                # 거부한다. 개인 훅·플러그인·MCP가 Janus 턴에 끼는 것도 함께 막힌다.
+                "--restricted", "--strict-mcp-config",
+                # 프로필이 준 도구만 붙인다. 전에는 --allowedTools Bash 고정이라
+                # 프로필이 run_bash를 안 줘도 셸이 붙었다.
+                "--tools", ",".join(claude_tools(self.spec.get("tools"))),
             ]
             if self.cli_session_id:
                 command += ["--resume", self.cli_session_id]
@@ -367,17 +396,25 @@ class CliOrchestration:
         if inject:
             prompt = f"[Janus environment context]\n{self._janus_context()}\n\n{text}"
         binary = CLI_BINS["codex"]()
+        # 프로필이 쓰기 도구를 주지 않았으면 샌드박스도 읽기 전용으로 내린다.
+        sandbox = "workspace-write" if self._may_write() else "read-only"
         if self.cli_session_id:
             # exec resume에는 --sandbox 플래그가 없어 같은 정책을 config override로 준다.
             return [
                 binary, "exec", "resume", "--json", "--ignore-user-config",
-                "-c", 'sandbox_mode="workspace-write"',
+                "-c", f'sandbox_mode="{sandbox}"',
                 self.cli_session_id, prompt,
             ]
         return [
-            binary, "exec", "--json", "--sandbox", "workspace-write",
+            binary, "exec", "--json", "--sandbox", sandbox,
             "--ignore-user-config", prompt,
         ]
+
+    def _may_write(self) -> bool:
+        tools = self.spec.get("tools")
+        if not tools:  # 미선언 프로필은 로컬 기본과 같은 도구 집합으로 본다
+            return True
+        return bool(set(tools) & {"write_file", "edit_file", "run_bash"})
 
     def _emit(self, kind: str, **data) -> None:
         self.send({

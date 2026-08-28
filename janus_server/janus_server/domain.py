@@ -17,7 +17,7 @@ from typing import Any
 
 from .budget import empty_usage, merge_budget, normalize_budget
 
-CURRENT_SCHEMA_VERSION = 27
+CURRENT_SCHEMA_VERSION = 28
 
 DEFAULT_CONTEXT_POLICY = {
     "max_chars": 24_000,
@@ -703,6 +703,16 @@ SET legacy_direct_checkout = 1
 WHERE owned = 0 AND state != 'archived' AND root_path IS NOT NULL;
 """
 
+# 구독형 프로필은 tools_json=[]로 시드됐다 — CLI가 자체 권한으로 돌던 시절엔
+# 아무도 안 읽었기 때문이다. 이제 그 목록에서 CLI의 --tools를 파생하므로, 비워 두면
+# 도구가 하나도 없는 CLI가 된다. 로컬 기본과 같은 집합을 넣는다.
+MIGRATION_28 = """
+UPDATE agent_profiles
+SET tools_json = '["read_file","glob","grep","write_file","edit_file","run_bash"]',
+    updated_at = updated_at
+WHERE id IN ('agent_claude_code','agent_codex') AND tools_json IN ('[]','');
+"""
+
 MIGRATIONS = {
     1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3, 4: MIGRATION_4,
     5: MIGRATION_5, 6: MIGRATION_6, 7: MIGRATION_7, 8: MIGRATION_8,
@@ -710,7 +720,7 @@ MIGRATIONS = {
     13: MIGRATION_13, 14: MIGRATION_14, 15: MIGRATION_15, 16: MIGRATION_16,
     17: MIGRATION_17, 18: MIGRATION_18, 19: MIGRATION_19, 20: MIGRATION_20,
     21: MIGRATION_21, 22: MIGRATION_22, 23: MIGRATION_23, 24: MIGRATION_24,
-    25: MIGRATION_25, 26: MIGRATION_26, 27: MIGRATION_27,
+    25: MIGRATION_25, 26: MIGRATION_26, 27: MIGRATION_27, 28: MIGRATION_28,
 }
 
 
@@ -839,7 +849,9 @@ class DomainStore:
                     "model_profile_id,budget_json,created_at,updated_at) "
                     "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
-                        agent_id, agent_name, description, "", _json([]),
+                        agent_id, agent_name, description, "",
+                        _json(["read_file", "glob", "grep",
+                               "write_file", "edit_file", "run_bash"]),
                         "auto", "none", 15, model_id,
                         _json(normalize_budget(None)), now, now,
                     ),
