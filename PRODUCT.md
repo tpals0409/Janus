@@ -6,14 +6,15 @@ UI의 공식 시각·컴포넌트 규칙은 [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md)
 
 Janus는 개발자가 로컬 하드웨어의 모델 에이전트에게 여러 소프트웨어 작업을 위임하고,
 한정된 GPU·통합 메모리·CPU를 효율적으로 배분하며, 격리된 변경을 검토한 뒤 안전하게
-출하하는 데스크톱 ADE다. 외부 모델과 외부 코딩 에이전트 지원은 현재 제품 목표가 아니다.
+출하하는 데스크톱 ADE다. 로컬 모델이 기본이고, 사용자가 이미 가진 구독형 CLI(Claude Code·
+Codex)도 같은 Task 경계 안에서 실행기로 쓸 수 있다.
 
 Janus의 제품 단위는 에이전트 설정이나 모델 호출이 아니라 **검증 가능한 작업 결과**다.
 에이전트의 답변이 끝났다고 작업이 끝나는 것이 아니다. 변경이 격리되어 있고, 테스트와 diff가
 보이며, 사람이 검토하고, 선택한 결과가 브랜치나 PR로 전달되어야 완료다.
 
 사용자는 내부 Task 스키마를 직접 작성하지 않는다. 프로젝트를 선택하고 자연어 목표를 위임하면
-Janus가 제목, 기준 브랜치, 수용 검증, worktree와 AgentProfile 실행을 구성한다. Task는 사용자
+Janus가 제목, 기준 브랜치, 수용 검증, 작업 공간과 AgentProfile 실행을 구성한다. Task는 사용자
 입력 폼이 아니라 오케스트레이터가 만들고 운영하며 사용자가 감독·검토하는 실행 단위다.
 
 ---
@@ -54,7 +55,7 @@ Janus가 제목, 기준 브랜치, 수용 검증, worktree와 AgentProfile 실�
 
 1. 프로젝트를 등록한다.
 2. 버그나 기능을 Task로 만든다.
-3. 기준 ref, 로컬 AgentProfile, 시간·토큰 예산을 선택하면 Janus가 worktree를 만든다.
+3. 기준 ref, AgentProfile, 시간·토큰 예산을 선택하면 Janus가 작업 공간을 준비한다.
 4. 자원 스케줄러가 모델 생성과 도구 실행을 배치하고 에이전트가 조사·수정·테스트한다.
 5. Janus가 진행 상태, 질문, 로그, 세션 trace를 보여준다.
 6. 사용자가 diff와 테스트 결과를 검토하고 피드백을 보낸다.
@@ -65,15 +66,17 @@ Janus가 제목, 기준 브랜치, 수용 검증, worktree와 AgentProfile 실�
 
 ### 한 문장
 
-**Orca의 worktree 중심 감독·리뷰 흐름에 로컬 모델 전용 자원 스케줄링, 동적 worker 위임,
+**Orca의 Task 중심 감독·리뷰 흐름에 로컬 모델 전용 자원 스케줄링, 동적 worker 위임,
 도구 승인, 평가·trace를 결합한 ADE.**
 
 ### 차별점
 
 1. **Local-only first**
    - 프로젝트 메타데이터, 세션 기록, trace, 승인 결정은 기본적으로 로컬에 저장한다.
-   - Qwen/MLX 같은 로컬 모델이 기본이자 현재 유일한 실행 경로다.
-   - 외부 모델 지원 가능성을 위해 현재 구조를 복잡하게 만들지 않는다.
+   - Qwen/MLX 같은 로컬 모델이 기본 실행 경로다.
+   - 구독형 CLI(Claude Code·Codex)는 두 번째 실행 경로다. 사용자의 기존 구독을
+     쓰고 Janus는 자격증명을 보관하지 않는다. 감독 수준이 로컬과 다르다 — §9 참조.
+   - 외부 API 모델(키를 Janus에 맡기는 형태)은 여전히 범위 밖이다.
 
 2. **Resource-efficient**
    - 모델 생성 슬롯, 메모리, CPU 작업, 도구 I/O를 서로 다른 자원으로 취급한다.
@@ -89,7 +92,7 @@ Janus가 제목, 기준 브랜치, 수용 검증, worktree와 AgentProfile 실�
    - diff, 테스트, 리뷰 코멘트, 출하 상태가 대화보다 상위에 있다.
 
 5. **Capability-safe and observable**
-   - worktree를 보안 sandbox로 오해하지 않는다.
+   - 파일 jail을 보안 sandbox로 오해하지 않는다.
    - 파일 jail, 위험 도구 승인, AgentProfile별 capability를 중첩한다.
    - Task 수준 상태와 모델 내부 trace를 모두 제공하되 서로 혼동하지 않는다.
    - 모델 대기, 생성, 도구 I/O, 검증 시간을 분리해 실제 병목을 보여준다.
@@ -101,10 +104,17 @@ Janus가 제목, 기준 브랜치, 수용 검증, worktree와 AgentProfile 실�
 대화, 터미널, 모델 실행, trace는 Task를 수행하기 위한 수단이다. 모든 세션과 변경은 어떤
 Task에 속하는지 설명할 수 있어야 한다.
 
-### P2. 에이전트 실행은 기본적으로 격리한다
+### P2. 에이전트는 사용자의 저장소에서 직접 일한다
 
-서로 다른 Task는 같은 쓰기 가능한 checkout을 공유하지 않는다. Git 프로젝트에서는 Task별
-worktree와 branch를 기본값으로 사용한다.
+Task는 선택한 저장소의 현재 브랜치에서 실행된다. 별도 사본을 만들지 않는다 —
+모델이 사용자의 실제 상태를 그대로 보고, 되돌리는 수단을 git 하나로 단일화한다.
+
+그 대가는 명확히 적어 둔다:
+
+- 커밋되지 않은 사용자의 변경은 git이 복구해 주지 못한다. 위임 전에 커밋하거나 stash한다.
+- 같은 프로젝트의 Task 두 개는 한 작업 트리를 공유한다. 동시에 돌리지 않는다.
+- `run_bash`는 경로 감옥 밖이다(`cwd`만 설정). 승인 게이트가 유일한 방벽이고,
+  구독형 경로에는 그 게이트가 없다.
 
 ### P3. Git이 코드 변경의 진실 원천이다
 
@@ -125,7 +135,7 @@ diff에서 파생한다. Janus는 Task, Session, 승인, 리뷰 같은 제품 �
 
 ### P6. 삭제는 변경 손실을 뜻하지 않는다
 
-미병합 커밋이나 dirty diff가 있는 worktree를 조용히 삭제하지 않는다. 삭제 전에 보존 상태를
+미병합 커밋이나 dirty diff가 있는 작업 공간을 조용히 삭제하지 않는다. 삭제 전에 보존 상태를
 계산하고, branch 보존·archive·강제 삭제를 명확히 구분한다.
 
 ### P7. 세부 trace는 진단 도구다
@@ -159,7 +169,7 @@ Project
 
 - `id`, `name`, `repo_path`
 - 기본 agent profile과 검증 명령 목록
-- worktree는 Janus 소유 저장 루트(`~/.janus/workspaces`)에 둔다
+- Task 실행은 이 `repo_path`에서 직접 일어난다
 
 ### Task
 
@@ -174,9 +184,9 @@ Project
 
 Task의 파일·프로세스 실행 경계.
 
-- MVP에서는 Git worktree 하나와 branch 하나
+- `root_path`는 프로젝트 체크아웃, `branch_name`은 그 저장소의 현재 브랜치다
 - `base_ref`, `branch_name`, `root_path`, `state`(`preparing | ready | failed | archived`)
-- 현재 범위는 로컬 worktree이며, 강한 격리가 필요하면 로컬 컨테이너를 별도 검토
+- 강한 격리(worktree·컨테이너)는 지금 범위가 아니다 — P2의 대가를 참조
 
 ### AgentProfile
 
@@ -191,7 +201,8 @@ Task의 파일·프로세스 실행 경계.
 
 - backend, local path, quantization, context limit
 - 모델 생성 동시성, 메모리 예상량, prompt/session cache 정책
-- 초기에는 현재 Qwen3.8-27B MLX 한 구성만 지원한다.
+- 로컬은 Qwen3.8-27B MLX 두 종(정규·uncensored)과 MTP 드래프터를 지원한다.
+- 구독형은 `claude_code`·`codex` 두 프로바이더다. 모델 선택은 각 CLI가 소유한다.
 
 ### AgentSession
 
@@ -219,7 +230,7 @@ Dispatch가 로컬 자원을 사용하는 명시적 권한.
 ### RuntimeWorker
 
 한 AgentSession 내부에서 오케스트레이터가 만든 하위 실행자. 현재 Janus의 `create_worker`가
-여기에 해당한다. RuntimeWorker는 별도 worktree나 Task를 소유하지 않으며 상위 Dispatch의
+여기에 해당한다. RuntimeWorker는 별도 작업 공간이나 Task를 소유하지 않으며 상위 Dispatch의
 권한과 workspace를 공유한다.
 
 ### ChangeSet
@@ -238,7 +249,7 @@ Workspace의 `base_ref...HEAD + working tree`에서 파생한 변경 결과.
 
 ```text
 todo
-  → preparing       worktree 준비
+  → preparing       작업 공간 준비
   → working         dispatch 실행
   → needs_you       승인·질문·목업 검토 대기
   → review          에이전트 종료 + ChangeSet 준비
@@ -291,7 +302,7 @@ ADE 코어는 현재 MLX 구현의 세부사항 대신 Local Runtime 계약을 �
 - 메시지·도구·승인 이벤트 스트림
 - usage, queue wait, generation, tool I/O, verification timing
 
-Resource Scheduler는 모델 호출을 기본 1-slot로 직렬화하고 CPU·도구 I/O는 안전한 범위에서
+Resource Scheduler는 모델 호출 동시성을 기본 3-slot으로 제한하고 CPU·도구 I/O는 안전한 범위에서
 병렬화한다. 측정 없이 동시 모델 생성을 늘리지 않으며, worker와 Task마다 token/time budget,
 queue priority, cancellation을 적용한다. 다른 로컬 backend는 실제 필요가 생길 때 이 계약으로
 추가하며 외부 모델 호환성은 현재 검증 조건이 아니다.
@@ -321,11 +332,28 @@ Janus는 GitHub의 Codex·Claude Code `SKILL.md`를 로컬 에이전트에 바�
 
 ### 경계
 
-- Worktree: Task 간 Git 변경 충돌 방지
-- Workspace jail: Janus Local 도구의 파일 접근 제한
-- Tool approval: 셸·쓰기 같은 위험 기능의 사용자 승인
-- AgentProfile capability: 로컬 agent가 사용할 수 있는 도구와 예산
-- Process isolation: 선택적 로컬 컨테이너; worktree와 별개의 보안 계층
+경계는 실행 경로마다 다르다. 같다고 적으면 거짓말이 된다.
+
+| 경계 | 로컬 모델 | 구독형 CLI |
+|---|---|---|
+| 파일 경로 제한 | `tools._resolve`가 workspace 밖을 거부 | `--restricted`(claude) / 샌드박스(codex) |
+| 사용 가능한 도구 | AgentProfile의 `tools` | 같은 목록에서 파생해 CLI에 전달 |
+| 쓰기·셸 건별 승인 | **있다** — 기본 거부, 승인 기억은 workspace 단위 | **없다** |
+| 예산(스텝·토큰·시간) | `BudgetTracker`가 강제, 초과 시 생성 취소 | 계측만 하고 강제하지 않는다 |
+| 파일 소유권 임대 | write worker 스폰 시점에 겹침 차단 | 해당 없음(워커 없음) |
+
+공통으로 적용되지 않는 것도 적어 둔다:
+
+- **`run_bash`는 경로 감옥 밖이다.** `cwd`만 설정되고 `cd`로 나갈 수 있다. 로컬에서는
+  승인이 유일한 방벽이고, 구독형에는 그 방벽이 없다.
+- **파일 임대는 개별 쓰기를 막지 않는다.** worker 스폰 시점에만 검사한다.
+  "같은 파일을 동시에 못 쓴다"가 아니라 "두 번째 write worker가 생기지 못한다"가 정확하다.
+- **`PUT /tasks/{id}/development/file`은 승인·임대·예산 없이 쓴다.** 사람이 쓰는
+  에디터 경로라 의도된 것이지만, 같은 디렉터리로 들어가는 또 하나의 문이다.
+- **Task 간 격리는 없다.** 같은 프로젝트의 Task는 한 작업 트리를 공유한다(P2 참조).
+
+- AgentProfile capability: agent가 사용할 수 있는 도구와 예산
+- Process isolation: 선택적 로컬 컨테이너 — 현재 범위 밖
 
 ### 불변 조건
 
@@ -368,15 +396,19 @@ acceptance 기준에서 처리량과 품질이 함께 올라야 개선이다.
 - 자체 Git 서버나 코드 호스팅
 - 무제한 재귀형 자율 에이전트 조직
 - IDE 전체 언어 서버 기능의 재구현
-- worktree를 OS 보안 sandbox라고 주장하는 것
+- 파일 jail이나 CLI 샌드박스를 OS 보안 sandbox라고 주장하는 것
 - 모델의 사고 과정 원문 저장·노출
 
 ## 12. 현재 구현의 위치
 
-Janus v1.0의 Task·worktree·scheduler·review·평가·배포 기반은 완료됐다. v1.1은
-로컬 모델의 문맥 효율을 높이기 위해 Skill Library, 외부 `SKILL.md` 컴파일,
-AgentProfile 활성화, 세션별 지연 로딩을 추가했다. 외부 API 모델은 여전히 제품
-가정이 아니며, 로컬 TaskSuite가 필요를 입증할 때만 다시 판단한다.
+Janus v1.0의 Task·scheduler·review·평가·배포 기반은 완료됐다. v1.1은 로컬 모델의
+문맥 효율을 높이기 위해 Skill Library, 외부 `SKILL.md` 컴파일, AgentProfile 활성화,
+세션별 지연 로딩을 추가했다. v1.0.21~은 구독형 CLI 실행기를, v1.0.26은 앱 내 모델
+셋업을 추가했다. 외부 API 모델은 여전히 제품 가정이 아니며, 로컬 TaskSuite가 필요를
+입증할 때만 다시 판단한다.
+
+Task별 worktree 격리는 v1.0.28에서 명시적으로 걷어냈다. 에이전트는 사용자의 저장소
+현재 브랜치에서 직접 일하고, 되돌리는 수단은 git 하나다(P2와 그 대가 참조).
 
 ### 구독형 CLI 실행기 (v1.0.21~)
 
@@ -391,8 +423,13 @@ Claude 구독(`claude`)과 ChatGPT 구독(`codex`)을 AgentProfile로 고를 수
 - `finish_turn` 없음 → 최종 답변 끝의 `<janus-outcome>` 블록이 턴 결과를 선언한다.
   블록이 없으면 로컬에서 `finish_turn`을 부르지 않은 턴과 같이 `partial`로 정착한다.
 
-**지키지 않는 것.** 워커 오케스트레이션, 예산 강제, 컨텍스트 압축, 도구 승인
-게이트, 파일 소유권 임대는 이 경로에 적용되지 않는다. CLI가 자체 루프에서
-워크스페이스 worktree에 직접 쓰고, Janus는 git diff와 커밋 게이트로 사후 검토한다.
+**강제하는 것 — 범위.** v1.0.28부터 claude는 `--restricted`(파일 도구를 작업
+디렉터리에 가둠·개인 설정 무시·bypassPermissions 거부)와 AgentProfile의 `tools`에서
+파생한 `--tools`로 띄운다. codex 샌드박스도 프로필의 쓰기 도구 유무에서 파생한다.
+프로필이 셸을 주지 않으면 CLI에 셸 도구 자체가 없다.
+
+**지키지 않는 것.** 건별 승인, 워커 오케스트레이션, 예산 강제, 컨텍스트 압축,
+파일 소유권 임대는 이 경로에 적용되지 않는다. CLI가 자체 루프에서 저장소에 직접
+쓰고, Janus는 git diff와 커밋 게이트로 사후 검토한다.
 사용자 개인 전역 설정(`~/.claude` 훅·플러그인·MCP, `~/.codex/config.toml`)은
 Janus 턴에서 제외한다 — 레포의 `CLAUDE.md`/`AGENTS.md`는 계속 읽는다.

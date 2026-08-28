@@ -1,4 +1,19 @@
-# Janus 오케스트레이션 체크리스트
+# Janus 오케스트레이션 체크리스트 (역사 기록)
+
+> **이 문서가 설명하는 엔진은 2026-08-25 `0d53440`에서 제거됐다.**
+> `workflow.py`, `workflow_template.py`, `pipeline.py`, `airgap.py`,
+> `model_router.py`, `orchestration_bundle.py`와 그 테스트가 모두 삭제됐다.
+> 아래의 체크 표시는 **당시 실제로 통과했던 기록**이지 현재 보증이 아니다.
+> 특히 §7의 폐쇄망 감사 게이트는 강제 모듈과 감사 테스트가 함께 사라져
+> **지금은 어떤 네트워크 격리도 보증하지 않는다.**
+>
+> 남아 있는 것은 §2의 파일 소유권 락(`ownership.py`)뿐이고, 그것도 write worker
+> 스폰 시점에만 검사한다. `config/workflows/standard.yaml`과 `config/models.yaml`은
+> 이제 어떤 코드도 읽지 않는 고아 파일이다.
+>
+> 현재 실행 모델은 [PRODUCT.md](PRODUCT.md) §5와 [README.md](README.md)를 본다.
+> 설계 근거로서의 가치 때문에 남긴다.
+
 
 목표: **읽기는 병렬, 쓰기는 단일 스레드, 계획은 코드가 소유하는
 결정론적 오케스트레이션을 폐쇄망 로컬 모델 위에서 완성**

@@ -5,7 +5,7 @@
 `janus_server` 디렉터리에서 실행한다.
 
 ```bash
-.venv/bin/python scripts/p0_smoke_27b.py
+uv run python scripts/p0_smoke_27b.py
 ```
 
 검증 항목은 멀티턴 기억, 실제 worker 생성, 개별 worker 즉시 중단, turn 취소 후
@@ -24,17 +24,18 @@
 루프를 반복하고 SQLite 무결성과 transient state 누수를 검사한다.
 `../RECOVERY.md`에 백업, 복원, 명시적 초기화 정책이 있다.
 
-## 오케스트레이션 상태머신 27B E2E
+## TaskSuite 실행과 비교
 
-`uv run python scripts/verify_workflow_27b.py`는 실제 Qwen3.8-27B로
-Explore fan-out → 구조화 Plan → Plan 소유권 기반 worktree Implement → 워커별 테스트 →
-순차 머지·통합 검증 → 클린 Review를 완주한다. `plan` 실행 경계 직후 크래시 재개,
-모델 폴백, 충돌 fixer, 리뷰 2회 초과 사람 개입, YAML 출력 계약, 토큰 계측과
-loopback 전용 에어갭 감사도 함께 검증한다. 모델 서버 소유권·정리 정책은 P0 smoke와
-동일하며, 실행 원본은 `artifacts/orchestration/runs/`에 로컬로만 남는다.
+```bash
+uv run python scripts/run_tasksuite_v0.py      # fixture별 실행, artifacts/에 결과 저장
+uv run python scripts/compare_tasksuite_results.py   # 두 실행 결과 비교
+uv run python scripts/compact_tasksuite_artifacts.py # 상세 trace 압축
+uv run python scripts/publish_tasksuite_summary.py   # 공개용 요약 — 로컬 경로가 남으면 거부한다
+```
 
-## 오케스트레이션 에어갭 번들
+`publish_tasksuite_summary.py`는 결과에 `/Users/` 경로나 `workspace_root`,
+`model_path`가 남아 있으면 실패한다. 공개 저장소에 요약을 올리기 전에 반드시 통과시킨다.
 
-`uv run python scripts/build_orchestration_airgap_bundle.py artifacts/orchestration-airgap.zip`
-은 엔진, 격리·검증 의존성, 엄격한 YAML 로더, 표준 템플릿, 모델 역할 매핑,
-네트워크 게이트와 SHA-256 manifest를 재현 가능한 ZIP으로 만든다.
+> 2026-08-28 정정: 이 문서는 `verify_workflow_27b.py`와
+> `build_orchestration_airgap_bundle.py` 실행을 안내하고 있었다. 두 파일은
+> 2026-08-25 `0d53440`에서 오케스트레이션 엔진과 함께 삭제됐다.

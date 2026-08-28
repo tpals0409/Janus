@@ -47,7 +47,8 @@ Janus를 범용 agent aggregator가 아니라 local-agent efficiency ADE로 정�
 
 - [x] [PRODUCT.md](PRODUCT.md)가 제품 목표, 원칙, 도메인, 비목표를 정의한다.
 - [x] `RuntimeWorker`와 ADE의 `AgentSession`을 구분한다.
-- [x] 외부 모델·구독형 CLI·원격 실행을 핵심 로드맵에서 제외한다.
+- [x] 외부 API 모델·원격 실행을 핵심 로드맵에서 제외한다.
+  (구독형 CLI는 v1.0.21에서 두 번째 실행 경로로 편입됐다.)
 - [x] [STATUS.md](STATUS.md)가 현재 구현과 다음 실험을 기록한다.
 
 ---
@@ -160,9 +161,11 @@ Janus가 느린 이유와 worker가 도움 되는지를 숫자로 볼 수 있다
 
 ### 출구 조건
 
-- [x] 동일 프로젝트의 Task 두 개가 서로 다른 worktree/branch를 가진다.
+- [~] 동일 프로젝트의 Task 두 개가 서로 다른 worktree/branch를 가진다.
+  — v1.0.28에서 철회. Task는 저장소의 현재 브랜치를 공유한다.
 - [x] 두 WorkspaceContext의 도구를 병렬 실행해도 파일이 섞이지 않는다.
-- [x] main checkout은 agent 실행으로 수정되지 않는다.
+- [~] main checkout은 agent 실행으로 수정되지 않는다.
+  — v1.0.28에서 철회. 에이전트는 사용자의 체크아웃에서 직접 작업한다.
 - [x] 앱 재시작 후 Project, Task, Workspace 상태가 복원된다.
 - [x] dirty 또는 미병합 workspace 삭제는 기본 거부된다.
 - [x] 생성 실패가 `preparing`에 영구 고착되지 않고 복구 동작을 제공한다.
@@ -187,7 +190,7 @@ Janus가 느린 이유와 worker가 도움 되는지를 숫자로 볼 수 있다
 #### ResourceScheduler
 
 - `model_generation`, `cpu_tool`, `io_tool`, `verification` 자원 클래스
-- 모델 생성 기본 1-slot와 우선순위 queue
+- 모델 생성 동시성 제한(기본 3-slot)과 우선순위 queue
 - ResourceLease 획득·반환·timeout
 - CPU/tool/verification concurrency cap
 - 취소·예외·앱 종료 시 lease 회수

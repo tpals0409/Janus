@@ -42,4 +42,4 @@ uv run python scripts/robustness_soak.py
 ```
 
 The default is 30 minutes and at least 100 cycles. A short smoke uses the same
-loop with `--duration-seconds 3 --minimum-cycles 100`.
+loop with `--duration-seconds 3 --minimum-cycles 10`.

@@ -1,5 +1,9 @@
 # Janus 구현 상태
 
+> **이 문서는 날짜별 작업 일지다.** 아래 "현재 판정"은 2026-08-23 시점이고,
+> 그 뒤 섹션들은 그날그날의 기록이라 최신 상태와 어긋날 수 있다. 지금 무엇이
+> 도는지는 [README.md](README.md)를, 제품 경계는 [PRODUCT.md](PRODUCT.md)를 본다.
+
 기준일: 2026-08-23
 제품 목표: **제한된 로컬 하드웨어에서 로컬 에이전트가 가장 적은 시간·토큰·사용자 개입으로
 검증된 변경을 만들도록 격리·스케줄·감독·평가하는 ADE**
@@ -15,12 +19,12 @@
 (R3/P2), Git-derived ChangeSet·Verification·Review·Ship(R4/P3), Evaluation Lab·
 Adaptive Orchestration·Operations Dashboard(R5/P4), PR·CI와 Task 개발 표면,
 견고성·데이터 복구와 배포 품질(R6~R9/P5)까지 완료됐다. Janus는
-이제 자연어 목표 위임부터 내부 Task 구성, 격리 worktree 실행, 독립 검증,
-revision-aware review, Task branch
-commit/push 또는 명시적 cherry-pick handoff까지 앱 안에서 연결한다.**
+이제 자연어 목표 위임부터 내부 Task 구성, 작업 공간 준비, 독립 검증,
+revision-aware review, commit/push 또는 명시적 cherry-pick handoff까지 앱 안에서
+연결한다.** (2026-08-28 정정: worktree 격리는 v1.0.28에서 철회됐다.)
 
 현재 앱은 로컬 MLX 오케스트레이터와 런타임 워커를 실행하고 trace를 보여주는 검증된 세로
-조각이다. Project/Task 중심 화면에서 별도 Git worktree를 준비하고, AgentProfile을 선택해
+조각이다. Project/Task 중심 화면에서 작업 공간을 준비하고, AgentProfile을 선택해
 고유 Dispatch attempt와 AgentSession을 시작·재개·취소·중지할 수 있다. Session 상태,
 transcript와 runtime event는 SQLite에 영속화되고 최신 Dispatch만 Task 이벤트를 쓸 수 있다.
 ChangeSet과 review는 agent 답변과 독립적으로 Git에서 매번 다시 파생되며,
@@ -28,8 +32,8 @@ ChangeSet과 review는 agent 답변과 독립적으로 Git에서 매번 다시 �
 
 기존 “오케스트레이터-워커 전환으로 원래 계획과 일치했다”는 평가는 제품 목표가 런타임일 때만
 맞았다. ADE를 목표로 확정했으므로 현재 런타임은 제품 전체가 아니라 Task를 수행하는 핵심
-**Janus Local Runtime**으로 재배치한다. 외부 모델과 외부 CLI agent 지원은 현재 미정이며
-핵심 로드맵에 포함하지 않는다.
+**Janus Local Runtime**으로 재배치한다. 외부 API 모델은 여전히 범위 밖이지만,
+구독형 CLI agent(Claude Code·Codex)는 v1.0.21에서 두 번째 실행 경로로 편입됐다.
 
 ## 구현되어 있고 보존할 것
 
@@ -135,7 +139,7 @@ P1에서 추가로 검증한 것:
 
 P2-11에서 추가로 검증한 것:
 
-- 프로세스 전체 model generation 기본 1-slot과 Task 간 queue
+- 프로세스 전체 model generation 동시성 제한(기본 3-slot)과 Task 간 queue
 - `cpu_tool`, `io_tool`, `verification` 독립 concurrency cap
 - 높은 우선순위 우선 실행과 aging 기반 starvation 방지
 - model generation 중 독립 verification이 실제로 겹치는 timeline

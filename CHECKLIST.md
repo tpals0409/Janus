@@ -164,7 +164,7 @@
 - [x] archive와 safe delete
 - [x] branch 보존과 force delete 분리
 - [x] M4 run 소유권·slug 재사용 문제 해결
-- [x] main checkout 무수정 통합 테스트
+- [~] main checkout 무수정 통합 테스트 — v1.0.28에서 철회
 
 ### 9. Task 중심 UI
 
@@ -205,7 +205,7 @@
 - [x] Task A가 model slot을 점유한 동안 Task B가 완료된다는 테스트를 queue 후 독립 재개로 교정
 - [x] 취소·scheduler 오류로 lease 획득 전 종료해도 queue interval이 닫히도록 `resource_queue_end` 추가
 
-- [x] `model_generation` 자원 클래스와 기본 1-slot
+- [x] `model_generation` 자원 클래스와 동시성 제한(기본 3-slot)
 - [x] `cpu_tool`, `io_tool`, `verification` 자원 클래스
 - [x] 우선순위 queue
 - [x] starvation 방지
@@ -305,7 +305,7 @@
 - [x] Janus에서 commit 생성
 - [x] Task branch에 결과 보존
 - [x] push 또는 local apply/cherry-pick 흐름
-- [x] main checkout 자동 수정 금지
+- [~] main checkout 자동 수정 금지 — v1.0.28에서 철회(P2 참조)
 - [x] Task 생성 → 실행 → 검증 → 리뷰 → commit E2E 테스트
 
 ---
@@ -314,8 +314,9 @@
 
 ### 19. Evaluation Lab
 
-> 2026-08-25 UI 재편: Evaluation Lab 화면은 제거됐고 백엔드 `/evaluations/*` API와
-> 승격 게이트(`agent-profile/promote`)만 유지된다. 비교 결과는 API/CLI로 확인한다.
+> 2026-08-25 UI 재편: 백엔드 `/evaluations/*` API와 승격 게이트
+> (`agent-profile/promote`)를 유지한다.
+> (정정 2026-08-28: Evaluation Lab 화면은 제거되지 않았다 — `평가` 탭으로 살아 있다.)
 
 - [x] baseline/candidate 실행
 - [x] AgentProfile·prompt·budget·worker policy A/B

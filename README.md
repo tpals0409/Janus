@@ -1,13 +1,48 @@
 # Janus
 
 Janus is a local-first Agent Development Environment (ADE) for getting the most
-verified work from one local model. It turns coding requests into isolated Tasks,
-runs a local orchestrator and bounded workers inside Task-owned Git worktrees,
-and keeps verification, review, commit, push, pull request, terminal, editor, and
-preview context attached to the same Task.
+verified work out of a coding agent on your own machine. It turns requests into
+Tasks, runs an orchestrator with bounded sub-agents, and keeps the diff,
+verification, review, commit, push, pull request, terminal, editor, and preview
+context attached to the same Task.
 
-The v1 core does not require an external model. GitHub integration is optional
-and uses an already authenticated `gh` CLI when a Task is ready to ship.
+**Two ways to run a Task, and you pick per message:**
+
+- **A local model** — a Qwen3.8 27B MLX build served on your machine. Nothing
+  leaves the laptop. This is the default and the reason the project exists.
+- **A subscription CLI** — your own `claude` or `codex` login, driven headlessly.
+  Useful when the local model is too slow for the job, or before you have
+  downloaded 17 GB of weights.
+
+The two are not equivalent, and the difference matters before you delegate
+anything — see [Where the agent writes](#where-the-agent-writes).
+
+GitHub integration is optional and uses an already authenticated `gh` CLI when a
+Task is ready to ship.
+
+## Where the agent writes
+
+**Janus works directly in the repository you select, on whatever branch it is
+currently on.** There is no scratch copy. When you delegate a Task, the agent
+edits your working tree, and commit/push go to that same branch.
+
+That is a deliberate trade — it keeps the model close to your real state and
+makes `git` the single undo mechanism — but it has edges worth knowing:
+
+| | Local model | Subscription CLI |
+|---|---|---|
+| Where it runs | your checkout, current branch | same |
+| Path confinement | file tools jailed to the repo | jailed by `--restricted` / sandbox |
+| Tools available | exactly what the AgentProfile grants | same, derived from the profile |
+| Asks before each write or shell command | **yes**, default-deny | **no** |
+| Shell can leave the repo (`cd ..`) | approval is the only barrier | no barrier |
+
+Practical consequences:
+
+- **Commit or stash before delegating.** Uncommitted edits of your own are not
+  recoverable from git if the agent touches the same files.
+- **Two Tasks in one project share one working tree.** Run them one at a time.
+- Prefer a scratch branch if you are trying Janus out on something you care about.
 
 ## Supported machine
 
@@ -15,8 +50,10 @@ and uses an already authenticated `gh` CLI when a Task is ready to ship.
 - Python 3.13 through [uv](https://docs.astral.sh/uv/)
 - Node.js 22 or newer and pnpm 11
 - Git; optional `gh` for pull requests and CI checks
-- Qwen3.8 27B MLX 4-bit model: allow roughly 16 GB for model files and use a
-  machine with at least 32 GB unified memory for practical development headroom
+- Xcode Command Line Tools (`swift`), required by `pnpm package:mac`
+- For the local model: roughly 17 GB of disk for weights plus 8 GB free headroom,
+  and enough unified memory to hold a 27B 4-bit model (32 GB is a practical floor).
+  A subscription CLI needs none of this.
 
 Check prerequisites without changing the machine:
 
@@ -83,9 +120,10 @@ unsigned for local verification; release signing and update rules are in
 
 1. Add a Project by selecting an existing Git repository.
 2. Create a Task with an objective, acceptance command, and base ref.
-3. Prepare its isolated worktree and choose an AgentProfile.
-4. Start or resume the local session. Janus serializes the one-slot model while
-   allowing bounded tool and verification overlap.
+3. Prepare the workspace — Janus validates the repository and base ref — and
+   choose an AgentProfile (local model, Claude Code, or Codex).
+4. Start or resume the session. Concurrent model generations are capped (3 by
+   default, configurable in Settings) while tool and verification work overlaps.
 5. Inspect the Git-derived diff, run verification, review the exact revision,
    then commit and optionally push/create a pull request.
 6. Use the Task development surface for split terminals, Monaco editing, local
@@ -93,8 +131,8 @@ unsigned for local verification; release signing and update rules are in
 
 ## Data, recovery, and diagnostics
 
-Persistent data defaults to `~/.janus`; Task worktrees and Git branches remain
-separate from SQLite. Janus never automatically resets data. Backup, restore,
+Persistent data defaults to `~/.janus`; your repository and its Git history are
+never stored inside it. Janus never automatically resets data. Backup, restore,
 and explicit reset policy is documented in
 [janus_server/RECOVERY.md](janus_server/RECOVERY.md).
 
@@ -125,9 +163,10 @@ pnpm build
 pnpm package:mac
 ```
 
-That is the same set CI runs, minus the macOS-only `package:mac` step. CI runs on
-Linux, so packaging, the MLX runtime, and the model server are only ever exercised
-on a developer's own Mac.
+CI runs the same suites plus `pnpm check:bundle` (a bundle-size budget) and a
+separate dependency-audit job, so a local pass is necessary but not sufficient.
+CI runs on Linux, which means packaging, the MLX runtime, and the model server are
+only ever exercised on a developer's own Mac.
 
 The clean-install smoke copies only distributable source into a temporary
 directory, installs from both lockfiles, builds/packages the app, boots a blank
@@ -138,5 +177,14 @@ checks process shutdown:
 python3 scripts/fresh_install_smoke.py
 ```
 
-Product boundaries and completion evidence live in [PRODUCT.md](PRODUCT.md),
-[ROADMAP.md](ROADMAP.md), [CHECKLIST.md](CHECKLIST.md), and [STATUS.md](STATUS.md).
+## Status and scope
+
+Janus is a young project — one author, and the design notes in
+[PRODUCT.md](PRODUCT.md) carry more history than the code does. Read them as
+intent, not as a specification of what ships today. [ROADMAP.md](ROADMAP.md),
+[CHECKLIST.md](CHECKLIST.md), and [STATUS.md](STATUS.md) are working documents
+kept for the record; `STATUS.md` in particular is a dated engineering journal
+rather than a changelog.
+
+No license is declared yet, which means the default applies and you cannot
+legally fork or reuse this. That is being fixed.

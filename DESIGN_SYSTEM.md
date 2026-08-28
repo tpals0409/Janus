@@ -251,7 +251,7 @@ Motion은 hover, menu, panel, execution state 변화에만 짧게 사용하며 `
 - active는 약한 neutral background와 primary text
 - accent를 selection에 사용하지 않는다.
 
-기본 항목은 `작업`, `에이전트`, `평가`다. 구현되지 않은 항목(`모니터`, `배포`)은
+기본 항목은 `작업`, `에이전트`, `평가`이고, 설정은 상태바의 톱니바퀴로 연다. 구현되지 않은 항목(`모니터`, `배포`)은
 비활성 버튼으로도 상시 노출하지 않는다. `스킬`과 `컨텍스트 정책`은 AgentProfile
 내부에, 리소스(작업/파일 트리)는 내비 아래 같은 사이드바에 둔다.
 
