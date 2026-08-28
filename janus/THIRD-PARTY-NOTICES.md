@@ -1,3 +1,30 @@
+<!-- direct-dependencies:
+@monaco-editor/react@^4.7.0
+@tailwindcss/vite@^4.2.4
+@testing-library/jest-dom@^7.0.1
+@testing-library/react@^16.3.2
+@testing-library/user-event@^14.6.6
+@types/node@^24.10.1
+@types/react@^19.2.7
+@types/react-dom@^19.2.4
+@vitejs/plugin-react@^5.1.1
+@xyflow/react@^12.11.3
+electron@^43.4.1
+electron-builder@^26.15.3
+electron-vite@^5.0.0
+jsdom@^30.0.1
+lucide-react@^0.560.0
+monaco-editor@^0.56.0
+react@^19.2.8
+react-dom@^19.2.8
+react-markdown@^10.1.0
+remark-gfm@^4.0.1
+tailwindcss@^4.2.4
+typescript@^5.9.3
+vite@^7.3.1
+vitest@^4.1.11
+zustand@^5.0.15
+-->
 # Third-party notices
 
 Janus bundles its JavaScript dependencies into the shipped application, so the
