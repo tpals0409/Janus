@@ -372,7 +372,7 @@ function WorkspaceCard({ task }: { task: Task }) {
             <div className="task-label">작업 공간</div>
             <h3 className="mt-1 text-[14px] font-semibold">아직 워크트리가 없습니다</h3>
             <p className="mt-1 max-w-[560px] text-[11px] leading-relaxed text-faint">
-              저장소와 기준 리프를 검증한 뒤 Task 전용 브랜치와 워크트리를 만듭니다.
+              저장소와 기준 리프를 검증합니다. 작업은 이 저장소의 현재 브랜치에서 직접 이뤄집니다.
             </p>
           </div>
           <button onClick={prepare} disabled={busy} className="task-primary-action">
@@ -394,17 +394,6 @@ function WorkspaceCard({ task }: { task: Task }) {
 
   return (
     <section className="task-card">
-      {/* 격리가 끊겨 있던 동안 만들어진 Task는 사용자의 체크아웃에서 직접 작업한다.
-          자동으로 옮기지 않는다 — 커밋 안 된 변경이 거기 남아 있을 수 있다. */}
-      {workspace.legacy_direct_checkout === 1 && (
-        <p className="workspace-legacy-warning">
-          <AlertTriangle size={12} aria-hidden="true" />
-          <span>
-            이 Task는 격리되지 않았습니다 — 저장소 체크아웃에서 직접 작업합니다.
-            변경을 커밋하거나 정리한 뒤 작업 공간을 다시 준비하면 Task 전용 워크트리를 받습니다.
-          </span>
-        </p>
-      )}
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="task-label">작업 공간</div>
@@ -2662,7 +2651,7 @@ function EmptyTaskState({ hasProject, onOpenSettings }: {
         title={hasProject ? 'Janus에게 목표를 위임하세요' : '로컬 Git 저장소 추가'}
         description={hasProject
           ? 'Janus가 내부 작업 계약과 검증 경계를 만들고 격리된 로컬 에이전트 실행을 시작합니다.'
-          : 'Janus는 현재 체크아웃을 건드리지 않고 Task 전용 브랜치와 워크트리에서 작업합니다.'}
+          : 'Janus는 이 저장소의 현재 브랜치에서 직접 작업합니다 — 변경은 커밋 전까지 작업 트리에 남습니다.'}
         action={hasProject ? undefined : <Button onClick={addProject}><FolderGit2 size={13} /> 저장소 추가</Button>}
       />
     </div>

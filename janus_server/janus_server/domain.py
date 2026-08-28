@@ -17,7 +17,7 @@ from typing import Any
 
 from .budget import empty_usage, merge_budget, normalize_budget
 
-CURRENT_SCHEMA_VERSION = 28
+CURRENT_SCHEMA_VERSION = 27
 
 DEFAULT_CONTEXT_POLICY = {
     "max_chars": 24_000,
@@ -691,22 +691,10 @@ DROP TABLE model_profiles;
 ALTER TABLE model_profiles_v26 RENAME TO model_profiles;
 """
 
-# MIGRATION_24가 격리를 걷어낸 뒤 만들어진 워크스페이스는 사용자의 체크아웃을 가리킨다.
-# 그 행들을 새 worktree로 옮기지 않는다 — 커밋되지 않은 에이전트 작업물이 원래
-# 체크아웃에 남아 있을 수 있고, 강제 재준비는 그걸 사용자 눈앞에서 사라지게 만든다.
-# MIGRATION_24가 이전 root_path·branch_name을 덮어써 복구 불가능하게 만든 실수를
-# 반복하지 않는다. 표식만 남기고, 정리 시점은 사용자가 고른다.
-MIGRATION_27 = """
-ALTER TABLE workspaces ADD COLUMN legacy_direct_checkout INTEGER NOT NULL DEFAULT 0;
-UPDATE workspaces
-SET legacy_direct_checkout = 1
-WHERE owned = 0 AND state != 'archived' AND root_path IS NOT NULL;
-"""
-
 # 구독형 프로필은 tools_json=[]로 시드됐다 — CLI가 자체 권한으로 돌던 시절엔
 # 아무도 안 읽었기 때문이다. 이제 그 목록에서 CLI의 --tools를 파생하므로, 비워 두면
 # 도구가 하나도 없는 CLI가 된다. 로컬 기본과 같은 집합을 넣는다.
-MIGRATION_28 = """
+MIGRATION_27 = """
 UPDATE agent_profiles
 SET tools_json = '["read_file","glob","grep","write_file","edit_file","run_bash"]',
     updated_at = updated_at
@@ -720,7 +708,7 @@ MIGRATIONS = {
     13: MIGRATION_13, 14: MIGRATION_14, 15: MIGRATION_15, 16: MIGRATION_16,
     17: MIGRATION_17, 18: MIGRATION_18, 19: MIGRATION_19, 20: MIGRATION_20,
     21: MIGRATION_21, 22: MIGRATION_22, 23: MIGRATION_23, 24: MIGRATION_24,
-    25: MIGRATION_25, 26: MIGRATION_26, 27: MIGRATION_27, 28: MIGRATION_28,
+    25: MIGRATION_25, 26: MIGRATION_26, 27: MIGRATION_27,
 }
 
 
@@ -1537,7 +1525,7 @@ class DomainStore:
 
     def create_workspace(
         self, *, task_id: str, repo_path: str, base_ref: str,
-        workspace_id: str | None = None, owned: bool = True,
+        workspace_id: str | None = None, owned: bool = False,
     ) -> dict:
         now = _now()
         workspace_id = workspace_id or _id("workspace")

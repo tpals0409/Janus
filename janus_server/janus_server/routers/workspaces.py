@@ -10,6 +10,7 @@ from fastapi import APIRouter
 from .. import domain as D
 from .. import shared
 from ..shared import (
+    _delegation_base_ref,
     _publish_change,
     _workspace_job_active,
     get_domain_store,
@@ -25,31 +26,15 @@ def _run_workspace_preparation(workspace_id: str) -> None:
         task = store.get_task(workspace["task_id"])
 
         store.update_workspace_preparation(workspace_id, progress="validating")
-
-        def report(stage: str, details: dict) -> None:
-            store.update_workspace_preparation(workspace_id, progress=stage)
-            _publish_change(
-                "workspace", "progress", workspace_id=workspace_id,
-                task_id=workspace["task_id"], progress=stage, **details,
-            )
-
-        # Task마다 전용 worktree와 janus/ branch를 받는다. 사용자의 체크아웃에서
-        # 직접 작업하면 에이전트 실패가 그들의 작업 트리를 오염시키고, 되돌릴 경계가
-        # git뿐이다. 0d53440이 워크플로 엔진을 지우며 이 배선을 함께 끊었다.
-        prepared = get_workspace_service().prepare(
-            workspace_id=workspace_id,
-            task_id=workspace["task_id"],
-            title=task["title"],
-            repo_path=workspace["repo_path"],
-            base_ref=workspace["base_ref"],
-            existing_root=workspace["root_path"] if workspace["owned"] else None,
-            existing_branch=workspace["branch_name"] if workspace["owned"] else None,
-            progress=report,
+        prepared = get_workspace_service().validate_repo(
+            workspace["repo_path"], workspace["base_ref"]
         )
+        root_path = prepared["repo_path"]
+        branch_name = _delegation_base_ref(Path(root_path))
         store.transition_workspace(
             workspace_id, "ready",
-            root_path=prepared["root_path"],
-            branch_name=prepared["branch_name"],
+            root_path=root_path,
+            branch_name=branch_name,
             progress="ready",
         )
         current_task = store.get_task(task["id"])
@@ -118,6 +103,7 @@ def prepare_task_workspace(task_id: str):
     project = store.get_project(task["project_id"])
     workspace = store.create_workspace(
         task_id=task_id, repo_path=project["repo_path"], base_ref=task["base_ref"],
+        owned=False,
     )
     store.transition_task(task_id, "preparing", expected="todo")
     _start_workspace_preparation(workspace["id"])

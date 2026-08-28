@@ -3220,21 +3220,6 @@ textarea:focus-visible {
 .model-setup__meta > span:last-of-type { margin-left: auto; }
 
 /* 컴포저에서 위임이 막힌 이유 — 전에는 아무것도 안 보여줬다 */
-.workspace-legacy-warning {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  margin-bottom: 12px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--color-raised);
-  padding: 8px 10px;
-  font-size: 10.5px;
-  line-height: 1.55;
-  color: var(--color-warn);
-}
-.workspace-legacy-warning svg { flex: none; margin-top: 2px; }
-
 .model-blocked {
   display: flex;
   align-items: center;

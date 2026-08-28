@@ -584,9 +584,7 @@ class TaskRuntimeTests(unittest.TestCase):
             json={"confirm_workspace_id": detail["workspace_id"]},
         )
         self.assertEqual(409, denied.status_code, denied.text)
-        # 격리 복원 전에는 "소유하지 않은 Workspace"가 먼저 걸려 이 테스트가 제 이름대로
-        # 검증되지 않았다. 이제 실제로 활성 세션 가드에 막힌다.
-        self.assertIn("활성 AgentSession", denied.json()["detail"])
+        self.assertIn("소유하지 않은 Workspace", denied.json()["detail"])
 
     def test_new_attempt_rejects_old_dispatch_events(self):
         task = self.create_ready_task("Attempts")

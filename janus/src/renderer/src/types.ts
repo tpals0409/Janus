@@ -51,8 +51,6 @@ export interface TaskWorkspace {
   progress: string
   error: string | null
   owned: 0 | 1
-  /** 격리가 끊겨 있던 동안(0d53440~v1.0.27) 사용자의 체크아웃에서 직접 작업하던 Task */
-  legacy_direct_checkout?: 0 | 1
   job_active?: boolean
 }
 

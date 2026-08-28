@@ -132,7 +132,7 @@ export function StatusBar({ mode, onOpenSettings }: { mode: string; onOpenSettin
         title={
           mode === 'agents'
             ? project?.repo_path ?? '작업 탭에서 프로젝트를 선택하세요'
-            : 'Task 전용 격리 워크트리'
+            : '작업이 일어나는 저장소 체크아웃'
         }
         className="max-w-[340px] truncate font-mono text-[10.5px] text-faint"
       >

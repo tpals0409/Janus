@@ -92,14 +92,9 @@ class WorkspaceService:
         return root
 
     def _workspace_root(self, repo: Path, root_path: str | Path) -> Path:
-        """Task 작업은 Janus 소유 worktree 안에서만 일어난다.
-
-        0d53440이 워크플로 엔진을 지우며 이 검사를 사용자의 체크아웃까지 허용하도록
-        완화했고, 그 결과 에이전트가 사용자의 실제 저장소·실제 브랜치에서 작업하게
-        됐다. 앱은 그동안 화면에서 그 반대를 약속하고 있었다.
-        """
-        del repo  # 소유 검사에는 repo가 필요 없다 — 시그니처만 호출부와 맞춘다
-        return self._owned_root(root_path)
+        """Allow the project checkout for normal work; retain ownership checks elsewhere."""
+        root = Path(root_path).expanduser().resolve()
+        return root if root == repo.resolve() else self._owned_root(root)
 
     def _target(self, workspace_id: str) -> Path:
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", str(workspace_id)):
@@ -442,10 +437,6 @@ class WorkspaceService:
         branch = str(status.get("branch_name") or "")
         if not branch:
             raise UnsafeWorkspace("detached HEAD에서는 commit할 수 없습니다")
-        if not branch.startswith("janus/"):
-            raise UnsafeWorkspace(
-                f"Janus Task branch가 아닙니다: {branch}. Task workspace를 다시 준비하세요."
-            )
         if status["unmerged"]:
             raise UnsafeWorkspace("unmerged 변경은 commit할 수 없습니다")
         if not str(message).strip():
@@ -469,10 +460,6 @@ class WorkspaceService:
         branch = str(status.get("branch_name") or "")
         if not branch:
             raise UnsafeWorkspace("detached HEAD에서는 push할 수 없습니다")
-        if not branch.startswith("janus/"):
-            raise UnsafeWorkspace(
-                f"Janus Task branch가 아닙니다: {branch}. Janus는 사용자의 브랜치로 push하지 않습니다."
-            )
         if status["dirty"]:
             raise UnsafeWorkspace("commit되지 않은 변경이 있어 push할 수 없습니다")
         remote_name = str(remote).strip()

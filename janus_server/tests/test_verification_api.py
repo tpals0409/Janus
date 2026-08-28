@@ -271,16 +271,12 @@ class VerificationApiTests(unittest.TestCase):
                 "confirm_discard": self.task_id,
             },
         )
-        # 격리된 worktree에서는 discard가 안전하다 — 사용자 체크아웃이 아니라
-        # Task 소유 worktree만 되돌린다. 공유 체크아웃일 때 이게 거부됐던 이유다.
-        self.assertEqual(200, discarded.status_code, discarded.text)
-        self.assertFalse((root / "discard-me.txt").exists())
-        self.assertEqual(
-            "", git(self.repo, "status", "--porcelain").stdout.strip(),
-            "discard가 사용자 체크아웃을 건드리면 안 된다",
-        )
+        self.assertEqual(409, discarded.status_code, discarded.text)
+        self.assertIn("소유 저장 루트 밖", discarded.json()["detail"])
+        self.assertTrue((root / "review.txt").exists())
+        self.assertTrue((root / "discard-me.txt").exists())
 
-    def test_task_create_run_verify_review_commit_push_e2e_in_an_isolated_worktree(self):
+    def test_task_create_run_verify_review_commit_push_e2e_uses_main_checkout(self):
         main_head = git(self.repo, "rev-parse", "HEAD").stdout.strip()
         session = self.client.post(
             f"/tasks/{self.task_id}/sessions", headers=self.headers,
@@ -318,11 +314,8 @@ class VerificationApiTests(unittest.TestCase):
         commit_sha = committed.json()["result"]["commit_sha"]
         self.assertEqual(commit_sha, git(root, "rev-parse", "HEAD").stdout.strip())
         self.assertEqual("main", git(self.repo, "branch", "--show-current").stdout.strip())
-        # commit은 Task branch로 간다 — 사용자의 main은 그대로다.
-        self.assertEqual(main_head, git(self.repo, "rev-parse", "HEAD").stdout.strip())
-        self.assertTrue(
-            git(root, "branch", "--show-current").stdout.strip().startswith("janus/")
-        )
+        self.assertNotEqual(main_head, git(self.repo, "rev-parse", "HEAD").stdout.strip())
+        self.assertEqual(commit_sha, git(self.repo, "rev-parse", "HEAD").stdout.strip())
 
         self.assertEqual("", git(self.repo, "status", "--porcelain").stdout.strip())
 
@@ -428,12 +421,7 @@ class VerificationApiTests(unittest.TestCase):
             f"/tasks/{self.task_id}/workspace", headers=self.headers
         ).json()["state"])
         self.assertEqual(0, git(self.repo, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}").returncode)
-        # Task branch에는 commit이 올라가 있고, 사용자의 main은 끝까지 움직이지 않는다.
-        self.assertEqual(
-            commit_sha,
-            git(self.repo, "rev-parse", f"refs/heads/{branch}").stdout.strip(),
-        )
-        self.assertEqual(main_head, git(self.repo, "rev-parse", "HEAD").stdout.strip())
+        self.assertEqual(commit_sha, git(self.repo, "rev-parse", "HEAD").stdout.strip())
 
     def test_pull_request_auth_failure_is_persisted_for_recovery(self):
         store = server.get_domain_store()
@@ -462,7 +450,7 @@ class VerificationApiTests(unittest.TestCase):
         self.assertIn("authentication required", persisted["error"])
         self.assertEqual(workspace["branch_name"], persisted["head_branch"])
 
-    def test_two_tasks_get_separate_worktrees_and_branches(self):
+    def test_two_tasks_share_the_project_checkout(self):
         second = self.client.post(
             f"/projects/{self.project_id}/tasks", headers=self.headers, json={
                 "title": "Second", "objective": "Independent second task",
@@ -486,12 +474,9 @@ class VerificationApiTests(unittest.TestCase):
         first_workspace = self.client.get(
             f"/tasks/{self.task_id}/workspace", headers=self.headers
         ).json()
-        # 같은 프로젝트의 두 Task가 같은 쓰기 가능한 체크아웃을 공유하지 않는다.
-        self.assertNotEqual(first_workspace["root_path"], second_workspace["root_path"])
-        self.assertNotEqual(first_workspace["branch_name"], second_workspace["branch_name"])
-        for workspace in (first_workspace, second_workspace):
-            self.assertNotEqual(self.repo.resolve(), Path(workspace["root_path"]).resolve())
-            self.assertTrue(str(workspace["branch_name"]).startswith("janus/"))
+        self.assertEqual(first_workspace["root_path"], second_workspace["root_path"])
+        self.assertEqual(self.repo.resolve(), Path(first_workspace["root_path"]).resolve())
+        self.assertEqual(first_workspace["branch_name"], second_workspace["branch_name"])
 
         for task_id in (self.task_id, second["id"]):
             started = self.client.post(
@@ -511,14 +496,12 @@ class VerificationApiTests(unittest.TestCase):
         second_changes = self.client.get(
             f"/tasks/{second['id']}/changeset", headers=self.headers
         ).json()
-        # 각 Task는 자기 worktree의 변경만 본다 — 공유 체크아웃일 때는 서로의 것까지 봤다.
+        expected = {"first-only.txt", "second-only.txt"}
         self.assertEqual(
-            {"first-only.txt"},
-            {item["path"] for item in first_changes["sections"]["untracked"]},
+            expected, {item["path"] for item in first_changes["sections"]["untracked"]}
         )
         self.assertEqual(
-            {"second-only.txt"},
-            {item["path"] for item in second_changes["sections"]["untracked"]},
+            expected, {item["path"] for item in second_changes["sections"]["untracked"]}
         )
 
 
