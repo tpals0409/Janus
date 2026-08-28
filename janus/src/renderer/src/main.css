@@ -34,10 +34,6 @@
   --color-node-tool: #7796ad;
   --color-node-agent: #f0f1f1;
   --color-node-end: #83a995;
-
-  /* select 전용 chevron — lucide ChevronDown과 같은 path라 아이콘 세트와 어긋나지
-     않는다. 네이티브 select 화살표를 끄는 곳마다 이걸 쓴다. */
-  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23686d71' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 }
 
 /* 색의 원본은 위 @theme(--color-*) 하나다. 아래 별칭들은 값이 아니라
@@ -336,17 +332,6 @@ button {
 
 .ui-input:disabled {
   color: var(--text-disabled);
-}
-
-/* 네이티브 select 크롬(맥 시스템 버튼·이중 화살표)은 이 앱의 평면 UI와 어긋난다.
-   공유 프리미티브에서 한 번 끄면 모든 select가 같은 모양을 갖는다. */
-.ui-select {
-  appearance: none;
-  cursor: pointer;
-  padding-right: 28px;
-  background-image: var(--select-chevron);
-  background-repeat: no-repeat;
-  background-position: right 9px center;
 }
 
 .ui-textarea {
@@ -1810,6 +1795,8 @@ button {
   text-overflow: ellipsis;
 }
 
+.ui-listbox__value--placeholder { color: var(--text-muted); }
+
 .ui-listbox__list {
   position: fixed;
   z-index: 60;
@@ -3046,7 +3033,7 @@ textarea:focus-visible {
   margin-bottom: 10px;
 }
 
-.eval-compare__controls .ui-select {
+.eval-compare__controls .ui-listbox {
   max-width: 220px;
 }
 

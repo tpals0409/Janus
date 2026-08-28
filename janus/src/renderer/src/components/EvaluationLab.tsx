@@ -2,8 +2,8 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { Download, Play, Square } from 'lucide-react'
 import { JANUS_BASE, apiFetch, errorMessage, janusApi } from '../api'
 import { useDomainEvent } from '../domainEvents'
-import { useStore } from '../store'
-import { Button, Dialog, EmptyState, Field, Input, SegmentedControl, Select, Status, StatusTone } from './ui'
+import { useAgentProfileOptions, useStore } from '../store'
+import { Button, Dialog, EmptyState, Field, Input, Listbox, SegmentedControl, Status, StatusTone } from './ui'
 
 interface EvaluationRun {
   acceptance_passed: boolean
@@ -82,6 +82,7 @@ async function downloadComparison(comparisonId: string, format: 'json' | 'csv' |
 
 export default function EvaluationLab() {
   const profiles = useStore((state) => state.agentProfiles)
+  const profileOptions = useAgentProfileOptions()
   const [experiments, setExperiments] = useState<Experiment[]>([])
   const [comparisons, setComparisons] = useState<Comparison[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -233,14 +234,20 @@ export default function EvaluationLab() {
           <div className="eval-compare">
             <h3>비교</h3>
             <div className="eval-compare__controls">
-              <Select value={baselineId} onChange={(event) => setBaselineId(event.target.value)} aria-label="baseline 선택">
-                <option value="">baseline 선택</option>
-                {baselines.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-              </Select>
-              <Select value={candidateId} onChange={(event) => setCandidateId(event.target.value)} aria-label="candidate 선택">
-                <option value="">candidate 선택</option>
-                {candidates.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-              </Select>
+              <Listbox
+                label="baseline 선택"
+                placeholder="baseline 선택"
+                value={baselineId}
+                options={baselines.map((item) => ({ value: item.id, label: item.label }))}
+                onChange={setBaselineId}
+              />
+              <Listbox
+                label="candidate 선택"
+                placeholder="candidate 선택"
+                value={candidateId}
+                options={candidates.map((item) => ({ value: item.id, label: item.label }))}
+                onChange={setCandidateId}
+              />
               <Button variant="secondary" disabled={!baselineId || !candidateId || busy} onClick={() => void compare()}>
                 비교 실행
               </Button>
@@ -321,9 +328,12 @@ export default function EvaluationLab() {
             />
           </Field>
           <Field label="에이전트 프로필">
-            <Select value={profileId || profiles[0]?.id || ''} onChange={(event) => setProfileId(event.target.value)}>
-              {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
-            </Select>
+            <Listbox
+              label="에이전트 프로필"
+              value={profileId || profiles[0]?.id || ''}
+              options={profileOptions}
+              onChange={setProfileId}
+            />
           </Field>
           <Field label="반복 횟수" help="비워두면 TaskSuite 기본값을 사용합니다.">
             <Input

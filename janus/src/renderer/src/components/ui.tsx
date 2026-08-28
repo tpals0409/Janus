@@ -4,7 +4,6 @@ import type {
   InputHTMLAttributes,
   KeyboardEvent as ReactKeyboardEvent,
   ReactNode,
-  SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from 'react'
 import { useEffect, useId, useRef, useState } from 'react'
@@ -190,10 +189,6 @@ export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElem
   return <input className={cx('ui-input', className)} {...props} />
 }
 
-export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select className={cx('ui-input', 'ui-select', className)} {...props} />
-}
-
 export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return <textarea className={cx('ui-input', 'ui-textarea', className)} {...props} />
 }
@@ -220,6 +215,7 @@ export function Listbox<T extends string>({
   options,
   onChange,
   label,
+  placeholder,
   placement = 'auto',
   compact = false,
   disabled = false,
@@ -230,6 +226,8 @@ export function Listbox<T extends string>({
   options: readonly ListboxOption<T>[]
   onChange: (value: T) => void
   label: string
+  /** 아직 아무것도 고르지 않았을 때 트리거에 보일 문구 */
+  placeholder?: string
   placement?: 'auto' | 'top' | 'bottom'
   compact?: boolean
   disabled?: boolean
@@ -333,7 +331,9 @@ export function Listbox<T extends string>({
         onClick={() => (open ? setOpen(false) : openList())}
         onKeyDown={onKeyDown}
       >
-        <span className="ui-listbox__value">{selected?.label ?? ''}</span>
+        <span className={cx('ui-listbox__value', !selected && 'ui-listbox__value--placeholder')}>
+          {selected?.label ?? placeholder ?? ''}
+        </span>
         <ChevronDown size={compact ? 11 : 13} strokeWidth={1.75} aria-hidden="true" />
       </button>
       {open && box && createPortal(

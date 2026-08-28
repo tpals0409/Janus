@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import type { SkillActivationMode, SkillSummary } from '../types'
 import { useStore } from '../store'
-import { Button, Dialog, EmptyState, IconButton, Input, Section, Select, Status } from './ui'
+import { Button, Dialog, EmptyState, IconButton, Input, Listbox, Section, Status } from './ui'
 
 const compatibilityLabel = {
   native: '네이티브',
@@ -232,16 +232,18 @@ export default function SkillLibrary() {
                         </div>
                         <p className="mt-0.5 truncate text-[10.5px] text-faint">{skill.description || '설명 없음'}</p>
                       </button>
-                      <Select
+                      <Listbox
+                        label={`${skill.name} 호출 방식`}
                         value={active ? mode : 'auto'}
-                        onChange={(event) => updateMode(skill, event.target.value as SkillActivationMode)}
+                        options={[
+                          { value: 'auto', label: '자동' },
+                          { value: 'manual', label: '수동' }
+                        ]}
+                        onChange={(next) => updateMode(skill, next as SkillActivationMode)}
                         disabled={!active || busy || skill.compatibility === 'blocked' || skill.compatibility === 'adapter_required'}
-                        aria-label={`${skill.name} 호출 방식`}
-                        className="h-7 min-h-7 w-16 py-0 text-[10px]"
-                      >
-                        <option value="auto">자동</option>
-                        <option value="manual">수동</option>
-                      </Select>
+                        compact
+                        className="w-20 text-[10px]"
+                      />
                     </div>
                   )
                 })}

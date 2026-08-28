@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import { Button, ConfirmDialog, EmptyState, Status, Tabs } from './ui'
+import { Button, ConfirmDialog, EmptyState, Listbox, Status, Tabs } from './ui'
 
 describe('Janus UI primitives', () => {
   it('uses explicit button types so controls do not submit forms accidentally', () => {
@@ -60,5 +60,56 @@ describe('Janus UI primitives', () => {
     render(<EmptyState title="스킬 없음" description="GitHub URL을 입력하세요." />)
     expect(screen.getByText('스킬 없음')).toBeVisible()
     expect(screen.getByText('GitHub URL을 입력하세요.')).toBeVisible()
+  })
+
+  const OPTIONS = [
+    { value: 'a', label: '자동' },
+    { value: 'b', label: '수동', hint: '구독' },
+  ] as const
+
+  it('shows the placeholder until a value matches an option', async () => {
+    const user = userEvent.setup()
+    function Harness() {
+      const [value, setValue] = useState('')
+      return <Listbox label="호출 방식" placeholder="선택하세요" value={value} options={OPTIONS} onChange={setValue} />
+    }
+    render(<Harness />)
+    const trigger = screen.getByRole('combobox', { name: '호출 방식' })
+    expect(trigger).toHaveTextContent('선택하세요')
+    await user.click(trigger)
+    await user.click(screen.getByRole('option', { name: /수동/ }))
+    expect(trigger).toHaveTextContent('수동')
+    expect(screen.queryByText('선택하세요')).toBeNull()
+  })
+
+  it('marks only the chosen option as selected and closes on outside click', async () => {
+    const user = userEvent.setup()
+    render(<Listbox label="호출 방식" value="a" options={OPTIONS} onChange={vi.fn()} />)
+    await user.click(screen.getByRole('combobox', { name: '호출 방식' }))
+    expect(screen.getByRole('option', { name: /자동/ })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('option', { name: /수동/ })).toHaveAttribute('aria-selected', 'false')
+    await user.click(document.body)
+    expect(screen.queryByRole('listbox')).toBeNull()
+  })
+
+  it('does not select a disabled option and skips it with the keyboard', async () => {
+    const change = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <Listbox
+        label="모델"
+        value="a"
+        options={[
+          { value: 'a', label: '첫째' },
+          { value: 'b', label: '둘째', disabled: true },
+          { value: 'c', label: '셋째' },
+        ]}
+        onChange={change}
+      />
+    )
+    const trigger = screen.getByRole('combobox', { name: '모델' })
+    trigger.focus()
+    await user.keyboard('{ArrowDown}{ArrowDown}{Enter}')  // 둘째를 건너뛰고 셋째
+    expect(change).toHaveBeenCalledWith('c')
   })
 })
