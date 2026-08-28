@@ -978,3 +978,80 @@ QA 안전 기준 준수: janus-qa-fixture 격리 worktree, 모든 승인 자동 
 - 테스트: pytest 302·renderer 57·main 38·tsc·check:bundle·check:notices·audit 통과.
 - 백로그: check-bundle-size가 "development surface" 예산으로 26K 청크를 재고 있다.
   Monaco 4.9MB는 register-*.js에 있어 아무 예산도 지키지 않는다.
+
+## 2026-08-28 — v1.0.30 릴리스
+
+오픈소스 배포 P3·P4 완료. 세 PR이 이 판을 만든다.
+
+### macOS CI와 커뮤니티 파일 (#50)
+
+CI가 Ubuntu 전용이라 **Mac에서만 깨질 수 있는 셋**이 어디서도 검증되지 않았다.
+`macos-15` 잡을 붙였다(공개 저장소라 러너 시간 무료, 57초):
+
+- `bootstrap_macos.sh --check-only` — 새 사용자가 가장 먼저 치는 명령
+- `uv sync --project qwen3.8mlx --locked` — mlx 휠은 Apple Silicon 전용이다.
+  로그에서 `mlx-metal==0.32.1` 설치 확인.
+- `pnpm package:mac` 후 번들 검사 — app.asar·LICENSE·THIRD-PARTY-NOTICES.md·
+  janus_server/server.py·qwen3.8mlx/pyproject.toml. 고지가 빠지면 라이선스 위반이고
+  백엔드가 빠지면 기동도 못 하는 앱이 그대로 나간다.
+
+모델 서버 자체는 여전히 미검증이다(17GB 가중치 필요). README·CONTRIBUTING의
+"packaging은 개발자 Mac에서만 검증된다"가 거짓이 됐으므로 정정하고,
+`test_ci_platform_claims_match_the_workflow`가 워크플로와 문장을 묶었다.
+
+이슈 폼은 **어느 실행 경로인지**를 필수로 묻는다 — 로컬/claude/codex는 서로 다른
+코드베이스라 잘못 짚으면 트리아지가 반대쪽으로 간다. PR 템플릿·Contributor
+Covenant 2.1·dependabot(매니페스트 4개, 그룹 묶음)도 함께.
+
+### 한 트리 두 Task, 그리고 도착한 모델 (#57)
+
+둘 다 v1.0.28에서 worktree 격리를 걷어낸 뒤 남은 구멍이다.
+
+- **동시 실행 차단.** 같은 프로젝트의 Task 둘은 작업 트리 하나를 공유한다. 동시에
+  돌면 서로의 편집 위에 커밋한다. 화면 경고로는 못 막아서 `create_execution`의
+  immediate 트랜잭션에서 거절한다 — 경합 없이 판단할 수 있는 유일한 지점이다.
+  막은 Task를 이름으로 알려주고, 멈추면 바로 풀린다.
+- **다운로드가 끝나도 모델이 안 떴다.** "미검증"이 아니라 실제로 깨져 있었다.
+  mlx launch spec은 앱 시작 때 한 번만 계산되므로, 그때 모델이 없었으면 spec이
+  `exit 78` 스텁이고 supervisor는 17GB를 다 받은 뒤에도 그 스텁만 30초마다 영원히
+  다시 돌렸다. 스폰 직전에 디스크를 다시 본다 — 이벤트가 아니라 supervisor에서
+  보므로 터미널에서 `hf download`로 받은 경우도 같이 낫는다.
+
+`test_two_tasks_share_the_project_checkout`이 두 세션 동시 시작을 정상으로 단언하고
+있었다. 공유 사실은 두고 동시 실행 단언만 가드 단언으로 바꿨다.
+
+### 구독형 건별 승인 (#58)
+
+범위 제한은 CLI가 **무엇을** 만질 수 있는지만 정했다. "이 파일을 고쳐도 됩니까?"는
+묻지 못했다 — headless에 UI가 없어서가 아니라, 답할 상대가 Janus인데 CLI가 Janus에게
+물을 통로가 없어서였다. 만들기 전에 실측으로 세 가지를 확인했다:
+
+- 원시 CLI는 `--permission-mode manual`에서 우리에게 묻지 않고 그냥 거부한다 —
+  control protocol 경로는 죽은 길.
+- 손으로 만든 60줄 HTTP MCP 서버에 `--restricted --strict-mcp-config`로 붙는다.
+- MCP 도구 호출은 사람이 답할 때까지 기다린다(75초 지연으로 확인).
+
+그래서 위험 도구 4종(`write_file`·`edit_file`·`run_bash`·`http_get`)은 CLI 내장
+대응물을 **아예 주지 않고** Janus 도구를 MCP로 내준다. 세션 도구 목록이
+`['Glob','Grep','Read','mcp__janus__edit_file','mcp__janus__write_file']` — Write도
+Edit도 Bash도 없으니 우회로가 없고, 쓰기는 반드시 `tools.dispatch`를 거쳐 로컬
+경로와 **같은** 승인 콜백·같은 UI를 탄다. 진짜 claude 바이너리로 승인·거부 양쪽을
+돌렸다: 거부하면 파일이 생기지 않고 모델이 사실대로 보고하며 턴이 `input_required`로
+정착한다. `MCP_TOOL_TIMEOUT`을 `APPROVAL_TIMEOUT`보다 길게 잡아 Janus가 먼저 정착한다.
+
+프로토콜은 손으로 구현했다 — 메서드가 셋뿐이라 SDK 의존성을 새로 들일 이유가 없다.
+스키마와 설명은 Janus 레지스트리가 단일 출처다.
+
+**codex는 붙이지 않았다.** streamable HTTP MCP를 지원하지만 인증이 bearer라
+`x-janus-token` 경로와 맞지 않는다. 검증 안 된 배선을 붙이느니 범위 제한만 걸린
+상태를 PRODUCT.md 경계 표와 SECURITY.md에서 두 프로바이더로 갈라 적었다.
+
+### 검증
+
+pytest 310·renderer 57·main 38·tsc·check:bundle·check:notices·audit, macOS 잡 포함
+CI 3잡 통과.
+
+### 백로그
+
+check-bundle-size가 "development surface" 예산으로 26K 청크를 재고 있다.
+Monaco 4.9MB는 register-*.js에 있어 아무 예산도 지키지 않는다.
