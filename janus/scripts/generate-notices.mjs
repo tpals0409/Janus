@@ -20,6 +20,19 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const OUTPUT = join(ROOT, 'THIRD-PARTY-NOTICES.md')
 const LICENSE_FILES = /^(LICENSE|LICENCE|COPYING|NOTICE)(\.(md|txt))?$/i
 
+/** 직접 의존성 지문 — 플랫폼과 무관하다.
+ *
+ *  전체 렌더 결과를 비교하면 CI(Linux)와 빌드 머신(macOS)이 영원히 불일치한다.
+ *  `pnpm licenses list`가 플랫폼별 바이너리 패키지(@esbuild/*, fsevents 등)를
+ *  다르게 내기 때문이다. 잡으려는 실패는 "의존성을 바꾸고 고지를 안 만들었다"이므로
+ *  직접 의존성 목록만 비교하면 충분하고, 어디서 돌려도 같은 답이 나온다.
+ */
+function fingerprint() {
+  const manifest = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf-8'))
+  const all = { ...manifest.dependencies, ...manifest.devDependencies }
+  return Object.keys(all).sort().map((name) => `${name}@${all[name]}`).join('\n')
+}
+
 /** 패키지 디렉터리에서 라이선스 전문을 찾는다. 없으면 null — 식별자만 싣는다. */
 function licenseText(packageDir) {
   if (!packageDir || !existsSync(packageDir)) return null
@@ -69,7 +82,10 @@ function render(packages) {
     return `${head}\n\`\`\`text\n${item.text}\n\`\`\`\n`
   }).join('\n')
 
-  return `# Third-party notices
+  return `<!-- direct-dependencies:
+${fingerprint()}
+-->
+# Third-party notices
 
 Janus bundles its JavaScript dependencies into the shipped application, so the
 notices below travel with the binary. This lists **every package in the
@@ -96,15 +112,24 @@ ${bodies}`
 const packages = collect()
 const rendered = render(packages)
 
+function recordedFingerprint(text) {
+  const match = text.match(/<!-- direct-dependencies:\n([\s\S]*?)\n-->/)
+  return match ? match[1] : null
+}
+
 if (process.argv.includes('--check')) {
-  const current = existsSync(OUTPUT) ? readFileSync(OUTPUT, 'utf-8') : ''
-  if (current !== rendered) {
+  if (!existsSync(OUTPUT)) {
+    console.error('THIRD-PARTY-NOTICES.md is missing. Run: pnpm notices')
+    process.exit(1)
+  }
+  const current = readFileSync(OUTPUT, 'utf-8')
+  if (recordedFingerprint(current) !== fingerprint()) {
     console.error(
-      'THIRD-PARTY-NOTICES.md is stale. Run: node scripts/generate-notices.mjs'
+      'THIRD-PARTY-NOTICES.md does not match package.json. Run: pnpm notices'
     )
     process.exit(1)
   }
-  console.log(`third-party notices up to date (${packages.length} packages)`)
+  console.log('third-party notices match the declared dependencies')
 } else {
   writeFileSync(OUTPUT, rendered)
   console.log(`wrote ${OUTPUT} (${packages.length} packages)`)
