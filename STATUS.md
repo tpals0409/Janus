@@ -868,3 +868,27 @@ QA 안전 기준 준수: janus-qa-fixture 격리 worktree, 모든 승인 자동 
   로컬/구독 힌트를 갖는다.
 - 테스트: renderer 41건(Listbox placeholder·aria-selected·disabled 건너뛰기 3건
   추가)·main 31건·tsc 통과.
+
+## 2026-08-28 — v1.0.26 릴리스
+
+- 로컬 모델 셋업을 앱 안으로 옮겼다(b2dd79c). 오픈소스 배포 실사에서 가장 약한
+  지점이 라이선스가 아니라 신규 사용자의 첫 10분으로 나왔다 — 모델이 없으면
+  타이틀바는 "모델 로딩"으로 영원히 돌고 위임 버튼은 무반응이었으며, "모델이
+  없습니다"라는 문장은 툴팁 하나와 로그 파일에만 있었다.
+- 근본 원인은 탐지가 실행에 붙어 있던 것. buildMlxLaunchSpec이 유일한 탐지기라
+  프로세스를 띄워 exit 78로 죽여야 알 수 있었고, 그 78은 어느 실패 버킷에도
+  안 걸려 재시작 루프로 갔다. probeModel()로 분리하고 safetensors index 대조를
+  넣어 반쯤 받다 만 스냅샷을 "이어받기"로 구분한다.
+- 다운로드 잡은 janus_server에 — workspaces.py의 잡 계약과 EventBus 토픽 재사용.
+  진행률은 hf stdout 대신 캐시 디렉터리 크기로 잰다(hf에 스트리밍 진행률 포맷이
+  없다). 디스크 여유 선점검, 프로세스 그룹 취소, 재개는 huggingface_hub가 해준다.
+- HF 캐시 루트를 Electron이 단독 결정해 env로 내려보낸다. 양쪽이 따로 계산해
+  HF_HOME 사용자에게 "다운로드는 됐는데 앱은 없다고 한다"가 생기던 버그 해소.
+- 기본 모델을 정규 mlx-community/Qwen3.8-27B-4bit으로 바꾸고 uncensored 변형은
+  고급 항목으로 내렸다. Apache-2.0이지만 모델 카드가 연구용으로 한정하고
+  모더레이션 계층 없는 최종 사용자 배포를 범위 밖으로 명시한다. 기존 사용자는
+  설치된 모델을 감지해 고정하므로 17GB를 다시 받지 않는다.
+- 곁다리: restartService가 pid==null이면 죽은 서비스를 못 살리던 문제(다운로드
+  직후가 그 상태), mlxLoading이 disabled까지 세던 문제.
+- 테스트: pytest 271·renderer 51·main 38·tsc 통과. 실기기에서 기존 설치 감지와
+  JANUS_LOCAL_MODEL_PATH 전달, mlx 기동 확인.
