@@ -13,7 +13,7 @@
     "workspace_execution": "sequential because tools.WORKSPACE is process-global",
     "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
     "python": "3.13.12 (main, Mar 20 2026, 00:20:47) [Clang 22.1.1 ]",
-    "model_path": "/Users/kimsemin/.cache/huggingface/hub/models--orcarouter--Qwen3.8-27B-Uncensored-MLX/snapshots/b4603df5fd2a51e7fed2560ee7090caa4e13e4b7/4-bit",
+    "model_path": "hf:orcarouter/Qwen3.8-27B-Uncensored-MLX@b4603df5/4-bit",
     "repeats": 5,
     "policies": [
       "none",

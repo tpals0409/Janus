@@ -12,27 +12,26 @@ out/
 /janus_server/janus_server/workspace/
 # 실행 기록 — 로컬 산출물, 커밋 안 함
 /janus_server/janus_server/runs/
-# R3 TaskSuite의 실행별 workspace/trace는 로컬 진단용이다. 공개 저장소에는 집계만 둔다.
-/janus_server/artifacts/r3/**/runs/
-# 오케스트레이션 실모델 E2E 원본(체크포인트·모델 응답)은 로컬 진단용이다.
-/janus_server/artifacts/orchestration/runs/
-/janus_server/artifacts/p0/smoke/
-/janus_server/artifacts/orchestration-airgap.zip
-# P2 회귀 수정 과정의 중단된 실행과 단계별 smoke 원본은 로컬 진단용이다.
-# 재현 가능한 요약은 P2_INTERMEDIATE_ARTIFACTS.md, 최종 근거는 fixed-one-v2에 둔다.
-/janus_server/artifacts/r3/tasksuite/20260822-p2-final/
-/janus_server/artifacts/r3/tasksuite/20260822-p2-final-fixed-one/
-/janus_server/artifacts/r3/tasksuite/20260822-p2-final-v2/
-/janus_server/artifacts/r3/tasksuite/20260822-p2-multi-one-step-scout-smoke/
-/janus_server/artifacts/r3/tasksuite/20260822-p2-multi-scout-enforced-smoke/
-/janus_server/artifacts/r3/tasksuite/20260822-p2-multi-scout-handoff-smoke/
-/janus_server/artifacts/r3/tasksuite/20260822-p2-single-slot-scout-repeat/
-/janus_server/artifacts/r3/tasksuite/20260822-p2-single-slot-scout-smoke/
-/janus_server/artifacts/r3/tasksuite/20260822-p2-worker-finish-smoke/
-/janus_server/artifacts/r3/tasksuite/20260822-p2-worker-fix/
-/janus_server/artifacts/r3/tasksuite/20260822-p2-worker-integration-smoke/
-/janus_server/artifacts/r3/tasksuite/20260822-p2-worker-reserve-smoke/
+# 벤치마크 산출물은 로컬 진단용이다. v1 감사(scripts/audit_v1.py)가 실제로 읽는
+# 4개만 추적한다 — 한때 이 디렉터리가 추적 파일의 46%(216/446)를 차지했고 그중
+# 54개에 개인 홈 경로가 박혀 있었다. 새 실행이 그 상태로 되돌아가지 않게 한다.
+/janus_server/artifacts/**
+!/janus_server/artifacts/p0/
+!/janus_server/artifacts/p0/smoke/
+!/janus_server/artifacts/p0/smoke/20260822-125259/
+!/janus_server/artifacts/p0/smoke/20260822-125259/result.json
+!/janus_server/artifacts/p0/tasksuite/
+!/janus_server/artifacts/p0/tasksuite/20260822-115844/
+!/janus_server/artifacts/p0/tasksuite/20260822-115844/result.json
+!/janus_server/artifacts/r3/
+!/janus_server/artifacts/r3/tasksuite/
+!/janus_server/artifacts/r3/tasksuite/20260822-183500/
+!/janus_server/artifacts/r3/tasksuite/20260822-183500/result.json
+!/janus_server/artifacts/r3/tasksuite/20260822-p2-final-fixed-one-v2/
+!/janus_server/artifacts/r3/tasksuite/20260822-p2-final-fixed-one-v2/result.json
 /.serena/
+# 로컬 에이전트 도구 상태 — 기여자 머신마다 다르다.
+/.claude/
 # QA용 일회성 저장소 — 자체 git 저장소이고 버려도 되는 산출물이다.
 /janus-qa-fixture/
 

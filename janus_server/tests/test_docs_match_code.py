@@ -158,6 +158,30 @@ class OpenSourceRequirements(unittest.TestCase):
         for gap in ("run_bash", "not path-jailed", "Tasks are not isolated"):
             self.assertIn(gap, text, gap)
 
+    def test_tracked_artifacts_stay_minimal(self):
+        """벤치마크 산출물이 추적 파일의 46%를 차지하고 개인 경로 54개를 싣고 있었다.
+
+        v1 감사가 실제로 읽는 것만 추적한다. audit_v1.py가 새 파일을 읽기 시작하면
+        이 목록도 같이 늘려야 한다 — 조용히 되돌아가지 않게.
+        """
+        import subprocess
+
+        tracked = subprocess.run(
+            ["git", "ls-files", "janus_server/artifacts"],
+            cwd=ROOT, capture_output=True, text=True, check=True,
+        ).stdout.split()
+        audit = (ROOT / "scripts/audit_v1.py").read_text(encoding="utf-8")
+        required = set(re.findall(r'"(janus_server/artifacts/[^"]+)"', audit))
+        self.assertEqual(
+            required, set(tracked),
+            "추적 중인 artifacts가 v1 감사가 읽는 집합과 다르다",
+        )
+        for name in tracked:
+            self.assertNotIn(
+                "/Users/", (ROOT / name).read_text(encoding="utf-8"),
+                f"{name}에 로컬 경로가 남아 있다",
+            )
+
     def test_no_personal_paths_in_tracked_source(self):
         """남의 홈 경로를 glob하면 clone한 사람에게서 실패한다.
 

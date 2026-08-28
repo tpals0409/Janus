@@ -1,4 +1,0 @@
-task_id,policy,runs,acceptance_successes,policy_conformant_runs,wall_mean_ms,wall_stdev_ms,prompt_tokens_mean,completion_tokens_mean,approval_requests_mean,worker_count_mean,queue_ms_mean,saved_token_estimate_mean,spawn_suppressions
-investigate_code_tests,fixed_one,5,4,5,106337.362,7909.653,9619.2,1056,2,1,0.425,0,1
-multi_file_refactor,fixed_one,5,5,5,93637.69,3219.46,13836,758.2,2,1,0.403,0,0
-single_file_bug,fixed_one,5,5,5,64457.614,1036.239,9524,518,1,1,0.269,0,0
