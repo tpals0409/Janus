@@ -105,20 +105,22 @@ class WorkspaceApiTests(unittest.TestCase):
         self.assertEqual(self.main_head, git(self.repo, "rev-parse", "HEAD").stdout.strip())
         self.assertEqual("", git(self.repo, "status", "--porcelain").stdout.strip())
 
-    def test_deleting_a_task_preserves_the_project_checkout(self):
+    def test_deleting_a_task_reclaims_only_a_clean_worktree(self):
+        """깨끗하면 회수하고, 변경이 남아 있으면 보존한다.
+
+        회수 여부와 무관하게 사용자의 체크아웃은 건드리지 않는다.
+        """
         task = self.create_task()
         self.client.post(f"/tasks/{task['id']}/workspace/prepare", headers=self.headers)
         ready = self.wait_workspace(task["id"], "ready")
         root = Path(ready["root_path"])
-        branch = ready["branch_name"]
-        self.assertTrue(root.is_dir())
+        self.assertNotEqual(self.repo.resolve(), root.resolve())
+        self.assertTrue(str(ready["branch_name"]).startswith("janus/"))
 
         deleted = self.client.delete(f"/tasks/{task['id']}", headers=self.headers)
         self.assertEqual(200, deleted.status_code, deleted.text)
         self.assertIsNotNone(deleted.json()["archived_at"])
-        self.assertEqual(self.repo.resolve(), root.resolve())
-        self.assertTrue(root.exists())
-        self.assertEqual("main", branch)
+        self.assertFalse(root.exists(), "깨끗한 worktree는 회수된다")
         self.assert_main_unchanged()
 
     def test_uncommitted_work_survives_a_task_delete(self):
@@ -134,7 +136,12 @@ class WorkspaceApiTests(unittest.TestCase):
         self.assertIsNotNone(deleted.json()["archived_at"])
         self.assertTrue((root / "wip.txt").is_file())
 
-    def test_real_prepare_uses_project_checkout_and_blocks_removal(self):
+    def test_real_prepare_creates_an_isolated_worktree(self):
+        """Task는 사용자의 체크아웃이 아니라 Janus 소유 worktree를 받는다.
+
+        0d53440이 이 배선을 끊어 에이전트가 사용자의 실제 저장소·실제 브랜치에서
+        작업했고, 그동안 앱은 화면에서 그 반대를 약속하고 있었다.
+        """
         task = self.create_task()
         response = self.client.post(
             f"/tasks/{task['id']}/workspace/prepare", headers=self.headers
@@ -143,21 +150,31 @@ class WorkspaceApiTests(unittest.TestCase):
         ready = self.wait_workspace(task["id"], "ready")
         self.assertEqual("ready", ready["progress"])
         root = Path(ready["root_path"])
-        self.assertEqual(self.repo.resolve(), root.resolve())
-        self.assertFalse(ready["owned"])
+        self.assertNotEqual(self.repo.resolve(), root.resolve())
+        self.assertTrue(ready["owned"])
+        self.assertTrue(
+            str(ready["branch_name"]).startswith("janus/"), ready["branch_name"]
+        )
         self.assert_main_unchanged()
 
         status = self.client.get(
             f"/tasks/{task['id']}/workspace/status", headers=self.headers
         ).json()
         self.assertFalse(status["git_status"]["dirty"])
-        denied = self.client.post(
+        # 소유한 worktree는 archive로 회수할 수 있다.
+        archived = self.client.post(
             f"/tasks/{task['id']}/workspace/archive", headers=self.headers,
             json={"confirm_workspace_id": ready["id"]},
         )
-        self.assertEqual(409, denied.status_code)
-        self.assertIn("소유하지 않은", denied.json()["detail"])
-        self.assertTrue(root.exists())
+        self.assertEqual(200, archived.status_code, archived.text)
+        self.assert_main_unchanged()
+
+    def test_agent_writes_never_touch_the_users_checkout(self):
+        """격리의 실제 목적 — worktree 안 변경이 사용자 작업 트리에 새지 않는다."""
+        task = self.create_task()
+        self.client.post(f"/tasks/{task['id']}/workspace/prepare", headers=self.headers)
+        ready = self.wait_workspace(task["id"], "ready")
+        (Path(ready["root_path"]) / "agent-wrote-this.txt").write_text("x", encoding="utf-8")
         self.assert_main_unchanged()
 
     def test_failure_can_retry_after_base_ref_is_corrected(self):
@@ -181,12 +198,13 @@ class WorkspaceApiTests(unittest.TestCase):
         ready = self.wait_workspace(task["id"], "ready")
         self.assertEqual("main", ready["base_ref"])
 
+        # 소유한 worktree는 회수할 수 있고, 그래도 사용자 체크아웃은 그대로다.
         removed = self.client.request(
             "DELETE", f"/tasks/{task['id']}/workspace/force",
             headers=self.headers, json={"confirm_workspace_id": ready["id"]},
         )
-        self.assertEqual(409, removed.status_code, removed.text)
-        self.assertIn("소유하지 않은", removed.json()["detail"])
+        self.assertEqual(200, removed.status_code, removed.text)
+        self.assertTrue(removed.json()["result"]["removed"])
         self.assert_main_unchanged()
 
     def test_prepare_returns_while_background_job_is_still_running(self):
@@ -194,15 +212,15 @@ class WorkspaceApiTests(unittest.TestCase):
         started = threading.Event()
         release = threading.Event()
 
+        real = shared.get_workspace_service()
+
         class BlockingService:
-            def validate_repo(_self, repo_path, base_ref):
+            def prepare(_self, *, progress=None, **kwargs):
+                if progress is not None:
+                    progress("validating", {})
                 started.set()
                 release.wait(timeout=5)
-                return {
-                    "repo_path": str(self.repo),
-                    "base_ref": base_ref,
-                    "commit": self.main_head,
-                }
+                return real.prepare(progress=progress, **kwargs)
 
         with patch.object(workspaces, "get_workspace_service", return_value=BlockingService()):
             response = self.client.post(
@@ -240,10 +258,12 @@ class WorkspaceApiTests(unittest.TestCase):
             f"/tasks/{task['id']}/changeset", headers=self.headers
         )
         self.assertEqual(2, second.json()["counts"]["untracked"])
+        # ChangeSet은 worktree에서 파생된다 — 사용자의 체크아웃에는 아무것도 안 보인다.
         self.assertEqual(
             {"first.txt", "second.txt"},
-            set(git(self.repo, "ls-files", "--others", "--exclude-standard").stdout.splitlines()),
+            set(git(root, "ls-files", "--others", "--exclude-standard").stdout.splitlines()),
         )
+        self.assert_main_unchanged()
 
 
 if __name__ == "__main__":
