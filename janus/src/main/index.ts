@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, session as electronSession, shell } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
 import { randomBytes } from 'crypto'
-import { createWriteStream, mkdirSync } from 'fs'
+import { createWriteStream, existsSync, mkdirSync } from 'fs'
 import net from 'net'
 import { homedir } from 'os'
 import { join } from 'path'
@@ -27,7 +27,7 @@ import {
   loadRuntimeSettings, saveRuntimeSettings, type RuntimeSettings
 } from './runtime-settings'
 import {
-  buildMlxLaunchSpec, observeMtpOutput, type MtpPolicy
+  LOCAL_MODELS, buildMlxLaunchSpec, observeMtpOutput, probeModel, type MtpPolicy
 } from './model-runtime'
 
 // ─────────────────────────── 백엔드 소유 ───────────────────────────
@@ -64,6 +64,18 @@ type ServiceLabel = 'server' | 'mlx'
 
 const runtimeSettingsFile = join(app.getPath('userData'), 'runtime-settings.json')
 let runtimeSettings = loadRuntimeSettings(runtimeSettingsFile)
+// modelId 이전 버전에는 이 키가 없다. 기본값이 정규 모델로 바뀌었으므로, 그때 쓰던
+// 모델만 받아 둔 사용자는 갑자기 "모델 없음"이 된다 — 있는 걸 계속 쓰게 한다.
+if (!existsSync(runtimeSettingsFile)) {
+  const installed = LOCAL_MODELS.find(
+    (entry) => probeModel(homedir(), entry.id).model.present
+  )
+  if (installed && installed.id !== runtimeSettings.modelId) {
+    runtimeSettings = saveRuntimeSettings(runtimeSettingsFile, {
+      ...runtimeSettings, modelId: installed.id
+    })
+  }
+}
 // 환경변수가 있으면 설정 파일보다 우선한다 — 운영 오버라이드 통로를 유지.
 const envMtpPolicy = process.env.JANUS_MTP_POLICY
 const mtpPolicyLocked = envMtpPolicy === 'required' || envMtpPolicy === 'preferred' || envMtpPolicy === 'off'
@@ -79,7 +91,21 @@ function effectiveApc(): boolean {
   return apcLocked ? process.env.JANUS_APC !== '0' : runtimeSettings.apc
 }
 let mtpPolicy: MtpPolicy = effectiveMtpPolicy()
-let mlxLaunch = buildMlxLaunchSpec(homedir(), mtpPolicy, effectiveApc())
+let mlxLaunch = buildMlxLaunchSpec(homedir(), mtpPolicy, effectiveApc(), runtimeSettings.modelId)
+
+// 백엔드가 모델을 내려받고 경로를 해석할 때 쓰는 값들. 캐시 루트와 모델 경로를 여기서
+// 한 번만 정해 내려보내야 HF_HOME을 쓰는 사용자에게 "다운로드는 됐는데 앱은 없다고 한다"가
+// 생기지 않는다. runtimePaths는 Electron에만 있으므로 다운로드용 cwd/env도 함께 넘긴다.
+function modelEnv(): NodeJS.ProcessEnv {
+  const probe = probeModel(homedir(), runtimeSettings.modelId)
+  return {
+    JANUS_HF_HUB_ROOT: probe.hubRoot,
+    JANUS_MODEL_RUNTIME_ROOT: runtimePaths.modelRuntimeRoot,
+    JANUS_MODEL_ENVIRONMENT: runtimePaths.modelEnvironment,
+    JANUS_LOCAL_MODEL_ID: runtimeSettings.modelId,
+    ...(probe.model.path ? { JANUS_LOCAL_MODEL_PATH: probe.model.path } : {})
+  }
+}
 
 const serviceSpecs: Record<ServiceLabel, {
   port: number; command: string; cwd: string; environment: string; logPath: string
@@ -260,7 +286,7 @@ function spawnLogged(label: ServiceLabel): void {
         ...env,
         UV_PROJECT_ENVIRONMENT: spec.environment,
         ...(label === 'server'
-          ? { JANUS_MODEL_SLOTS: String(effectiveModelSlots()) }
+          ? { JANUS_MODEL_SLOTS: String(effectiveModelSlots()), ...modelEnv() }
           : {})
       },
       detached: true
@@ -396,7 +422,17 @@ function backendStatus() {
     retryInMs: Math.max(0, service.nextRetryAt - now),
     lastError: service.lastError,
     logPath: serviceSpecs[label].logPath,
-    ...(label === 'mlx' ? { acceleration: { ...mlxLaunch.mtp } } : {})
+    // 모델 존재 여부를 5초 폴링에 얹는다 — 전에는 exit 78로 죽여야만 알 수 있었다.
+    ...(label === 'mlx'
+      ? {
+          acceleration: { ...mlxLaunch.mtp },
+          snapshots: probeModel(homedir(), runtimeSettings.modelId),
+          catalog: LOCAL_MODELS.map((entry) => ({
+            id: entry.id, label: entry.label, repo: entry.repo, advisory: entry.advisory
+          })),
+          modelId: runtimeSettings.modelId
+        }
+      : {})
   })
   return { server: publicState('server', services.server), mlx: publicState('mlx', services.mlx) }
 }
@@ -443,7 +479,13 @@ function createWindow(): void {
 function restartService(label: ServiceLabel): void {
   const service = services[label]
   const pid = service.process?.pid
-  if (pid == null) return
+  if (pid == null) {
+    // 죽어 있는 서비스도 다시 띄울 수 있어야 한다 — 모델 다운로드가 끝난 직후가 정확히
+    // 이 경우다(exit 78로 죽은 뒤라 pid가 없다). 재시도 백오프를 지워 다음 틱에 스폰된다.
+    service.attempts = 0
+    service.nextRetryAt = 0
+    return
+  }
   try { globalThis.process.kill(-pid, 'SIGTERM') } catch { service.process?.kill('SIGTERM') }
   // 종료는 supervisor의 scheduleRestart가 받아 새 spec/env로 다시 띄운다.
 }
@@ -454,13 +496,14 @@ function applyRuntimeSettings(next: RuntimeSettings): {
 } {
   const before = {
     localServer: runtimeSettings.localServer,
+    modelId: runtimeSettings.modelId,
     mtpPolicy: effectiveMtpPolicy(),
     modelSlots: effectiveModelSlots(),
     apc: effectiveApc()
   }
   runtimeSettings = saveRuntimeSettings(runtimeSettingsFile, next)
   mtpPolicy = effectiveMtpPolicy()
-  const launch = buildMlxLaunchSpec(homedir(), mtpPolicy, effectiveApc())
+  const launch = buildMlxLaunchSpec(homedir(), mtpPolicy, effectiveApc(), runtimeSettings.modelId)
   mlxLaunch = launch
   serviceSpecs.mlx.command = launch.command
   const restarted: ServiceLabel[] = []
@@ -468,11 +511,16 @@ function applyRuntimeSettings(next: RuntimeSettings): {
     // 끄기: supervisor가 다음 틱에 종료·disabled 처리. 켜기: 다음 틱에 스폰.
     if (!runtimeSettings.localServer) restartService('mlx')
     restarted.push('mlx')
-  } else if (before.mtpPolicy !== effectiveMtpPolicy() || before.apc !== effectiveApc()) {
+  } else if (
+    before.modelId !== runtimeSettings.modelId
+    || before.mtpPolicy !== effectiveMtpPolicy()
+    || before.apc !== effectiveApc()
+  ) {
     if (runtimeSettings.localServer) restartService('mlx')
     restarted.push('mlx')
   }
-  if (before.modelSlots !== effectiveModelSlots()) {
+  // 모델이 바뀌면 백엔드가 받은 JANUS_LOCAL_MODEL_PATH도 낡는다.
+  if (before.modelSlots !== effectiveModelSlots() || before.modelId !== runtimeSettings.modelId) {
     restartService('server')
     restarted.push('server')
   }
@@ -483,12 +531,13 @@ ipcMain.handle('runtime-settings-get', () => ({
   settings: runtimeSettings,
   effective: {
     localServer: runtimeSettings.localServer,
+    modelId: runtimeSettings.modelId,
     mtpPolicy: effectiveMtpPolicy(),
     modelSlots: effectiveModelSlots(),
     apc: effectiveApc()
   },
   locked: {
-    localServer: false,
+    localServer: false, modelId: false,
     mtpPolicy: mtpPolicyLocked, modelSlots: slotsLocked, apc: apcLocked
   }
 }))

@@ -153,6 +153,18 @@ export default function App() {
     )
   }
 
+  const mlxPhase = backendStatus?.mlx.phase
+  const modelSnapshot = backendStatus?.mlx.snapshots
+  const modelBadge = mlxPhase === 'disabled'
+    ? { text: '로컬 모델 꺼짐', tone: 'muted' as const, pulse: false, actionable: false }
+    : modelSnapshot && !modelSnapshot.model.present
+      ? { text: '모델 없음', tone: 'warning' as const, pulse: false, actionable: true }
+      : mlxUp
+        ? { text: '모델 준비', tone: 'success' as const, pulse: false, actionable: false }
+        : mlxPhase === 'failed'
+          ? { text: '모델 시작 실패', tone: 'danger' as const, pulse: false, actionable: true }
+          : { text: '모델 로딩', tone: 'warning' as const, pulse: true, actionable: false }
+
   return (
     <div className="flex h-full flex-col">
       <header className="app-titlebar">
@@ -179,11 +191,13 @@ export default function App() {
         </div>
         <div className="app-titlebar__status">
           <span className="font-mono text-[10px] text-faint">local</span>
+          {/* 모델이 없거나 실패했는데 "모델 로딩"으로 영원히 도는 상태가 있었다. */}
           <Status
-            tone={backendStatus?.mlx.phase === 'disabled' ? 'muted' : mlxUp ? 'success' : 'warning'}
-            pulse={!mlxUp && backendStatus?.mlx.phase !== 'disabled'}
+            tone={modelBadge.tone}
+            pulse={modelBadge.pulse}
+            onClick={modelBadge.actionable ? () => setNav('settings') : undefined}
           >
-            {backendStatus?.mlx.phase === 'disabled' ? '로컬 모델 꺼짐' : mlxUp ? '모델 준비' : '모델 로딩'}
+            {modelBadge.text}
           </Status>
         </div>
       </header>
@@ -203,6 +217,7 @@ export default function App() {
           <TaskWorkspace
             newConversation={newConversation}
             onNewConversationChange={setNewConversation}
+            onOpenSettings={() => setNav('settings')}
           />
         ) : nav === 'settings' ? (
           <SettingsPage />

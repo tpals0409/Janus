@@ -40,14 +40,12 @@ fi
 (cd "$ROOT/janus" && pnpm install --frozen-lockfile)
 
 if (( WITH_MODEL )); then
-  (cd "$ROOT/qwen3.8mlx" && uv run --frozen hf download \
-    orcarouter/Qwen3.8-27B-Uncensored-MLX --include '4-bit/*')
-  # Optional MTP drafter. Janus falls back to base-only generation if this
-  # small download fails or is removed.
-  (cd "$ROOT/qwen3.8mlx" && uv run --frozen hf download \
-    mlx-community/Qwen3.8-27B-MTP-4bit) || \
-    print "MTP draft download failed; Janus will run the base 27B model."
+  (cd "$ROOT/qwen3.8mlx" && uv run --frozen hf download mlx-community/Qwen3.8-27B-4bit)
+  # The MTP drafter is not optional under the default policy (required): without it
+  # the model server refuses to start. Lower the policy in Settings to run without it.
+  (cd "$ROOT/qwen3.8mlx" && uv run --frozen hf download mlx-community/Qwen3.8-27B-MTP-4bit)
 else
-  print "model download skipped; rerun with --with-model when ready (~16 GB plus working memory)."
+  print "model download skipped — Janus downloads it for you in Settings > 로컬 모델,"
+  print "or rerun with --with-model (~17 GB plus working memory)."
 fi
 print "bootstrap complete"

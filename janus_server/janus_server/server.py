@@ -250,6 +250,7 @@ def main():
 from .routers import (  # noqa: E402 — app이 먼저 있어야 데코레이터 없는 조립이 단순하다
     development,
     evaluations,
+    model,
     operations,
     profiles,
     projects,
@@ -271,6 +272,7 @@ app.include_router(reviews.router)
 app.include_router(shipping.router)
 app.include_router(evaluations.router)
 app.include_router(operations.router)
+app.include_router(model.router)
 app.include_router(terminals.router)
 app.include_router(development.router)
 app.include_router(skills.router)

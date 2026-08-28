@@ -39,9 +39,13 @@ from .workspace import WorkspaceContext
 # 절대 repo ID("orcarouter/Qwen3.8-...")를 보내면 안 된다. mlx_vlm.server는 로드되지
 # 않은 모델 id를 받으면 HuggingFace에서 **리포 전체를**(모든 quant, ~80GB) 내려받기
 # 시작하고, 그동안 요청은 응답 없이 매달린다. 로컬 경로만 넘긴다.
+# 폴백 전용 — 평소에는 Electron이 준 JANUS_LOCAL_MODEL_PATH를 쓴다.
+# repo마다 스냅샷 안 배치가 다르다(mlx-community는 루트, orcarouter는 4-bit/).
 LOCAL_MODELS = {
     "qwen3.8-27b": "~/.cache/huggingface/hub/"
-                   "models--orcarouter--Qwen3.8-27B-Uncensored-MLX/snapshots/*/4-bit",
+                   "models--mlx-community--Qwen3.8-27B-4bit/snapshots/*",
+    "qwen3.8-27b-uncensored": "~/.cache/huggingface/hub/"
+                              "models--orcarouter--Qwen3.8-27B-Uncensored-MLX/snapshots/*/4-bit",
 }
 
 MLX_BASE_URL = "http://localhost:8080/v1"
@@ -267,6 +271,11 @@ def effective_worker_role(
 
 
 def resolve_local_model(name: str) -> str:
+    # Electron이 이미 해석한 경로가 있으면 그게 이긴다 — 캐시 루트를 양쪽이 따로 계산하면
+    # HF_HOME을 쓰는 사용자에게 "다운로드는 됐는데 앱은 없다고 한다"가 생긴다.
+    resolved = os.environ.get("JANUS_LOCAL_MODEL_PATH")
+    if resolved and os.path.isdir(resolved):
+        return resolved
     pattern = LOCAL_MODELS.get(name)
     if pattern is None:
         raise spec_mod.SpecError(
@@ -276,7 +285,7 @@ def resolve_local_model(name: str) -> str:
     if not hits:
         raise spec_mod.SpecError(
             f"{name!r}의 로컬 파일을 찾을 수 없습니다: {pattern}\n"
-            "  먼저 받으세요: hf download orcarouter/Qwen3.8-27B-Uncensored-MLX --include '4-bit/*'"
+            "  Janus 설정 화면의 '로컬 모델'에서 내려받으세요."
         )
     return hits[0]
 

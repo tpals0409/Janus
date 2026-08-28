@@ -67,13 +67,21 @@ export function StatusBar({ mode, onOpenSettings }: { mode: string; onOpenSettin
   const serverExternal = backendStatus?.server.phase === 'external'
   const mlxPhase = backendStatus?.mlx.phase
   const acceleration = backendStatus?.mlx.acceleration
-  const mlxLoading = !mlxUp && mlxPhase !== 'failed'
+  const snapshots = backendStatus?.mlx.snapshots
+  // 모델이 없으면 로딩이 아니라 셋업 대기다. 이걸 loading으로 세면 재시작 루프 내내
+  // 타이머가 돌고 "지난번 N초" 기대치에 실패 소요시간이 섞인다.
+  const modelMissing = Boolean(snapshots && !snapshots.model.present)
+  const mlxLoading = !mlxUp && mlxPhase !== 'failed' && mlxPhase !== 'disabled' && !modelMissing
   const { elapsed, lastSeconds } = useModelLoadSeconds(mlxLoading)
   const loadClock = elapsed === null
     ? ''
     : ` · ${elapsed}초${lastSeconds !== null ? ` (지난번 ${lastSeconds}초)` : ''}`
   const mlxText = mlxPhase === 'disabled'
     ? '로컬 모델 꺼짐 (설정)'
+    : modelMissing
+    ? snapshots?.model.incomplete
+      ? '로컬 모델 일부만 받음 — 설정에서 이어받기'
+      : '로컬 모델 없음 — 설정에서 내려받기'
     : mlxUp
     ? mlxPhase === 'external'
       ? '모델 :8080 (외부) · MTP 확인 불가'
@@ -104,12 +112,19 @@ export function StatusBar({ mode, onOpenSettings }: { mode: string; onOpenSettin
       <Status tone={serverUp ? 'success' : 'danger'}>
         {serverUp ? `janus-server :8765${serverExternal ? ' (외부)' : ''}` : '서버 연결 안 됨'}
       </Status>
+      {/* 모델이 없을 때는 상태 표시가 아니라 갈 곳이어야 한다 — 눌러서 설정으로 간다. */}
       <Status
-        tone={mlxPhase === 'disabled' ? 'muted' : mlxPhase === 'failed' ? 'danger' : mlxUp ? 'success' : 'warning'}
-        pulse={!mlxUp && mlxPhase !== 'failed' && mlxPhase !== 'disabled'}
-        title={mlxPhase === 'failed'
-          ? acceleration?.lastError ?? '모델 로그를 확인하세요'
-          : acceleration?.draftModelPath ?? undefined}
+        tone={mlxPhase === 'disabled' ? 'muted'
+          : modelMissing ? 'warning'
+          : mlxPhase === 'failed' ? 'danger' : mlxUp ? 'success' : 'warning'}
+        pulse={mlxLoading}
+        title={modelMissing
+          ? `${snapshots?.model.repo ?? ''} — 설정에서 내려받으세요`
+          : mlxPhase === 'failed'
+            ? acceleration?.lastError ?? '모델 로그를 확인하세요'
+            : acceleration?.draftModelPath ?? undefined}
+        className={modelMissing && onOpenSettings ? 'status-bar__actionable' : undefined}
+        onClick={modelMissing ? onOpenSettings : undefined}
       >
         {mlxText}
       </Status>

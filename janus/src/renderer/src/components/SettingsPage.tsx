@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Loader2, Settings } from 'lucide-react'
 import { useAgentProfileOptions, useStore } from '../store'
+import ModelSetup, { ModelChoice } from './ModelSetup'
 import { Listbox } from './ui'
 import type { RuntimeSettingsSnapshot, RuntimeSettingsValues } from '../types'
 
@@ -34,6 +35,7 @@ export default function SettingsPage() {
 
   const changed = snapshot && draft && (
     draft.localServer !== snapshot.effective.localServer
+    || draft.modelId !== snapshot.effective.modelId
     || draft.mtpPolicy !== snapshot.effective.mtpPolicy
     || draft.modelSlots !== snapshot.effective.modelSlots
     || draft.apc !== snapshot.effective.apc
@@ -41,10 +43,12 @@ export default function SettingsPage() {
   const restartTargets = snapshot && draft
     ? [
         ...(draft.localServer !== snapshot.effective.localServer
+          || draft.modelId !== snapshot.effective.modelId
           || draft.mtpPolicy !== snapshot.effective.mtpPolicy
           || draft.apc !== snapshot.effective.apc
           ? ['모델 서버'] : []),
-        ...(draft.modelSlots !== snapshot.effective.modelSlots ? ['백엔드'] : [])
+        ...(draft.modelSlots !== snapshot.effective.modelSlots
+          || draft.modelId !== snapshot.effective.modelId ? ['백엔드'] : [])
       ]
     : []
 
@@ -110,6 +114,18 @@ export default function SettingsPage() {
             <div className="settings-dialog__loading"><Loader2 size={14} className="animate-spin" /> 불러오는 중</div>
           ) : (
             <>
+              <div className="settings-field">
+                <span className="settings-field__name">로컬 모델</span>
+                <ModelChoice
+                  value={draft.modelId}
+                  onChange={(modelId) => setDraft({ ...draft, modelId })}
+                  disabled={!draft.localServer}
+                />
+                <em>바꾸면 저장 시 모델 서버가 그 모델로 다시 뜹니다.</em>
+              </div>
+
+              <ModelSetup disabled={!draft.localServer} />
+
               <label className="settings-field settings-field--row">
                 <input
                   type="checkbox"

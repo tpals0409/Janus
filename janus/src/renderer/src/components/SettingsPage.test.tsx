@@ -6,9 +6,9 @@ import { useStore } from '../store'
 import type { RuntimeSettingsSnapshot } from '../types'
 
 const snapshot: RuntimeSettingsSnapshot = {
-  settings: { localServer: true, mtpPolicy: 'required', modelSlots: 3, apc: true },
-  effective: { localServer: true, mtpPolicy: 'required', modelSlots: 3, apc: true },
-  locked: { localServer: false, mtpPolicy: false, modelSlots: false, apc: false }
+  settings: { localServer: true, modelId: 'qwen3.8-27b', mtpPolicy: 'required', modelSlots: 3, apc: true },
+  effective: { localServer: true, modelId: 'qwen3.8-27b', mtpPolicy: 'required', modelSlots: 3, apc: true },
+  locked: { localServer: false, modelId: false, mtpPolicy: false, modelSlots: false, apc: false }
 }
 
 describe('SettingsPage', () => {
@@ -18,7 +18,7 @@ describe('SettingsPage', () => {
 
   it('loads runtime knobs and applies changes with a restart warning', async () => {
     const runtimeSettingsSet = vi.fn().mockResolvedValue({
-      settings: { localServer: true, mtpPolicy: 'required', modelSlots: 4, apc: true }, restarted: ['server']
+      settings: { localServer: true, modelId: 'qwen3.8-27b', mtpPolicy: 'required', modelSlots: 4, apc: true }, restarted: ['server']
     })
     ;(window as { janus?: unknown }).janus = {
       runtimeSettingsGet: vi.fn().mockResolvedValue(snapshot),

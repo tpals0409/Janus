@@ -3160,6 +3160,80 @@ textarea:focus-visible {
   color: var(--color-warn);
 }
 .settings-dialog__result { font-size: 10.5px; color: var(--color-ok); }
+
+/* 로컬 모델 셋업 — 진단 행 + 진행률 */
+.model-setup { display: flex; flex-direction: column; gap: 8px; }
+.model-setup__row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-base);
+  padding: 7px 9px;
+  font-size: 11px;
+}
+.model-setup__dot { width: 6px; height: 6px; flex: none; border-radius: 999px; }
+.model-setup__dot--ok { background: var(--success); }
+.model-setup__dot--warn { background: var(--color-warn); }
+.model-setup__dot--faint { background: var(--color-disabled); }
+.model-setup__name { flex: none; }
+.model-setup__state { flex: none; color: var(--text-muted); font-size: 10px; }
+.model-setup__row code {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--color-faint);
+  font-size: 10px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.model-setup__hint { font-size: 10px; line-height: 1.5; color: var(--color-faint); }
+.model-setup__hint--ok {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-ok);
+}
+.model-setup__progress { display: flex; flex-direction: column; gap: 6px; }
+.model-setup__bar {
+  overflow: hidden;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--color-raised);
+}
+.model-setup__bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--color-accent);
+  transition: width 400ms ease;
+}
+.model-setup__meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.model-setup__meta > span:last-of-type { margin-left: auto; }
+
+/* 컴포저에서 위임이 막힌 이유 — 전에는 아무것도 안 보여줬다 */
+.model-blocked {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border-top: 1px solid var(--border-subtle);
+  padding: 7px 12px 0;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--color-warn);
+}
+
+/* 상태가 곧 할 일일 때 — 눌러서 고치러 간다 */
+.status-bar__actionable { cursor: pointer; }
+.status-bar__actionable:hover { color: var(--text-primary); }
 .settings-dialog__actions {
   display: flex;
   justify-content: flex-end;

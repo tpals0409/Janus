@@ -33,16 +33,28 @@ zsh scripts/bootstrap_macos.sh
 ```
 
 Model files are deliberately not bundled in the app or downloaded implicitly.
-Prepare the required local snapshot when ready:
+
+**The terminal is not required for this step.** Start Janus and open
+**Settings › 로컬 모델**. It reports which snapshots are present, weighs the
+download against your free disk, and fetches them with visible progress.
+Cancelling is safe — resuming picks up where it stopped.
+
+To prepare it ahead of time instead:
 
 ```bash
 zsh scripts/bootstrap_macos.sh --with-model
 ```
 
-That runs the equivalent locked `hf download` for
-`orcarouter/Qwen3.8-27B-Uncensored-MLX` and only its `4-bit/*` files. Janus resolves
-the local snapshot path and refuses to pass a remote model ID to the MLX server,
-preventing an accidental full-repository download.
+Either path fetches `mlx-community/Qwen3.8-27B-4bit` plus the
+`mlx-community/Qwen3.8-27B-MTP-4bit` speculative drafter (~17 GB together). The
+drafter is required under the default MTP policy; lower that policy in Settings to
+run without it. Janus resolves the local snapshot path and refuses to pass a remote
+model ID to the MLX server, preventing an accidental full-repository download.
+
+Settings also offers `orcarouter/Qwen3.8-27B-Uncensored-MLX` as an advanced
+alternative. It carries the base model's Apache-2.0 license, but its model card
+scopes it to research and excludes end-user deployment without your own moderation
+layer — the app repeats that warning where you select it.
 
 ## Run and package
 

@@ -115,19 +115,27 @@ export function Status({
   pulse = false,
   className,
   title,
+  onClick,
 }: {
   tone?: StatusTone
   children: ReactNode
   pulse?: boolean
   className?: string
   title?: string
+  /** 상태가 곧 할 일일 때만 — 누르면 그걸 고칠 화면으로 간다 */
+  onClick?: () => void
 }) {
-  return (
-    <span title={title} className={cx('ui-status', `ui-status--${tone}`, pulse && 'ui-status--pulse', className)}>
+  const content = (
+    <>
       <span aria-hidden="true" className="ui-status__glyph">{statusGlyph[tone]}</span>
       <span>{children}</span>
-    </span>
+    </>
   )
+  const classes = cx('ui-status', `ui-status--${tone}`, pulse && 'ui-status--pulse', className)
+  if (onClick) {
+    return <button type="button" title={title} className={classes} onClick={onClick}>{content}</button>
+  }
+  return <span title={title} className={classes}>{content}</span>
 }
 
 export function Panel({ className, ...props }: HTMLAttributes<HTMLElement>) {

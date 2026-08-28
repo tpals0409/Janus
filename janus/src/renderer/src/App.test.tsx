@@ -23,11 +23,11 @@ describe('Janus renderer fixture', () => {
       mlxUp: true,
       backendStatus: {
         server: {
-          phase: 'up', attempts: 0, retryInMs: 0, lastError: null,
+          phase: 'up', ownership: 'owned', pid: 1, lastPid: 1, attempts: 0, retryInMs: 0, lastError: null,
           logPath: '/logs/server.log'
         },
         mlx: {
-          phase: 'up', attempts: 0, retryInMs: 0, lastError: null,
+          phase: 'up', ownership: 'owned', pid: 1, lastPid: 1, attempts: 0, retryInMs: 0, lastError: null,
           logPath: '/logs/mlx.log',
           acceleration: {
             policy: 'required', configured: true, active: true, kind: 'mtp',
@@ -465,11 +465,11 @@ describe('Janus renderer fixture', () => {
       mlxUp: false,
       backendStatus: {
         server: {
-          phase: 'up', attempts: 0, retryInMs: 0, lastError: null,
+          phase: 'up', ownership: 'owned', pid: 1, lastPid: 1, attempts: 0, retryInMs: 0, lastError: null,
           logPath: '/logs/server.log'
         },
         mlx: {
-          phase: 'starting', attempts: 1, retryInMs: 0, lastError: null,
+          phase: 'starting', ownership: 'owned', pid: 1, lastPid: 1, attempts: 1, retryInMs: 0, lastError: null,
           logPath: '/logs/mlx.log',
           acceleration: {
             policy: 'required', configured: true, active: false, kind: 'mtp',

@@ -35,6 +35,7 @@ import { useDomainEvent } from '../../domainEvents'
 import type { ApprovalRequest, ChangeLayer, ChangeSetFile, Project, Span, Task } from '../../types'
 import ContextInspector from './ContextInspector'
 import { Button, ConfirmDialog, EmptyState, Listbox, Status } from '../ui'
+import { ModelBlockedNotice, useLocalModelBlock } from '../ModelSetup'
 import { taskStatusMeta } from '../../taskStatus'
 
 interface TranscriptItem {
@@ -319,6 +320,7 @@ function DelegationBar({ project }: { project: Project }) {
           placeholder="무엇을 요청할까요?"
           aria-label="Janus에게 위임할 목표"
         />
+        <ModelBlockedNotice />
         <div className="janus-composer__footer">
           <label className="flex items-center gap-1.5 text-[10px] text-faint">
             <input
@@ -1147,6 +1149,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
                 : '다음 작업 지시 보내기…'
           }
         />
+        <ModelBlockedNotice />
         <div className="janus-composer__footer">
           <div className="flex items-center gap-2">
             <button
@@ -2620,8 +2623,28 @@ function TaskDetail({ task }: { task: Task }) {
   )
 }
 
-function EmptyTaskState({ hasProject }: { hasProject: boolean }) {
+function EmptyTaskState({ hasProject, onOpenSettings }: {
+  hasProject: boolean
+  onOpenSettings?: () => void
+}) {
   const addProject = useStore((state) => state.addProjectFromPicker)
+  const modelBlocked = useLocalModelBlock()
+  // 신규 사용자가 반드시 지나는 화면이다. 모델이 없으면 저장소보다 그게 먼저다 —
+  // 전에는 여기서 모델을 한 번도 언급하지 않아 위임이 무반응인 이유를 알 수 없었다.
+  if (modelBlocked && onOpenSettings) {
+    return (
+      <div className="workspace-surface grid min-w-0 flex-1 place-items-center px-8 text-center">
+        <EmptyState
+          symbol={<Laptop size={20} strokeWidth={1.5} />}
+          title="로컬 모델 준비가 필요합니다"
+          description={modelBlocked}
+          action={<Button variant="primary" onClick={onOpenSettings}>
+            <Settings2 size={13} /> 설정 열기
+          </Button>}
+        />
+      </div>
+    )
+  }
   return (
     <div className="workspace-surface grid min-w-0 flex-1 place-items-center px-8 text-center">
       <EmptyState
@@ -2637,10 +2660,12 @@ function EmptyTaskState({ hasProject }: { hasProject: boolean }) {
 
 export default function TaskWorkspace({
   newConversation,
-  onNewConversationChange
+  onNewConversationChange,
+  onOpenSettings
 }: {
   newConversation: boolean
   onNewConversationChange: (value: boolean) => void
+  onOpenSettings?: () => void
 }) {
   const projects = useStore((state) => state.projects)
   const projectId = useStore((state) => state.projectId)
@@ -2712,7 +2737,7 @@ export default function TaskWorkspace({
         ) : task && !newConversation ? (
           <TaskDetail task={task} />
         ) : (
-          <EmptyTaskState hasProject={Boolean(project)} />
+          <EmptyTaskState hasProject={Boolean(project)} onOpenSettings={onOpenSettings} />
         )}
         {error && (
           <div className="toast-error">

@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { MtpPolicy } from './model-runtime'
+import { DEFAULT_MODEL_ID, LOCAL_MODELS, type MtpPolicy } from './model-runtime.ts'
 
 /** 앱 설정 다이얼로그가 관리하는 모델 런타임 손잡이.
  *  환경변수(JANUS_MTP_POLICY/JANUS_MODEL_SLOTS/JANUS_APC)가 있으면 그것이 이기고,
@@ -8,6 +8,8 @@ import type { MtpPolicy } from './model-runtime'
 export interface RuntimeSettings {
   /** 로컬 MLX 서버 자체를 띄울지 — 구독형 위주로 쓸 때 꺼서 메모리를 아낀다 */
   localServer: boolean
+  /** mlx 서버는 프로세스 하나가 모델 하나를 서빙한다 — 교체는 재시작이다 */
+  modelId: string
   mtpPolicy: MtpPolicy
   modelSlots: number
   apc: boolean
@@ -15,6 +17,7 @@ export interface RuntimeSettings {
 
 export const RUNTIME_SETTINGS_DEFAULTS: RuntimeSettings = {
   localServer: true,
+  modelId: DEFAULT_MODEL_ID,
   mtpPolicy: 'required',
   modelSlots: 3,
   apc: true
@@ -23,8 +26,10 @@ export const RUNTIME_SETTINGS_DEFAULTS: RuntimeSettings = {
 function clamp(settings: Partial<RuntimeSettings> | null | undefined): RuntimeSettings {
   const policy = settings?.mtpPolicy
   const slots = Number(settings?.modelSlots)
+  const known = LOCAL_MODELS.some((entry) => entry.id === settings?.modelId)
   return {
     localServer: settings?.localServer !== false,
+    modelId: known ? String(settings?.modelId) : DEFAULT_MODEL_ID,
     mtpPolicy: policy === 'preferred' || policy === 'off' ? policy : 'required',
     modelSlots: Number.isFinite(slots) ? Math.min(8, Math.max(1, Math.round(slots))) : RUNTIME_SETTINGS_DEFAULTS.modelSlots,
     apc: settings?.apc !== false

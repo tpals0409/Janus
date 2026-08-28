@@ -552,8 +552,21 @@ export interface Span {
 export type ServicePhase = 'starting' | 'up' | 'restarting' | 'failed' | 'external' | 'blocked' | 'stopped'
   | 'disabled'
 
+export interface ModelPresence {
+  id: string
+  repo: string
+  label: string
+  present: boolean
+  path: string | null
+  /** 있지만 샤드가 빠짐 — 재개 다운로드로 고칠 수 있다 */
+  incomplete: boolean
+}
+
 export interface BackendServiceStatus {
   phase: ServicePhase
+  ownership: 'owned' | 'external' | 'none'
+  pid: number | null
+  lastPid: number | null
   attempts: number
   retryInMs: number
   lastError: string | null
@@ -566,6 +579,29 @@ export interface BackendServiceStatus {
     draftModelPath: string | null
     lastError: string | null
   }
+  /** mlx만 — 모델이 실제로 디스크에 있는지 */
+  snapshots?: { hubRoot: string; model: ModelPresence; draft: ModelPresence }
+  catalog?: { id: string; label: string; repo: string; advisory: string | null }[]
+  modelId?: string
+}
+
+export interface ModelDownloadJob {
+  model_id: string
+  repo: string
+  status: 'running' | 'completed' | 'failed' | 'cancelled'
+  error: string | null
+  downloaded_bytes: number
+  total_bytes: number
+  elapsed_ms: number
+  eta_ms: number | null
+}
+
+export interface ModelPlan {
+  model: { repo: string; files: number; total_bytes: number }
+  draft: { repo: string; files: number; total_bytes: number }
+  total_bytes: number
+  disk: { free_bytes: number; total_bytes: number; path: string }
+  enough_space: boolean
 }
 
 export interface BackendStatus {
@@ -595,6 +631,7 @@ export interface TaskBrowserInspection {
 
 export interface RuntimeSettingsValues {
   localServer: boolean
+  modelId: string
   mtpPolicy: 'required' | 'preferred' | 'off'
   modelSlots: number
   apc: boolean
@@ -603,7 +640,10 @@ export interface RuntimeSettingsValues {
 export interface RuntimeSettingsSnapshot {
   settings: RuntimeSettingsValues
   effective: RuntimeSettingsValues
-  locked: { localServer: boolean; mtpPolicy: boolean; modelSlots: boolean; apc: boolean }
+  locked: {
+    localServer: boolean; modelId: boolean
+    mtpPolicy: boolean; modelSlots: boolean; apc: boolean
+  }
 }
 
 declare global {
