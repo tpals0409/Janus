@@ -20,6 +20,7 @@
   --color-fg: #e6e8ea;
   --color-muted: #989ea3;
   --color-faint: #6a7076;
+  --color-timestamp: #55595e;
   --color-disabled: #43474c;
 
   --color-accent: #4fb583;
@@ -2323,63 +2324,53 @@ button {
 
 /* 대화는 말풍선으로: 내 메시지는 오른쪽, Janus는 왼쪽.
    도구 행·사고 과정은 발화가 아니므로 전폭 왼쪽을 유지한다. */
+/* 계약 §11: 말풍선이 아니라 동료의 작업 기록 — 좌측 mono 타임스탬프 거터와
+   1px 세로 괘선(spine)에 내용이 걸린다. 역할은 색으로 구분한다. */
 .task-message {
   display: flex;
-  flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
-  padding: 8px 0;
 }
 
-.task-message[data-role='user'] {
-  align-items: flex-end;
+.task-message__time {
+  width: 46px;
+  flex: none;
+  padding-top: 10px;
+  color: var(--color-timestamp);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
 }
 
-.task-message > span {
-  padding: 0 2px;
-  color: var(--color-faint);
-  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+.task-message__body {
+  min-width: 0;
+  flex: 1;
+  border-left: 1px solid var(--spine);
+  padding: 8px 0 8px 16px;
 }
 
-.task-message[data-role='assistant'] > span {
+.task-message__body > p,
+.task-message__body > .task-markdown {
+  max-width: 640px;
+}
+
+.task-message__body > p {
+  white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.task-message[data-role='user'] .task-message__body > p {
   color: var(--text-secondary);
 }
 
-.task-message > p,
-.task-message > .task-markdown {
-  max-width: min(82%, 720px);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-panel-2);
-  padding: 8px 12px;
-}
-
-.task-message > p {
-  white-space: pre-wrap;
-  color: var(--color-muted);
-  font-size: 13px;
-  line-height: 1.7;
-}
-
-.task-message[data-role='user'] > p {
+.task-message[data-role='assistant'] .task-message__body > p {
   color: var(--text-primary);
-  background: var(--color-raised);
-  border-color: var(--color-border-strong);
-  border-bottom-right-radius: var(--radius-xs);
-}
-
-.task-message[data-role='assistant'] > p,
-.task-message[data-role='assistant'] > .task-markdown {
-  border-bottom-left-radius: var(--radius-xs);
 }
 
 .task-markdown {
-  color: var(--text-secondary);
-  font-size: 15px;
-  line-height: 1.72;
+  color: var(--text-primary);
+  font-size: 13.5px;
+  line-height: 1.65;
 }
 
 .task-markdown > :first-child { margin-top: 0; }
@@ -2613,15 +2604,17 @@ button {
   font-size: 10px;
 }
 
+/* 계약 §11: 패널을 warning 색으로 채우지 않는다 — 앰버는 △ 글리프 하나뿐. */
 .task-decision-card {
   display: flex;
   min-height: 62px;
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  border-left: 2px solid var(--warning);
-  background: color-mix(in srgb, var(--warning) 5%, var(--bg-surface));
-  padding: 10px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-base);
+  padding: 10px 14px;
 }
 
 .task-decision-card__copy {
@@ -2632,6 +2625,8 @@ button {
   color: var(--text-secondary);
   font-size: 11.5px;
 }
+
+.task-decision-card__copy strong { color: var(--text-primary); font-weight: 600; }
 
 .task-decision-card__copy code { font-family: var(--font-mono); }
 .task-decision-card__copy span { color: var(--text-faint); font-size: 10.5px; }
@@ -2700,31 +2695,32 @@ button {
 .task-primary-action,
 .task-quiet-action {
   display: inline-flex;
+  height: 28px;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  border-radius: 6px;
-  padding: 7px 10px;
-  font-size: 11px;
+  border-radius: 3px;
+  padding: 0 12px;
+  font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
 }
 
+/* 계약 §9: filled green은 결정(허용·시작·재개) 전용. */
 .task-primary-action {
   border: 1px solid transparent;
-  background: var(--text-primary);
-  color: var(--bg-panel);
+  background: var(--accent);
+  color: #0e1712;
 }
 
 .task-quiet-action {
   border: 1px solid var(--color-border-strong);
-  background: var(--color-raised);
+  background: transparent;
   color: var(--color-muted);
 }
 
 .task-primary-action:hover {
-  background: white;
-  color: var(--bg-base);
+  background: var(--accent-hover);
 }
 
 .task-quiet-action:hover {
@@ -2865,22 +2861,22 @@ textarea:focus-visible {
 
 /* 사고 과정 — 기본은 접어 둔다. 답을 밀어내면 안 된다. */
 .task-reasoning {
-  margin: 2px 0 6px;
-  border-left: 2px solid var(--line, #2a2a3a);
-  padding-left: 8px;
+  margin: 2px 0 6px 46px;
+  border-left: 1px solid var(--spine);
+  padding-left: 16px;
 }
 .task-reasoning > summary {
   cursor: pointer;
   font-size: 10px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--text-faint, #6c6c86);
+  color: var(--color-faint);
 }
 .task-reasoning > p {
   margin-top: 4px;
   font-size: 11px;
   line-height: 1.6;
-  color: var(--text-muted, #9a9ab0);
+  color: var(--color-muted);
   white-space: pre-wrap;
 }
 
@@ -2954,7 +2950,9 @@ textarea:focus-visible {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 9px 0 7px 3px;
+  margin-left: 46px;
+  border-left: 1px solid var(--spine);
+  padding: 9px 0 7px 16px;
   color: var(--color-faint);
   font-size: 11px;
 }
@@ -2964,18 +2962,22 @@ textarea:focus-visible {
   align-items: baseline;
   gap: 10px;
   overflow: hidden;
-  padding: 2px 0 2px 44px;
-  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
-  font-size: 11px;
-  color: var(--text-secondary);
+  margin-left: 46px;
+  border-left: 1px solid var(--spine);
+  padding: 2px 0 2px 16px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-muted);
 }
 
+/* 계약 §8: ✓ 끝남은 조용해진다 — 그린은 살아있음(실행 중)에만. */
 .task-tool-row__glyph {
   flex: none;
-  color: var(--success);
+  color: var(--text-disabled);
 }
 
 .task-tool-row[data-status='active'] .task-tool-row__glyph {
+  color: var(--accent);
   animation: task-thinking-breathe 1.6s ease-in-out infinite;
 }
 

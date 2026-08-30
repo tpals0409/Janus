@@ -467,7 +467,7 @@ describe('Janus renderer fixture', () => {
 
     renderApp()
 
-    const hint = screen.getByText('제한 시간 안에 응답이 없어 거부로 처리했습니다.')
+    const hint = screen.getByText('제한 시간 안에 응답이 없어 거부로 처리했어요.')
     expect(hint).toBeVisible()
     expect(screen.queryByText('이번만 허용')).toBeNull()
     const card = hint.closest('.task-decision-card')!

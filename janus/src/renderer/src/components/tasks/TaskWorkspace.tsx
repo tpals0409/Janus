@@ -42,8 +42,17 @@ interface TranscriptItem {
   key: string
   role: string
   content: string
+  at?: string
   streaming?: boolean
   tool?: { name: string; callId: string; status: 'active' | 'done' | 'failed'; startedAtMs: number | null; durationMs?: number }
+}
+
+/* 계약 §11: 좌측 거터의 mono 타임스탬프. 시각이 없는 항목(낙관적 전사)은 빈 거터. */
+const formatClock = (iso?: string): string => {
+  if (!iso) return ''
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleTimeString('ko-KR', { hour12: false, hour: '2-digit', minute: '2-digit' })
 }
 
 const toMs = (value: unknown): number | null =>
@@ -84,8 +93,8 @@ function ApprovalCard({ approval, variant }: { approval: ApprovalRequest; varian
     return (
       <div className={outerClass}>
         <div className={copyClass}>
-          <strong><code>{approval.tool}</code> 승인이 만료됐습니다</strong>
-          <Hint>제한 시간 안에 응답이 없어 거부로 처리했습니다.</Hint>
+          <strong><code>{approval.tool}</code> 허용 대기가 끝났어요</strong>
+          <Hint>제한 시간 안에 응답이 없어 거부로 처리했어요.</Hint>
         </div>
         <div className={actionsClass}>
           <button type="button" onClick={() => dismiss(approval.id)} className="task-quiet-action">닫기</button>
@@ -93,11 +102,23 @@ function ApprovalCard({ approval, variant }: { approval: ApprovalRequest; varian
       </div>
     )
   }
+  // 계약 §11: 예측 힌트("허용하면 ~해요")를 먼저, 버튼은 나중에. 안심 문장은
+  // 실제로 되돌릴 수 있는 파일 수정에만 — 셸 명령에 붙이면 거짓말이 된다.
+  const consequence = variant !== 'task'
+    ? '이 워커가 답을 기다리고 있어요.'
+    : approval.approval_scope === 'workspace_shell'
+      ? '허용하면 이 작업 공간에서 명령을 실행해요.'
+      : approval.approval_scope === 'workspace_write'
+        ? '허용하면 이 작업 공간의 파일을 고쳐요.'
+        : '허용하면 이 도구를 작업 공간에서 실행해요.'
   return (
     <div className={outerClass}>
       <div className={copyClass}>
-        <strong><code>{approval.tool}</code> 실행 권한이 필요합니다</strong>
-        <Hint>{variant === 'task' ? '이 작업 공간에서 도구를 실행합니다.' : '이 워커가 답을 기다리는 중입니다.'}</Hint>
+        <strong><span className="text-warn" aria-hidden="true">△</span> <code>{approval.tool}</code> — 허용을 기다리고 있어요</strong>
+        <Hint>{consequence}</Hint>
+        {variant === 'task' && approval.approval_scope === 'workspace_write' && (
+          <Hint>허용해도 커밋 전엔 되돌릴 수 있어요.</Hint>
+        )}
         {remaining !== null && (
           <span className="approval-timer" data-urgent={remaining <= 60 ? '' : undefined}>
             남은 시간 {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, '0')}
@@ -667,7 +688,7 @@ function TaskRuntimeCard({ task }: { task: Task }) {
         previous.streaming = false
         continue
       }
-      items.push({ key: `${event.seq}-${event.kind}`, role, content, streaming })
+      items.push({ key: `${event.seq}-${event.kind}`, role, content, streaming, at: event.created_at })
     }
     if (
       items.length === 0 && !session &&
@@ -971,16 +992,19 @@ function TaskRuntimeCard({ task }: { task: Task }) {
               </details>
             ) : (
               <div key={item.key} className="task-message" data-role={item.role}>
-                <span>{item.role === 'user' ? '나' : 'JANUS'}</span>
-                {item.role === 'user' ? (
-                  <p>{item.content}</p>
-                ) : (
-                  <div className="task-markdown">
-                    <Suspense fallback={<p>{item.content}</p>}>
-                      <TaskMarkdown content={item.content} />
-                    </Suspense>
-                  </div>
-                )}
+                <span className="task-message__time" aria-hidden="true">{formatClock(item.at)}</span>
+                <div className="task-message__body">
+                  <span className="sr-only">{item.role === 'user' ? '나' : 'Janus'}</span>
+                  {item.role === 'user' ? (
+                    <p>{item.content}</p>
+                  ) : (
+                    <div className="task-markdown">
+                      <Suspense fallback={<p>{item.content}</p>}>
+                        <TaskMarkdown content={item.content} />
+                      </Suspense>
+                    </div>
+                  )}
+                </div>
               </div>
             )
           ))}
@@ -992,8 +1016,11 @@ function TaskRuntimeCard({ task }: { task: Task }) {
           )}
           {!session && pendingDelegation?.taskId === task.id && (
             <div className="task-message" data-role="assistant">
-              <span>JANUS</span>
-              <p>작업 공간을 준비하고 있습니다. 로컬 모델이 준비되면 이 대화에서 바로 실행합니다.</p>
+              <span className="task-message__time" aria-hidden="true"></span>
+              <div className="task-message__body">
+                <span className="sr-only">Janus</span>
+                <p>작업 공간을 준비하고 있어요. 로컬 모델이 준비되면 이 대화에서 바로 실행할게요.</p>
+              </div>
             </div>
           )}
         </div>
