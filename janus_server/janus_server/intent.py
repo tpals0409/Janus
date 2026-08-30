@@ -23,9 +23,13 @@ READ_ONLY_REQUEST_WORDS = (
 )
 
 # 하나라도 보이면 절대 read-only로 좁히지 않는 변형 신호.
+# 한국어 낱말은 흔한 구어 변형 동사까지 포함한다 — 여기 빠진 낱말은 "확인하고
+# 바꿔줘"처럼 read-only 축소로 조용히 오판된다. 오검(변형 아닌데 매칭)은 전체
+# 도구 유지라 싸므로, 이 리스트는 넉넉한 쪽이 옳다.
 MUTATING_REQUEST_WORDS = (
     "edit", "modify", "write", "implement", "fix", "refactor", "create", "delete",
     "수정", "변경", "작성", "구현", "고쳐", "리팩터", "생성", "삭제", "추가",
+    "바꿔", "바꾸", "만들", "지워", "넣어", "빼줘",
 )
 
 # adaptive.classify_task의 investigation 토폴로지 신호. 도구 축소와 목적이 다르므로
@@ -87,6 +91,9 @@ def demo() -> None:
         "analyze the logs and fix the bug": False,
         "audit the test fixtures": True,
         "no keywords here": False,
+        "확인하고 바꿔줘": False,
+        "구조 살펴보고 테스트 만들어줘": False,
+        "분석해서 주석 넣어줘": False,
     }
     for text, expected in cases.items():
         actual = is_read_only_request(text)

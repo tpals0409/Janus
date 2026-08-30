@@ -36,6 +36,16 @@ uv run python scripts/publish_tasksuite_summary.py   # 공개용 요약 — 로�
 `publish_tasksuite_summary.py`는 결과에 `/Users/` 경로나 `workspace_root`,
 `model_path`가 남아 있으면 실패한다. 공개 저장소에 요약을 올리기 전에 반드시 통과시킨다.
 
+## 워커 가치 리포트
+
+```bash
+uv run python scripts/worker_value_report.py   # 기본 DB(~/.janus), 읽기 전용
+```
+
+실사용 dispatch의 `usage_json` 실측으로 "워커 경유 vs 부모 직접"의 토큰·step·
+시간·완료율을 비교한다. 1-slot에서 워커 격리가 추가 prefill 비용을 상회하는지를
+믿음이 아니라 데이터로 판정해, worker 정책 기본값을 정하는 근거로 쓴다.
+
 > 2026-08-28 정정: 이 문서는 `verify_workflow_27b.py`와
 > `build_orchestration_airgap_bundle.py` 실행을 안내하고 있었다. 두 파일은
 > 2026-08-25 `0d53440`에서 오케스트레이션 엔진과 함께 삭제됐다.
