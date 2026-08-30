@@ -24,7 +24,7 @@ guard let context = CGContext(
 // buffer avoids the white RGB fringe produced by thumbnail-based SVG renders.
 context.setAllowsAntialiasing(true)
 context.setShouldAntialias(true)
-context.setFillColor(CGColor(red: 0x10 / 255, green: 0x11 / 255, blue: 0x12 / 255, alpha: 1))
+context.setFillColor(CGColor(red: 0x11 / 255, green: 0x12 / 255, blue: 0x14 / 255, alpha: 1))
 context.addPath(CGPath(
   roundedRect: CGRect(x: 32, y: 32, width: 960, height: 960),
   cornerWidth: 216,
@@ -33,46 +33,36 @@ context.addPath(CGPath(
 ))
 context.fillPath()
 
+// 괄호와 축 { | } — DESIGN_SYSTEM.md §13. janus-symbol.svg와 같은 geometry,
+// 아이콘에선 광학 보정으로 스트로크만 살짝 얇게(앱 96 → 아이콘 76).
 func stroke(_ build: (CGMutablePath) -> Void) {
   let path = CGMutablePath()
   build(path)
   context.addPath(path)
-  context.setStrokeColor(CGColor(red: 0xF0 / 255, green: 0xF1 / 255, blue: 0xF1 / 255, alpha: 1))
-  context.setLineWidth(44)
-  context.setLineCap(.round)
-  context.setLineJoin(.round)
+  context.setStrokeColor(CGColor(red: 0xE6 / 255, green: 0xE8 / 255, blue: 0xEA / 255, alpha: 1))
+  context.setLineWidth(76)
+  context.setLineCap(.butt)
+  context.setLineJoin(.miter)
   context.strokePath()
 }
 
 stroke { path in
-  path.move(to: CGPoint(x: 310, y: 220))
-  path.addCurve(to: CGPoint(x: 270, y: 260), control1: CGPoint(x: 286, y: 220), control2: CGPoint(x: 270, y: 236))
-  path.addLine(to: CGPoint(x: 270, y: 362))
-  path.addCurve(to: CGPoint(x: 242, y: 438), control1: CGPoint(x: 270, y: 392), control2: CGPoint(x: 260, y: 417))
-  path.addCurve(to: CGPoint(x: 270, y: 504), control1: CGPoint(x: 260, y: 451), control2: CGPoint(x: 270, y: 476))
-  path.addCurve(to: CGPoint(x: 242, y: 578), control1: CGPoint(x: 270, y: 533), control2: CGPoint(x: 260, y: 557))
-  path.addCurve(to: CGPoint(x: 270, y: 646), control1: CGPoint(x: 260, y: 591), control2: CGPoint(x: 270, y: 617))
-  path.addLine(to: CGPoint(x: 270, y: 764))
-  path.addCurve(to: CGPoint(x: 310, y: 804), control1: CGPoint(x: 270, y: 788), control2: CGPoint(x: 286, y: 804))
-  path.addLine(to: CGPoint(x: 366, y: 804))
+  path.move(to: CGPoint(x: 384, y: 176))
+  path.addLine(to: CGPoint(x: 208, y: 176))
+  path.addLine(to: CGPoint(x: 208, y: 848))
+  path.addLine(to: CGPoint(x: 384, y: 848))
 }
 
 stroke { path in
-  path.move(to: CGPoint(x: 714, y: 220))
-  path.addCurve(to: CGPoint(x: 754, y: 260), control1: CGPoint(x: 738, y: 220), control2: CGPoint(x: 754, y: 236))
-  path.addLine(to: CGPoint(x: 754, y: 362))
-  path.addCurve(to: CGPoint(x: 782, y: 438), control1: CGPoint(x: 754, y: 392), control2: CGPoint(x: 764, y: 417))
-  path.addCurve(to: CGPoint(x: 754, y: 504), control1: CGPoint(x: 764, y: 451), control2: CGPoint(x: 754, y: 476))
-  path.addCurve(to: CGPoint(x: 782, y: 578), control1: CGPoint(x: 754, y: 533), control2: CGPoint(x: 764, y: 557))
-  path.addCurve(to: CGPoint(x: 754, y: 646), control1: CGPoint(x: 764, y: 591), control2: CGPoint(x: 754, y: 617))
-  path.addLine(to: CGPoint(x: 754, y: 764))
-  path.addCurve(to: CGPoint(x: 714, y: 804), control1: CGPoint(x: 754, y: 788), control2: CGPoint(x: 738, y: 804))
-  path.addLine(to: CGPoint(x: 658, y: 804))
+  path.move(to: CGPoint(x: 640, y: 176))
+  path.addLine(to: CGPoint(x: 816, y: 176))
+  path.addLine(to: CGPoint(x: 816, y: 848))
+  path.addLine(to: CGPoint(x: 640, y: 848))
 }
 
 stroke { path in
-  path.move(to: CGPoint(x: 512, y: 384))
-  path.addLine(to: CGPoint(x: 512, y: 640))
+  path.move(to: CGPoint(x: 512, y: 352))
+  path.addLine(to: CGPoint(x: 512, y: 672))
 }
 
 guard let image = context.makeImage(),

@@ -3,7 +3,14 @@ import { Loader2, Settings } from 'lucide-react'
 import { useAgentProfileOptions, useStore } from '../store'
 import ModelSetup, { ModelChoice } from './ModelSetup'
 import { Listbox } from './ui'
+import { setThemePref, themePref, type ThemePref } from '../theme'
 import type { RuntimeSettingsSnapshot, RuntimeSettingsValues } from '../types'
+
+const THEME_LABEL: Record<ThemePref, string> = {
+  system: '시스템 따름',
+  dark: '다크',
+  light: '라이트'
+}
 
 const MTP_LABEL: Record<RuntimeSettingsValues['mtpPolicy'], string> = {
   required: '필수 — MTP 드래프터 없이는 기동하지 않음',
@@ -25,6 +32,7 @@ export default function SettingsPage() {
   const [draft, setDraft] = useState<RuntimeSettingsValues | null>(null)
   const [saving, setSaving] = useState(false)
   const [result, setResult] = useState<string | null>(null)
+  const [theme, setTheme] = useState<ThemePref>(themePref)
 
   useEffect(() => {
     void window.janus?.runtimeSettingsGet?.().then((value) => {
@@ -100,6 +108,26 @@ export default function SettingsPage() {
           ) : (
             <p className="text-[11px] text-faint">프로필을 불러오는 중입니다.</p>
           )}
+        </section>
+
+        <section className="task-card settings-section">
+          <h3>화면</h3>
+          <div className="settings-field">
+            <span className="settings-field__name">테마</span>
+            <Listbox
+              label="테마"
+              value={theme}
+              options={(['system', 'dark', 'light'] as const).map((pref) => ({
+                value: pref, label: THEME_LABEL[pref]
+              }))}
+              onChange={(pref) => {
+                setTheme(pref)
+                setThemePref(pref)
+              }}
+              compact
+            />
+            <em>바로 적용돼요. 시스템 따름은 macOS 화면 모드를 따라가요.</em>
+          </div>
         </section>
 
         <section className="task-card settings-section">

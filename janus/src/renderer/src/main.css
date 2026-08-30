@@ -1,39 +1,87 @@
 @import 'tailwindcss';
 @import '@xyflow/react/dist/style.css';
 
-/* Janus graphite system — 색 토큰의 단일 원본. 별칭은 :root 참조로만 존재한다. */
+/* Janus graphite system v2 (DESIGN_SYSTEM.md §4) — 색 토큰의 단일 원본.
+   별칭은 :root 참조로만 존재한다. 그린은 살아있음·허용/시작 두 의미뿐이다. */
 @theme {
-  --color-bg: #0e0f10;
-  --color-canvas: #171819;
-  --color-panel: #131415;
-  --color-panel-2: #151617;
-  --color-surface: #202223;
-  --color-raised: #1d1f20;
-  --color-hover: #252728;
-  --color-active: #2b2d2e;
-  --color-border: #242627;
-  --color-border-strong: #303334;
-  --color-border-emphasis: #414445;
+  --color-bg: #111214;
+  --color-canvas: #141517;
+  --color-panel: #111214;
+  --color-panel-2: #141517;
+  --color-surface: #191b1e;
+  --color-raised: #191b1e;
+  --color-hover: #202225;
+  --color-active: #26292c;
+  --color-border: #1e2023;
+  --color-spine: #26292c;
+  --color-border-strong: #2c2f33;
+  --color-border-emphasis: #43474c;
 
-  --color-fg: #f0f1f1;
-  --color-muted: #a3a7aa;
-  --color-faint: #686d71;
-  --color-disabled: #464a4d;
+  --color-fg: #e6e8ea;
+  --color-muted: #989ea3;
+  --color-faint: #6a7076;
+  --color-timestamp: #55595e;
+  --color-disabled: #43474c;
 
-  --color-accent: #83a995;
-  --color-accent-soft: rgb(131 169 149 / 12%);
-  --color-accent-fg: #91b5a2;
+  --color-accent: #4fb583;
+  --color-accent-soft: rgb(79 181 131 / 12%);
+  --color-accent-fg: #6cc79a;
+  --color-on-accent: #0e1712;
 
-  --color-ok: #83a995;
-  --color-warn: #c1a36b;
-  --color-danger: #c97878;
-  --color-info: #7796ad;
+  --color-ok: #4fb583;
+  --color-warn: #d3a35c;
+  --color-danger: #b3766f;
+  --color-info: #989ea3;
 
-  --color-node-start: #83a995;
-  --color-node-llm: #a3a7aa;
-  --color-node-tool: #7796ad;
-  --color-node-agent: #f0f1f1;
-  --color-node-end: #83a995;
+  --color-node-start: #4fb583;
+  --color-node-llm: #989ea3;
+  --color-node-tool: #6a7076;
+  --color-node-agent: #e6e8ea;
+  --color-node-end: #4fb583;
+}
+
+/* 라이트 테마 — v2 토큰의 명도 반전 파생 (계약 §4). theme.ts가
+   documentElement의 data-theme을 관리하고, 여기서 @theme 변수를 덮어쓴다. */
+[data-theme='light'] {
+  --color-bg: #f1f2f4;
+  --color-canvas: #fafbfc;
+  --color-panel: #f1f2f4;
+  --color-panel-2: #f6f7f9;
+  --color-surface: #ffffff;
+  --color-raised: #ffffff;
+  --color-hover: #e9ebee;
+  --color-active: #e2e5e8;
+  --color-border: #e6e8ea;
+  --color-spine: #dde0e3;
+  --color-border-strong: #d3d6da;
+  --color-border-emphasis: #b9bec3;
+
+  --color-fg: #1b1d1f;
+  --color-muted: #5b6268;
+  --color-faint: #8a9096;
+  --color-timestamp: #9aa0a5;
+  --color-disabled: #b5babe;
+
+  --color-accent: #2e8b5f;
+  --color-accent-soft: rgb(46 139 95 / 12%);
+  --color-accent-fg: #26744f;
+  --color-on-accent: #ffffff;
+
+  --color-ok: #2e8b5f;
+  --color-warn: #9c6f1f;
+  --color-danger: #a84f44;
+  --color-info: #5b6268;
+
+  --color-node-start: #2e8b5f;
+  --color-node-llm: #5b6268;
+  --color-node-tool: #8a9096;
+  --color-node-agent: #1b1d1f;
+  --color-node-end: #2e8b5f;
+
+  --focus-border: #9aa0a5;
+  --diff-add-bg: rgb(46 139 95 / 10%);
+  --diff-remove-bg: rgb(168 79 68 / 10%);
+  --floating-shadow: 0 16px 40px rgb(15 20 25 / 16%);
 }
 
 /* 색의 원본은 위 @theme(--color-*) 하나다. 아래 별칭들은 값이 아니라
@@ -46,9 +94,10 @@
   --bg-hover: var(--color-hover);
   --bg-active: var(--color-active);
   --border-subtle: var(--color-border);
+  --spine: var(--color-spine);
   --border-default: var(--color-border-strong);
   --border-strong: var(--color-border-emphasis);
-  --focus-border: #52585d; /* 계약 §3: focus는 neutral — green은 시스템 생존 신호 전용 */
+  --focus-border: #55595e; /* 계약: focus는 neutral — green은 살아있음·허용 전용 */
   --text-primary: var(--color-fg);
   --text-secondary: var(--color-muted);
   --text-muted: var(--color-faint);
@@ -60,8 +109,8 @@
   --warning: var(--color-warn);
   --danger: var(--color-danger);
   --info: var(--color-info);
-  --diff-add-bg: rgb(100 160 120 / 10%);
-  --diff-remove-bg: rgb(190 100 100 / 10%);
+  --diff-add-bg: rgb(79 181 131 / 8%);
+  --diff-remove-bg: rgb(179 118 111 / 8%);
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -76,9 +125,16 @@
   --motion-fast: 100ms;
   --motion-default: 160ms;
   --motion-slow: 220ms;
-  --font-ui: Inter, Pretendard, system-ui, sans-serif;
-  --font-mono: "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
+  --font-ui: "Pretendard", -apple-system, "Apple SD Gothic Neo", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
   --floating-shadow: 0 16px 40px rgb(0 0 0 / 38%);
+}
+
+/* 테마 전환 순간 트랜지션 금지 — theme.ts가 붙였다 뗀다. */
+.theme-switching *,
+.theme-switching *::before,
+.theme-switching *::after {
+  transition: none !important;
 }
 
 html,
@@ -116,8 +172,8 @@ button {
 }
 
 .janus-symbol {
-  width: 23px;
-  height: 23px;
+  width: 14px;
+  height: 14px;
   flex: none;
   background: currentColor;
   mask: url('./assets/janus-symbol.svg') center / contain no-repeat;
@@ -125,14 +181,9 @@ button {
 }
 
 .janus-wordmark {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: -0.02em;
-}
-
-.janus-brand--compact .janus-symbol {
-  width: 22px;
-  height: 22px;
+  letter-spacing: -0.01em;
 }
 
 .ui-button,
@@ -163,13 +214,15 @@ button {
   font-size: 11px;
 }
 
+/* 계약 §9: filled green은 결정(허용·시작) 전용 — 화면에 하나만. */
 .ui-button--primary {
-  background: #eceded;
-  color: #111214;
+  background: var(--accent);
+  color: var(--color-on-accent);
+  font-weight: 600;
 }
 
 .ui-button--primary:hover:not(:disabled) {
-  background: #ffffff;
+  background: var(--accent-hover);
 }
 
 .ui-button--secondary {
@@ -393,7 +446,7 @@ button {
 
 .app-titlebar {
   display: grid;
-  height: 44px;
+  height: 36px;
   flex: none;
   grid-template-columns: 180px minmax(0, 1fr) auto;
   align-items: center;
@@ -427,11 +480,11 @@ button {
 
 .resource-sidebar {
   display: flex;
-  width: 270px;
+  width: 216px;
   flex: none;
   flex-direction: column;
   border-right: 1px solid var(--border-subtle);
-  background: #151617;
+  background: var(--bg-base);
 }
 
 .task-sidebar-actions {
@@ -461,9 +514,9 @@ button {
 }
 
 .task-sidebar-nav { display: grid; flex: none; gap: 2px; border-bottom: 1px solid var(--border-subtle); padding: 7px 10px; }
-.task-sidebar-nav button { display: flex; height: 30px; align-items: center; gap: 9px; border-radius: var(--radius-sm); padding: 0 10px; color: var(--text-muted); font-size: 11px; }
+.task-sidebar-nav button { display: flex; height: 28px; align-items: center; gap: 9px; border-radius: var(--radius-sm); padding: 0 10px; color: var(--text-muted); font-size: 11.5px; }
 .task-sidebar-nav button:hover { background: var(--bg-hover); color: var(--text-primary); }
-.task-sidebar-nav button[aria-current='page'] { background: rgb(255 255 255 / 5%); color: var(--text-primary); }
+.task-sidebar-nav button[aria-current='page'] { background: var(--bg-hover); color: var(--text-primary); }
 
 .resource-sidebar__header {
   border-bottom: 1px solid var(--border-subtle);
@@ -566,7 +619,7 @@ button {
 }
 
 .resource-row[aria-selected='true'] {
-  background: rgb(255 255 255 / 4.5%);
+  background: var(--color-raised);
   color: var(--text-primary);
 }
 
@@ -600,7 +653,7 @@ button {
 
 .status-bar {
   display: flex;
-  height: 24px;
+  height: 22px;
   flex: none;
   align-items: center;
   gap: var(--space-4);
@@ -781,8 +834,7 @@ button {
 
 .task-context-panel {
   display: flex;
-  width: 304px;
-  min-width: 288px;
+  width: 296px;
   flex: none;
   flex-direction: column;
   overflow-y: auto;
@@ -790,7 +842,7 @@ button {
   border: 0;
   border-left: 1px solid var(--border-default);
   border-radius: 0;
-  background: #1b1c1c;
+  background: var(--bg-panel);
   box-shadow: -12px 0 28px rgb(0 0 0 / 8%);
   padding: 20px 16px 16px;
 }
@@ -1422,7 +1474,7 @@ button {
   display: grid;
   min-height: 0;
   flex: 1;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) 296px;
 }
 
 .workspace-main {
@@ -1516,7 +1568,7 @@ button {
 
 .agent-overview__body { height: 100%; overflow-y: auto; padding: 22px 24px 32px; }
 
-.agent-dashboard-grid { display: grid; width: min(100%, 1080px); grid-template-columns: minmax(0, 1fr) 286px; align-items: start; gap: 18px; }
+.agent-dashboard-grid { display: grid; width: min(100%, 1080px); margin: 0 auto; grid-template-columns: minmax(0, 1fr) 286px; align-items: start; gap: 18px; }
 .agent-dashboard-main { min-width: 0; }
 .agent-dashboard-sidebar { display: grid; gap: 12px; }
 .agent-status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--border-subtle); gap: 1px; }
@@ -1528,7 +1580,7 @@ button {
 .agent-status-grid small { margin-top: 3px; color: var(--text-faint); font-size: 9.5px; }
 .agent-status-grid strong { color: var(--text-primary); font-family: var(--font-mono); font-size: 21px; font-weight: 500; font-variant-numeric: tabular-nums; }
 
-.agent-execution-flow { max-width: 1080px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--bg-panel); }
+.agent-execution-flow { max-width: 1080px; margin: 0 auto; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--bg-panel); }
 .agent-execution-flow > header { display: flex; height: 38px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding: 0 14px; color: var(--text-muted); font-size: 10.5px; }
 .agent-execution-flow > header button { color: var(--text-faint); }
 .agent-execution-flow > header button:hover { color: var(--text-primary); }
@@ -1624,6 +1676,76 @@ button {
   .agent-status-grid, .agent-dashboard-sidebar { grid-template-columns: minmax(0, 1fr); }
 }
 
+/* 오늘(홈) — 상태가 문장으로 읽히는 행 목록. 계약 §3·§7. */
+.today-view {
+  min-width: 0;
+  flex: 1;
+  overflow-y: auto;
+  background: var(--bg-canvas);
+}
+
+.today-body {
+  display: flex;
+  width: min(100%, 960px);
+  margin: 0 auto; /* 열은 가운데, 내용은 왼쪽 정렬 — 대화 화면과 같은 패턴 */
+  min-height: 100%;
+  flex-direction: column;
+  padding: 0 24px 32px;
+}
+
+.today-header {
+  display: flex;
+  height: 40px;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 4px;
+}
+
+.today-section-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 14px 0 6px;
+  color: var(--text-faint);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.today-row {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.today-row__title {
+  width: 240px;
+  flex: none;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-row__title:hover {
+  color: var(--accent);
+}
+
+.today-row__sentence {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .ui-checkbox-row {
   display: grid;
   min-height: 46px;
@@ -1650,12 +1772,12 @@ button {
 }
 
 .ui-checkbox:checked {
-  border-color: #e8e9e9;
-  background: #e8e9e9;
+  border-color: var(--color-fg);
+  background: var(--color-fg);
 }
 
 .ui-checkbox:checked::after {
-  color: #111214;
+  color: var(--color-bg);
   content: '\2713';
   font-family: var(--font-mono);
   font-size: 11px;
@@ -2026,7 +2148,7 @@ button {
 }
 
 .skill-list-row[data-selected='true'] {
-  background: rgb(255 255 255 / 4.5%);
+  background: var(--color-raised);
 }
 
 .skill-list-row[data-selected='true']::before {
@@ -2086,11 +2208,11 @@ button {
   height: 9px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgb(255 255 255 / 8%);
+  background: color-mix(in srgb, var(--color-fg) 10%, transparent);
   border-radius: 5px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(255 255 255 / 15%);
+  background: color-mix(in srgb, var(--color-fg) 18%, transparent);
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -2236,70 +2358,83 @@ button {
 }
 
 .task-transcript {
+  display: flex;
   min-height: 0;
+  flex-direction: column;
   overflow-y: auto;
   padding: 30px max(24px, calc((100% - 760px) / 2)) 22px;
 }
 
+/* 계약 §11: 타임라인은 바닥 정렬 — 내용이 짧아도 최신이 컴포저 옆에 붙는다. */
+.task-transcript > :first-child {
+  margin-top: auto;
+}
+
 /* 대화는 말풍선으로: 내 메시지는 오른쪽, Janus는 왼쪽.
    도구 행·사고 과정은 발화가 아니므로 전폭 왼쪽을 유지한다. */
+/* 계약 §11: 말풍선이 아니라 동료의 작업 기록 — 좌측 mono 타임스탬프 거터와
+   1px 세로 괘선(spine)에 내용이 걸린다. 역할은 색으로 구분한다. */
 .task-message {
   display: flex;
-  flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
-  padding: 8px 0;
 }
 
-.task-message[data-role='user'] {
-  align-items: flex-end;
+.task-message__time {
+  width: 46px;
+  flex: none;
+  padding-top: 10px;
+  color: var(--color-timestamp);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
 }
 
-.task-message > span {
-  padding: 0 2px;
-  color: var(--color-faint);
-  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+.task-message__body {
+  min-width: 0;
+  flex: 1;
+  border-left: 1px solid var(--spine);
+  padding: 8px 0 8px 16px;
 }
 
-.task-message[data-role='assistant'] > span {
-  color: var(--text-secondary);
-}
-
-.task-message > p,
-.task-message > .task-markdown {
-  max-width: min(82%, 720px);
-  border: 1px solid var(--color-border);
+/* 발화는 말풍선으로 — 내 메시지는 오른쪽, Janus는 왼쪽. 도구·사고·진행은
+   발화가 아니므로 괘선에 정렬된 채 남는다. */
+.task-message__body > p,
+.task-message__body > .task-markdown {
+  max-width: min(82%, 640px);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   background: var(--color-panel-2);
   padding: 8px 12px;
 }
 
-.task-message > p {
+.task-message__body > p {
   white-space: pre-wrap;
-  color: var(--color-muted);
   font-size: 13px;
-  line-height: 1.7;
+  line-height: 1.65;
+  color: var(--text-primary);
 }
 
-.task-message[data-role='user'] > p {
-  color: var(--text-primary);
+.task-message[data-role='user'] .task-message__body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.task-message[data-role='user'] .task-message__body > p {
   background: var(--color-raised);
   border-color: var(--color-border-strong);
   border-bottom-right-radius: var(--radius-xs);
 }
 
-.task-message[data-role='assistant'] > p,
-.task-message[data-role='assistant'] > .task-markdown {
+.task-message[data-role='assistant'] .task-message__body > p,
+.task-message[data-role='assistant'] .task-message__body > .task-markdown {
   border-bottom-left-radius: var(--radius-xs);
 }
 
 .task-markdown {
-  color: var(--text-secondary);
-  font-size: 15px;
-  line-height: 1.72;
+  color: var(--text-primary);
+  font-size: 13.5px;
+  line-height: 1.65;
 }
 
 .task-markdown > :first-child { margin-top: 0; }
@@ -2533,15 +2668,17 @@ button {
   font-size: 10px;
 }
 
+/* 계약 §11: 패널을 warning 색으로 채우지 않는다 — 앰버는 △ 글리프 하나뿐. */
 .task-decision-card {
   display: flex;
   min-height: 62px;
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  border-left: 2px solid var(--warning);
-  background: color-mix(in srgb, var(--warning) 5%, var(--bg-surface));
-  padding: 10px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-base);
+  padding: 10px 14px;
 }
 
 .task-decision-card__copy {
@@ -2552,6 +2689,8 @@ button {
   color: var(--text-secondary);
   font-size: 11.5px;
 }
+
+.task-decision-card__copy strong { color: var(--text-primary); font-weight: 600; }
 
 .task-decision-card__copy code { font-family: var(--font-mono); }
 .task-decision-card__copy span { color: var(--text-faint); font-size: 10.5px; }
@@ -2620,31 +2759,32 @@ button {
 .task-primary-action,
 .task-quiet-action {
   display: inline-flex;
+  height: 28px;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  border-radius: 6px;
-  padding: 7px 10px;
-  font-size: 11px;
+  border-radius: 3px;
+  padding: 0 12px;
+  font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
 }
 
+/* 계약 §9: filled green은 결정(허용·시작·재개) 전용. */
 .task-primary-action {
   border: 1px solid transparent;
-  background: var(--text-primary);
-  color: var(--bg-panel);
+  background: var(--accent);
+  color: var(--color-on-accent);
 }
 
 .task-quiet-action {
   border: 1px solid var(--color-border-strong);
-  background: var(--color-raised);
+  background: transparent;
   color: var(--color-muted);
 }
 
 .task-primary-action:hover {
-  background: white;
-  color: var(--bg-base);
+  background: var(--accent-hover);
 }
 
 .task-quiet-action:hover {
@@ -2785,22 +2925,22 @@ textarea:focus-visible {
 
 /* 사고 과정 — 기본은 접어 둔다. 답을 밀어내면 안 된다. */
 .task-reasoning {
-  margin: 2px 0 6px;
-  border-left: 2px solid var(--line, #2a2a3a);
-  padding-left: 8px;
+  margin: 2px 0 6px 46px;
+  border-left: 1px solid var(--spine);
+  padding-left: 16px;
 }
 .task-reasoning > summary {
   cursor: pointer;
   font-size: 10px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--text-faint, #6c6c86);
+  color: var(--color-faint);
 }
 .task-reasoning > p {
   margin-top: 4px;
   font-size: 11px;
   line-height: 1.6;
-  color: var(--text-muted, #9a9ab0);
+  color: var(--color-muted);
   white-space: pre-wrap;
 }
 
@@ -2874,7 +3014,9 @@ textarea:focus-visible {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 9px 0 7px 3px;
+  margin-left: 46px;
+  border-left: 1px solid var(--spine);
+  padding: 9px 0 7px 16px;
   color: var(--color-faint);
   font-size: 11px;
 }
@@ -2884,18 +3026,22 @@ textarea:focus-visible {
   align-items: baseline;
   gap: 10px;
   overflow: hidden;
-  padding: 2px 0 2px 44px;
-  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
-  font-size: 11px;
-  color: var(--text-secondary);
+  margin-left: 46px;
+  border-left: 1px solid var(--spine);
+  padding: 2px 0 2px 16px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-muted);
 }
 
+/* 계약 §8: ✓ 끝남은 조용해진다 — 그린은 살아있음(실행 중)에만. */
 .task-tool-row__glyph {
   flex: none;
-  color: var(--success);
+  color: var(--text-disabled);
 }
 
 .task-tool-row[data-status='active'] .task-tool-row__glyph {
+  color: var(--accent);
   animation: task-thinking-breathe 1.6s ease-in-out infinite;
 }
 
@@ -3129,9 +3275,10 @@ textarea:focus-visible {
 /* select는 전부 Listbox로 옮겼다 — 남은 건 숫자 입력뿐. */
 .settings-field input[type='number'] {
   height: 28px;
+  max-width: 120px; /* 넓은 열에서 숫자 입력이 전폭으로 늘어나지 않게 */
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
-  background: var(--color-base);
+  background: var(--color-bg);
   padding: 0 8px;
   color: var(--color-fg);
   font-size: 11.5px;
@@ -3274,10 +3421,12 @@ textarea:focus-visible {
 .settings-page__header p { margin-top: 2px; font-size: 10.5px; color: var(--color-faint); }
 .settings-page__body {
   display: flex;
-  max-width: 560px;
+  width: 100%;
+  max-width: 960px; /* 오늘·작업 보조 뷰와 같은 집 기준 폭 */
+  margin: 0 auto;
   flex-direction: column;
   gap: 14px;
-  padding: 16px 20px 24px;
+  padding: 16px 24px 32px;
 }
 .settings-section { display: flex; flex-direction: column; gap: 14px; }
 .settings-section h3 { font-size: 11.5px; font-weight: 600; color: var(--text-secondary); }

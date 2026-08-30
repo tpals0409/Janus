@@ -29,6 +29,17 @@ def test_mutation_intent_dominates_mixed_requests(text: str):
     assert intent_mod.is_read_only_request(text) is False
 
 
+@pytest.mark.parametrize("text", [
+    "확인하고 바꿔줘",
+    "구조 살펴보고 테스트 만들어줘",
+    "분석해서 주석 넣어줘",
+    "검토 후 임시 파일 지워줘",
+])
+def test_common_korean_mutation_verbs_keep_full_tools(text: str):
+    # 사전에 없던 구어 변형 동사가 read-only 축소로 오판되던 회귀.
+    assert intent_mod.is_read_only_request(text) is False
+
+
 def test_unknown_language_defaults_to_full_tools():
     assert intent_mod.is_read_only_request("이거 왜 이런 거야?") is False
     assert intent_mod.is_read_only_request("") is False

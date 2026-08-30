@@ -1,459 +1,259 @@
-# Janus Design System
+# Janus Design System v2
 
-> Janus is a quiet, structural interface for configuring and operating local AI agents.
+> Janus is a quiet desktop tool. 동료감은 장식이 아니라 문장에서 나온다.
 
-이 문서는 Janus UI의 공식 디자인 계약이다. 제품 구조와 충돌하는 일반적인 AI/SaaS 패턴보다
-이 문서의 원칙을 우선한다.
+이 문서는 Janus UI의 공식 디자인 계약이다. 화면과 이 문서가 어긋나면 이 문서가 이긴다.
+제품 구조와 충돌하는 일반적인 AI/SaaS 패턴보다 이 문서의 원칙을 우선한다.
 
-초안에서 충돌하던 항목은 다음처럼 확정했다.
+**v2 (2026-08-30)** — v1을 대체한다. 비주얼 언어(색·타이포·밀도·컨트롤)를 전면 교체하고
+라이팅 규칙을 계약에 추가했다. 도메인 경계와 소유권 규칙(§2)은 v1을 계승한다.
+구현 이관: 색의 단일 원본은 계속 `janus/src/renderer/src/main.css`의 `@theme`(--color-*)이며,
+§4의 값으로 교체해야 한다. `--bg-*`/`--text-*` 별칭은 `var()` 참조만 담는다는 규칙도 유지한다.
 
-- `Tools` 전역 메뉴는 두지 않는다. 영속 자산은 AgentProfile의 `스킬`, 저수준 호출은 runtime `도구`다.
-- `Context` 전역 메뉴는 두지 않는다. 정책은 AgentProfile, 실제 입력 검사는 Task Session에 속한다.
-- 그래프의 `새 에이전트`는 제거한다. 워커 수명 주기는 오케스트레이터가 소유하고 그래프는 읽기 전용이다.
-- Inspector는 고정 4열 레이아웃이 아니라 검사할 객체가 있을 때만 표시한다.
-- `Dual structure`는 브랜드 장식이 아니라 실제 소유권·비교 관계가 있을 때만 사용한다.
-- green은 선택 색이 아니라 살아 있는 시스템 상태 신호다. focus와 tab은 neutral로 유지한다.
+## 1. 원칙
 
-## 1. 제품과 화면의 역할
+우선순위: Structure → Information → Interaction → State → Brand → Decoration.
 
-Janus는 로컬 모델을 극한까지 효율적으로 사용하는 개발자를 위한 데스크톱 ADE다. 화면의 한 가지
-핵심 역할은 **AgentProfile을 구성하고, Task 실행에서 오케스트레이터가 자원을 어떻게 사용했는지
-검사하는 것**이다.
+1. **화면당 한 가지 일.** 지금 이 순간 사용자가 할 일 하나가 화면의 주인이다.
+2. **그레이가 95%, 색은 어휘.** 그린은 두 의미뿐이다 — 살아있음, 그리고 허용·시작.
+   선택·탭·포커스·브랜딩에 색을 쓰지 않는다.
+3. **동료감은 라이팅에서.** 해요체·능동형·예측 힌트. 시각은 조용하게, 문장이 말한다.
+4. **가치 먼저 (value first).** 승인을 요청하기 전에 변경 내용(diff)을 먼저 보여준다.
+5. **실물 밀도.** 왼쪽 정렬, 헤어라인 구분, 컴팩트한 행. 가운데 정렬 히어로와 카드 무대는 금지.
+6. **"안 읽어도 됨" 층.** 정보 위계는 크기가 아니라 "읽어야 하는 정도"로 정의한다.
 
-사용자가 느껴야 하는 인상은 “AI 앱”이 아니라 “새로운 개발 도구”다.
-
-우선순위는 항상 다음과 같다.
-
-1. Structure
-2. Information
-3. Interaction
-4. State
-5. Brand
-6. Decoration
-
-핵심 성격은 Quiet, Precise, Structural, Neutral, Technical, Desktop-first다.
-
-## 2. 제품 용어와 소유권
+## 2. 제품 용어와 소유권 (v1 계승)
 
 디자인은 다음 도메인 경계를 감추거나 섞지 않는다.
 
 | 사용자 용어 | 도메인 | 수명 | UI 소유권 |
 |---|---|---|---|
 | 에이전트 프로필 | `AgentProfile` | 영속 | 프롬프트, 스킬, 컨텍스트 정책, 실행 정책 |
-| 오케스트레이터 | Task 실행의 루트 agent | Session | 실행 그래프의 고정 루트 |
+| 오케스트레이터 | Task 실행의 루트 agent | Session | 실행의 고정 루트 |
 | 워커 | 오케스트레이터가 만든 runtime worker | Dispatch/Session | 실제 실행 span으로만 표시 |
 | 스킬 | 변환·설치된 `SkillVersion` | 영속/versioned | AgentProfile에서 활성화 |
-| 도구 | 모델이 호출하는 저수준 runtime capability | 실행 | 활동 타임라인과 승인에서 표시 |
+| 도구 | 저수준 runtime capability | 실행 | 타임라인과 승인에서 mono 이름으로 |
 | 컨텍스트 정책 | 포함 소스와 압축 한도 | AgentProfile | 에이전트 내부 탭 |
-| 컨텍스트 검사기 | 실제 조립된 입력과 token 상태 | Session | Task 실행 화면 |
+| 컨텍스트 검사기 | 실제 조립된 입력과 token 상태 | Session | 작업 화면 인스펙터 |
 
-다음 UI는 만들지 않는다.
+만들지 않는 UI: 그래프에서 워커 생성, 영속 Worker 목록, 전역 Context 메뉴,
+스킬과 runtime 도구를 한 목록으로 섞기.
 
-- 그래프에서 `새 에이전트` 또는 `새 워커` 생성
-- 영속 Worker 목록이나 Worker 설정 화면
-- 전역 Context 메뉴
-- 스킬과 runtime 도구를 같은 목록으로 표현
-- 정적 Tool Map을 실행 그래프처럼 표현
+## 3. 화면 목록
 
-## 3. 브랜드 모티프
+시스템 v2가 정의하는 화면: **오늘(홈)** · **작업 실행** · **에이전트 프로필**
+(탭: 대시보드·지침·스킬·컨텍스트·그래프) · **평가** · **첫 실행(모델 준비)** ·
+**⌘K 커맨드 팔레트**. 설정은 상태바에서 연다.
 
-공식 심볼의 두 프로필과 중앙 축은 세 가지 방식으로만 확장한다.
-
-### Dual structure
-
-실제 대립 관계가 있을 때 좌우 구조를 사용한다.
-
-- Resource | Workspace
-- Configuration | Execution
-- Input | Output
-- Human request | Agent activity
-
-모든 화면을 억지로 좌우 분할하지 않는다.
-
-### Central axis
-
-중앙 축은 실행 관계에 사용한다.
-
-```text
-AgentProfile
-     |
-Orchestrator
-     |
-Runtime worker spans
-```
-
-그래프는 입력 도구가 아니라 읽기 전용 실행 뷰어다.
-
-### Green signal
-
-Muted green은 시스템이 살아 있고 정상적으로 진행 중임을 알리는 작은 신호다. 넓은 배경이나
-브랜드 장식으로 사용하지 않는다.
-
-## 4. 시각 원칙
-
-Janus는 `IDE + system tool + modern desktop application`으로 보인다.
-
-사용한다.
-
-- Panel, divider, split view
-- Toolbar, tree, inspector
-- Command palette, context menu
-- Inline status, activity timeline
-- 작은 색 차이와 얇은 경계선
-
-사용하지 않는다.
-
-- Purple AI gradient, glow, glassmorphism
-- 모든 섹션을 감싸는 카드
-- 과도한 radius, shadow, spacing
-- 큰 CTA와 AI sparkle icon
-- 컬러가 많은 sidebar와 아이콘
-- 로고 회전, bouncing, animated gradient
-
-## 5. Color tokens
-
-Neutral 95% + state color 5%를 유지한다. 영역은 색 면보다 border와 spacing으로 구분한다.
-
-색의 단일 원본은 `janus/src/renderer/src/main.css`의 `@theme`(--color-*)다.
-`--bg-*`/`--text-*` 계열은 값이 아니라 `var()` 참조만 담는 별칭이다 — 두 곳을
-고치다 어긋나는 사고를 구조적으로 막는다. 아래 값이 현재 구현이자 계약이다.
+## 4. Color tokens
 
 ```css
 :root {
-  --bg-base: #0e0f10;
-  --bg-canvas: #171819;   /* workspace — 패널보다 한 단계 밝다. 중심이 앞으로 나온다 */
-  --bg-panel: #131415;
-  --bg-surface: #202223;
-  --bg-hover: #252728;
-  --bg-active: #2b2d2e;
+  --bg-base: #111214;      /* 바탕 전체 */
+  --bg-well: #141517;      /* 넓은 목록 바탕 */
+  --bg-raised: #191b1e;    /* 선택 행, 팔레트 */
+  --bg-hover: #202225;     /* 호버, 포커스 행 */
 
-  --border-subtle: #242627;
-  --border-default: #303334;
-  --border-strong: #414445;
-  --focus-border: #52585d;  /* neutral — green은 시스템 생존 신호 전용 */
+  --hairline: #1e2023;     /* 기본 구분선 */
+  --spine: #26292c;        /* 타임라인 괘선, 강조 구분선 */
+  --border: #2c2f33;       /* 컨트롤 테두리 */
 
-  --text-primary: #f0f1f1;
-  --text-secondary: #a3a7aa;
-  --text-muted: #686d71;
-  --text-disabled: #464a4d;
+  --text-1: #e6e8ea;       /* 주인공 텍스트 */
+  --text-2: #989ea3;       /* 문장, 상태 */
+  --text-3: #6a7076;       /* 보조, 라벨 */
+  --text-4: #55595e;       /* 타임스탬프 */
+  --text-faint: #43474c;   /* 안 읽어도 됨 */
 
-  --accent: #83a995;
-  --accent-hover: #91b5a2;
-  --accent-muted: rgb(131 169 149 / 12%);
-  --success: #83a995;
-  --warning: #c1a36b;
-  --danger: #c97878;
-  --info: #7796ad;
+  --green: #4fb583;        /* 살아있음 · 허용/시작 · 링크 · + 추가 수 */
+  --amber: #d3a35c;        /* △ 허용 대기 · 대기 타임스탬프, 이것뿐 */
+  --red-dim: #b3766f;      /* − 삭제 수, × 실패 */
 
-  --diff-add-bg: rgb(100 160 120 / 10%);
-  --diff-remove-bg: rgb(190 100 100 / 10%);
+  --diff-add-bg: rgb(79 181 131 / 8%);
+  --diff-remove-bg: rgb(179 118 111 / 8%);
 }
 ```
 
-Accent는 연결, 준비, 저장, 정상 실행과 active runtime edge에만 사용한다. 선택된 내비게이션,
-탭 indicator, 일반 버튼, AI 메시지에는 사용하지 않는다.
+- 그린 채운 버튼은 화면에 하나만 — 허용·시작 같은 결정에만.
+- 앰버는 △ 글리프와 대기 타임스탬프에만. 문장 전체를 칠하지 않는다.
+- 두 번째 강조색을 만들지 않는다.
 
-색만으로 상태를 전달하지 않는다.
-
-| 상태 | 표식 | 색 |
-|---|---|---|
-| 준비 | `● Ready` | success |
-| 실행 | `◉ Running` | success + 작은 pulse |
-| 저장 | `✓ Saved` | success |
-| 완료 | `✓ Complete` | success |
-| 유휴 | `○ Idle` | muted |
-| 승인 대기 | `△ Waiting` | warning |
-| 실패 | `× Failed` | danger |
-
-## 6. Typography
+**라이트 테마** — 같은 토큰의 명도 반전 파생. 전환은 `documentElement`의
+`data-theme`(`theme.ts`가 관리, 설정 › 화면 › 테마: 시스템/다크/라이트)이고,
+`[data-theme='light']`가 `@theme` 변수를 덮어쓴다. Monaco 테마도 같이 따라간다.
+라이트에서 그린은 대비를 위해 어두워진다 — 색의 의미는 그대로다.
 
 ```css
---font-ui: Inter, Pretendard, system-ui, sans-serif;
---font-mono: "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
+[data-theme='light'] {
+  --bg-base: #f1f2f4;   --bg-well: #fafbfc;   --bg-raised: #ffffff;  --bg-hover: #e9ebee;
+  --hairline: #e6e8ea;  --spine: #dde0e3;     --border: #d3d6da;
+  --text-1: #1b1d1f;    --text-2: #5b6268;    --text-3: #8a9096;
+  --text-4: #9aa0a5;    --text-faint: #b5babe;
+  --green: #2e8b5f;     --amber: #9c6f1f;     --red-dim: #a84f44;
+  /* 채운 그린 버튼의 글자는 라이트에서 흰색(on-accent) */
+}
 ```
 
-- 11px: metadata, status bar
-- 12px: secondary UI
-- 13px: default UI
-- 14px: important UI
-- 16px: section heading
-- 20px: page heading; 드물게 사용
-
-Regular 400, Medium 500, Semibold 600을 쓴다. Bold 700은 사용하지 않는 것이 기본이다.
-
-경로, 모델명, 명령, 로그, token, port, 스킬과 도구 이름에는 mono를 사용한다.
-
-## 7. Spacing, radius, motion
-
-4px grid를 사용한다.
+## 5. Typography
 
 ```css
---space-1: 4px;
---space-2: 8px;
---space-3: 12px;
---space-4: 16px;
---space-5: 20px;
---space-6: 24px;
---space-8: 32px;
-
---radius-xs: 3px;
---radius-sm: 4px;
---radius-md: 6px;
---radius-lg: 8px;
-
---motion-fast: 100ms;
---motion-default: 160ms;
---motion-slow: 220ms;
+--font-ui: "Pretendard", -apple-system, "Apple SD Gothic Neo", system-ui, sans-serif;
+--font-mono: ui-monospace, "SF Mono", Menlo, monospace;  /* + font-variant-numeric: tabular-nums */
 ```
 
-Panel radius는 0이다. Button/Input은 4–6px, floating layer는 최대 8px다. 12px 이상 radius는
-사용하지 않는다.
+위계는 "읽어야 하는 정도"다.
 
-기본 UI는 shadow를 쓰지 않는다. Modal, dropdown, context menu, command palette만 다음 elevation을
-사용한다.
-
-```css
-box-shadow: 0 16px 40px rgb(0 0 0 / 38%);
-```
-
-Motion은 hover, menu, panel, execution state 변화에만 짧게 사용하며 `prefers-reduced-motion`을
-지원한다.
-
-## 8. App shell
-
-```text
-+------------------------------------------------------------+
-| { | } Janus                           model        ● Ready  |
-+-----+----------------+-----------------------+--------------+
-| NAV | RESOURCE       |                       | INSPECTOR*   |
-|     |                |       WORKSPACE       |              |
-|     |                |                       |              |
-+-----+----------------+-----------------------+--------------+
-| TASK CONTEXT         | ACTIVITY / CONTEXT INSPECTOR         |
-+------------------------------------------------------------+
-| ● server :8765  ● model :8080  ~/project          v1.0     |
-+------------------------------------------------------------+
-```
-
-`INSPECTOR*`는 선택한 객체의 세부 정보가 있을 때만 나타난다. 프롬프트와 컨텍스트 정책처럼
-중앙 편집기가 충분한 화면에는 빈 Inspector를 유지하지 않는다.
-
-### Title bar
-
-- 공식 심볼과 `Janus`를 한 번만 노출한다.
-- 현재 Task 또는 AgentProfile 이름을 보여준다.
-- 상태는 우측에 작은 inline signal로 표시한다.
-- 큰 브랜딩 영역으로 사용하지 않는다.
-
-### Navigation
-
-- 좌측 사이드바 상단의 icon+label 행 (14px icon, 1.5px stroke, monochrome)
-- active는 약한 neutral background와 primary text
-- accent를 selection에 사용하지 않는다.
-
-기본 항목은 `작업`, `에이전트`, `평가`이고, 설정은 상태바의 톱니바퀴로 연다. 구현되지 않은 항목(`모니터`, `배포`)은
-비활성 버튼으로도 상시 노출하지 않는다. `스킬`과 `컨텍스트 정책`은 AgentProfile
-내부에, 리소스(작업/파일 트리)는 내비 아래 같은 사이드바에 둔다.
-
-### Resource sidebar
-
-- 폭 220–260px
-- Agent 화면에서는 AgentProfile 목록
-- Task 화면에서는 Project/Task tree
-- 선택은 2px neutral marker 또는 아주 약한 active background
-- 보라색 outline과 영속 Worker 목록을 사용하지 않는다.
-
-Profile 생성 기능이 생기면 `새 에이전트`가 아니라 `새 프로필`이라고 부른다.
-
-### Workspace
-
-- 가장 중요한 영역이며 `--bg-canvas`를 사용한다.
-- 모든 내용을 카드로 감싸지 않는다.
-- empty state는 심볼, 상태 설명, 정확한 다음 행동만 제공한다.
-
-### Inspector
-
-- 폭 280–340px
-- Card가 아니라 section과 separator로 구성
-- 선택한 Task, span, tool call, file 등 실제 객체만 검사
-- 편집 책임이 다른 화면에 있는 설정을 복제하지 않는다.
-
-### Status bar
-
-- 높이 22–24px, 11px typography
-- server, model, workspace, version을 표시
-- 색과 함께 텍스트 상태를 제공
-
-## 9. Core components
-
-디자인 요소는 화면별 Tailwind 조합으로 복제하지 않고 다음 primitive를 사용한다.
-
-| Component | 역할 |
+| 크기 | 용도 |
 |---|---|
-| `Button` | primary, secondary, ghost 세 variant |
-| `IconButton` | toolbar와 compact action |
-| `Tabs` | 1px primary indicator를 갖는 화면 전환 |
-| `Field` | label, input/select/textarea, help, error |
-| `Checkbox` | neutral check, 접근 가능한 label |
-| `SegmentedControl` | 작은 모드 선택 |
-| `Panel` | radius 없는 구조 영역 |
-| `Section` | inspector heading과 separator |
-| `Status` | glyph + label + semantic tone |
-| `Toolbar` | 36px compact control row |
-| `EmptyState` | 상태 설명과 하나의 다음 행동 |
-| `Menu` | dropdown/context menu 공통 row |
-| `Dialog` | modal shell과 focus management |
+| 13.5 / 600 | 화면·섹션 제목 |
+| 13.5 / 400 · lh 1.6 | 에이전트의 문장 — 꼭 읽는다 |
+| 12.5 / 400 | UI 문장, 상태, 행 텍스트 |
+| 13 · 12 | 중간 단계 — 사용자 메시지, 보조 UI에 허용 |
+| 11.5 mono | 경로·숫자·데이터 — 항상 mono + tabular |
+| 11 / 400 | 라벨, 메타 — 안 읽어도 된다 |
+| 10.5 mono | 상태바 — 배경 소음 |
 
-컴포넌트 내부를 제외한 TSX에는 raw hex 색상을 쓰지 않는다. 같은 Tailwind class 조합이 세 번
-반복되면 primitive 또는 recipe로 승격한다.
+굵기는 400과 600 둘만 쓴다. 숫자·경로·모델명·도구 이름은 예외 없이 mono.
 
-## 10. Controls
+## 6. 치수, radius, motion
 
-### Button
+4px 그리드.
 
-- 높이 30–32px, radius 5–6px
-- Primary: 최종 실행 액션만, 밝은 neutral 배경과 어두운 text
-- Secondary: surface + default border
-- Ghost: transparent + secondary text
-- Accent green button은 만들지 않는다.
+| 요소 | 값 |
+|---|---|
+| 타이틀바 | 36 |
+| 워크스페이스 헤더 | 40 |
+| 탭 행 | 34 (active: text-1 + 하단 1px text-1 인디케이터) |
+| 레일 | 폭 216, 행 28 |
+| 인스펙터 | 폭 296 |
+| 목록 행 | 32–44 · 이력 행 38 |
+| 컴포저 | 40 |
+| 상태바 | 22 |
+| 버튼 | 높이 28, radius 3 |
+| 패널 radius | 0 · 팔레트/메뉴만 6 |
 
-### Input
+그림자는 팔레트·메뉴·다이얼로그만: `0 16px 40px rgb(0 0 0 / 38%)`.
+Motion은 피드백 전용(100/160/220ms) — 정적 UI로 같은 가치를 전달할 수 있으면 넣지 않는다.
+`prefers-reduced-motion`을 지원한다.
 
-- 높이 32–36px
-- surface background, default border, 6px radius
-- focus는 `--focus-border`; purple/blue ring 금지
-- 오류는 danger border와 명시적 문장으로 표현
-
-### Tabs
-
-- 높이 34px
-- active text primary + 1px primary indicator
-- inactive text muted
-- accent indicator 금지
-
-### Checkbox
-
-- checked는 밝은 neutral fill + dark check
-- accent는 시스템 상태를 직접 제어할 때만 사용
-
-### Toggle / segmented control
-
-- radius 6px 이하
-- selected는 active background + primary text
-- pill 형태를 사용하지 않는다.
-
-## 11. AgentProfile 화면
-
-AgentProfile은 캐릭터가 아니라 실행 계약이다.
+## 7. App shell
 
 ```text
-Assistant                                      ● Ready
-General orchestrator
++------------------------------------------------------------------+
+| □ Janus · <컨텍스트>                        ● 에이전트 N 활동 중 |  36
++--------+---------------------------------------------+-----------+
+| 오늘   |  <제목>  <상태 문장>                        | INSPECTOR*|  40
+| 작업   |                                             |           |
+|  …     |            WORKSPACE                        |           |
+| 파일   |  (타임라인은 바닥 정렬 — 최신이 컴포저 옆) |           |
+|  …     +---------------------------------------------+           |
+| 프로필 |  › 이어서 시킬 일을 적어주세요        ⌘K   |           |  40
++--------+---------------------------------------------+-----------+
+| ● model · tok/s   server :8765   ~/project        vX.Y           |  22
++------------------------------------------------------------------+
 ```
 
-탭은 `대시보드`, `지침`, `스킬`, `컨텍스트`, `그래프`다.
+- **레일**은 항상 `오늘` 행으로 시작한다(홈으로 돌아가는 길). 그 아래 화면별 리소스
+  섹션(작업/에이전트/평가 세트, 작업 화면에서는 파일 트리 추가), 맨 아래 활성 프로필.
+  선택 행은 `bg-raised` + 좌측 2px 무채색 마커.
+- **INSPECTOR\***는 검사할 객체(승인 요청, 스킬, 케이스, span)가 있을 때만 나타난다.
+  섹션 라벨(11px) + 라벨 74px/값 구조의 필드 행. 편집 책임이 다른 화면의 설정을 복제하지 않는다.
+- **타이틀바** 우측 슬롯의 의미는 전역으로 하나다: `● 에이전트 N 활동 중`.
+- **상태바**는 모델·tok/s, 서버 포트, 워크스페이스 경로, 버전. 색과 함께 텍스트를 준다.
 
-- 대시보드: 실행 현황과 프로젝트에서 배운 내용
-- 지침: 실제 system prompt 편집
-- 스킬: 설치된 SkillVersion 활성화
-- 컨텍스트 정책: 고정 소스와 압축 한도
-- 그래프: 읽기 전용 runtime ownership
+## 8. 글리프 — 상태는 색 없이도 읽힌다
 
-그래프는 선택한 AgentProfile을 고정 루트로 두고, 같은 프로필의 실제 Task Session에서 생성된
-worker span만 자식으로 표시한다. worker 생성·삭제·설정 control과 YAML 편집기를 두지 않는다.
+| 글리프 | 색 | 의미 |
+|---|---|---|
+| ● | green | 살아있음, 실행 중 |
+| △ | amber | 허용 대기 — 사람 차례 |
+| ○ | text-3 | 준비됨, 유휴 |
+| ✓ | text-faint | 끝남 — 조용해진다 |
+| × | red-dim | 실패 — 이유 문장을 함께 |
+| › | text-2 | 입력 프롬프트 |
 
-## 12. Skill과 runtime tool
+이모지를 아이콘으로 쓰지 않는다. 아이콘이 필요하면 1.5px stroke 모노크롬 SVG.
 
-Skill row는 이름, 출처/version, activation mode, compatibility를 표시한다. 저수준 runtime tool은
-대화와 활동, 승인, span inspector에서 mono 이름으로 표시한다.
+## 9. 컨트롤
+
+- **Button**: 높이 28, radius 3, 12.5px. 세 variant —
+  filled green(결정 전용, 텍스트 `#0e1712`) / outline(`--border`) / ghost.
+- **버튼 라벨은 다음 행동을 말한다**: `허용` `검토` `거부` `결정하러 가기` `시작`.
+  `취소`는 쓰지 않는다 — `거부` 또는 `닫기`.
+- **Input/컴포저**: 헤어라인 위 40px 행, `›` 프롬프트, 플레이스홀더는 예시를 담은 문장.
+- **행(Row)**: 구분은 배경색이 아니라 헤어라인. 섹션 라벨은 11px + mono 카운트.
+- 컴포넌트 밖 TSX에 raw hex를 쓰지 않는다. 같은 조합이 세 번 반복되면 primitive로 승격한다.
+
+## 10. 라이팅 — 동료감의 실체
+
+제품이 말하는 모든 문장에 적용한다.
+
+1. **해요체 · 능동형.** "됐어요"보다 "했어요".
+2. **예측 힌트.** 행동의 결과를 미리 말한다 — "허용하면 검증이 auth.ts 한 곳에 모여요."
+3. **상태는 문장으로.** "막힘 없이 진행 중이에요 · 14분", "결정을 기다리고 있어요 · 1:24".
+4. **가치 먼저.** diff와 영향 범위를 보여준 다음에 버튼을 준다.
+5. **안심 문장.** 결정 곁에 되돌릴 수 있음을 알린다 — "허용해도 커밋 전엔 되돌릴 수 있어요."
+6. 의미 없는 단어·빈 문장 금지. 사용자가 이미 아는 정보는 생략한다.
+
+숫자는 실제 값을 그대로 보여준다(11.9k/32k, 17/23). 반올림해서 예쁘게 만들지 않는다.
+
+## 11. 승인 (Task 실행)
+
+작업 화면은 chatbot이 아니라 동료의 작업 기록이다. 타임라인은 바닥 정렬 —
+최신이 컴포저 옆에 붙는다. 좌측 46px mono 타임스탬프 거터 + 1px 세로 괘선(spine).
+발화(나·Janus)는 말풍선으로 — 내 메시지는 오른쪽, Janus는 왼쪽. 도구 행·사고
+과정·진행 표시는 발화가 아니므로 말풍선 없이 괘선에 정렬한다.
+
+승인 블록의 순서는 고정이다:
 
 ```text
-✓  read_file
-✓  glob
-△  edit_file                         승인 필요
+14:03:12  △ 허용 대기   edit_file · src/auth.ts   +17 −6
+          <diff hunk — 헤어라인 위아래, 카드 아님>
+          middleware.ts +5 −2 · 펼치기
+          [허용 ⏎] [검토] [거부]   허용해도 커밋 전엔 되돌릴 수 있어요
 ```
 
-개별 아이콘에 색을 주지 않는다. approval은 작은 warning label로 표현한다.
+패널을 warning 색으로 채우지 않는다. 인스펙터는 도구·경로·요청자 체인(worker ← orchestrator)·
+변경 합계·영향 범위·근거·적용된 규칙을 보여준다.
 
-## 13. Task execution
+## 12. 금지 — 이건 다시 안 온다
 
-Task 화면은 chatbot이 아니라 실행 관제대다.
+- 가운데 정렬 히어로, 떠 있는 카드, 12px 이상 radius, 44px 버튼
+- 두 번째 강조색, 보라 AI 그라데이션, glow, glassmorphism, 이모지 아이콘
+- 큰 CTA, AI sparkle, 로고 회전·애니메이션, 컬러풀한 사이드바
+- 마케팅 문구, 큐레이션된 깔끔한 숫자, 채우기용 콘텐츠
+- 모든 섹션을 감싸는 카드, pill 형태 컨트롤
 
-```text
-12:43  You          API authentication 구조를 수정해줘.
-12:43  Assistant    Inspecting authentication flow.
-       → read_file   src/auth.ts
-       → grep        verifyToken
-       △ edit_file   승인 필요
-```
+## 13. 심볼 — 괄호와 축 `{ | }`
 
-Activity glyph는 pending `○`, active `◉`, complete `✓`, failed `×`, waiting `△`를 사용한다.
+공식 마크는 마주 보는 두 괄호와 중앙 축이다(`janus-symbol.svg`, 16그리드에서
+1.5px 스트로크 비율, 직각·butt cap). 두 얼굴의 이중성을 코드 어휘로 번역한 것이고,
+v1의 곡선 중괄호 `{ | }` 심볼을 v2의 정밀한 직각 어휘로 계승한다.
 
-### Approval
+- 타이틀바: 14px 심볼 + `Janus` 워드마크, 화면에 한 번만.
+- 진행 표시(`task-thinking`)의 펄스 마크로도 같은 심볼을 쓴다 — 브랜드가
+  곧 "일하고 있음"의 신호다.
+- CSS mask + currentColor로 그려서 라이트/다크를 자동으로 따른다.
+- geometry는 수정하지 않는다. 회전·glow·애니메이션(펄스 opacity 제외) 금지.
 
-Panel 전체를 warning 색으로 채우지 않는다. tool, path, 변경량과 `△ 승인 필요`를 표시하고
-`거부`, `검토`, `허용`의 명확한 행동을 제공한다.
+## 14. 접근성
 
-### Context inspector
+데스크톱 우선, 최소 폭 1024px — 좁아지면 인스펙터부터 숨긴다.
+모든 컨트롤에 keyboard focus(무채색 링), accessible name, disabled state.
+상태는 색+글리프+문장을 항상 함께. reduced motion 지원.
 
-실제 포함 소스, 제외 이유, 정적 token 추정, 최신 context-window와 압축 상태를 보여준다. 정책
-편집을 이 화면에 복제하지 않는다.
+## 15. 검수 기준
 
-### Diff
+화면마다 순서대로 확인한다.
 
-색 면적을 작게 유지하고 text를 중심으로 한다. 추가/삭제 배경은 지정된 diff token만 사용한다.
-
-## 14. Floating interaction
-
-### Command palette
-
-- `⌘K`, 폭 520–600px
-- 가장 강한 elevation을 갖는 UI
-- 작업 검색, Task 실행, AgentProfile 전환, 스킬 열기, 로그 열기 같은 실제 기능만 제공
-- 아직 존재하지 않는 추상 명령은 노출하지 않는다.
-
-### Context menu
-
-- row 28–32px, radius 6–8px
-- 구조 변경선으로 destructive action을 분리
-- 선택한 객체에 가능한 행동만 표시
-
-## 15. Logo usage
-
-- Title bar: 심볼 + `Janus`
-- Collapsed navigation: 심볼
-- Splash: 심볼 + `Janus`
-- 한 화면에서 반복 노출하지 않는다.
-- 로고를 loader로 회전시키거나 glow를 적용하지 않는다.
-- 공식 SVG의 geometry는 수정하지 않고 theme별 stroke variant만 파생한다.
-
-## 16. Density와 접근성
-
-- Nav item 32px
-- Sidebar row 30–32px
-- Input/Button 32px
-- Tab 34px
-- Inspector row 32px
-- Toolbar 36px
-
-Janus는 desktop-first이며 기본 최소 폭은 1024px로 본다. 좁은 폭에서는 Inspector를 숨기거나
-overlay로 전환하되 Workspace를 먼저 보존한다.
-
-모든 interactive control은 keyboard focus, accessible name, disabled state를 제공한다. 상태는 색과
-glyph와 label을 함께 사용하며 reduced motion을 지원한다.
-
-## 17. 최종 검수 기준
-
-화면마다 다음 질문을 순서대로 확인한다.
-
-1. 이 영역의 소유권과 경계가 명확한가?
-2. 가장 중요한 정보가 primary text인가?
-3. 반복되는 조작이 공통 component인가?
-4. 상태가 색 없이도 구분되는가?
-5. accent가 실제 system signal에만 쓰였는가?
-6. 제거해도 의미가 유지되는 장식이 남아 있는가?
-7. AgentProfile과 runtime Worker를 혼동하게 하는 UI가 없는가?
+1. 이 화면의 "한 가지 일"이 무엇인지 한 문장으로 말할 수 있는가?
+2. 그린이 살아있음·허용 외의 곳에 쓰였는가? (쓰였다면 제거)
+3. 승인이 변경 내용보다 먼저 나오는가? (나온다면 순서 교정)
+4. 제품의 문장이 해요체·능동형·예측 힌트를 지키는가?
+5. 상태가 색 없이도(글리프+문장) 구분되는가?
+6. 가운데 정렬·카드·두 번째 색 등 §12 금지 항목이 있는가?
+7. 데이터가 서로 모순되지 않는가? (타이머, 합계, 카운트)
+8. AgentProfile과 runtime Worker를 혼동하게 하는 UI가 없는가?
 
 Visual formula:
 
-> Graphite + Monochrome + Thin Borders + Compact Density + Precise Typography + Muted Green Signal + Minimal Motion
+> Graphite + Hairline + Compact Density + Tabular Mono + Single Green + Companion Voice

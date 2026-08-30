@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -10,7 +10,27 @@ vi.mock('./components/FileView', () => ({
   default: () => <div>선택한 프로젝트 루트 · 읽기 전용</div>
 }))
 
+/** v2 셸은 '오늘' 홈으로 부팅한다 — 작업 화면을 검증하는 테스트는 렌더 후 작업 내비로 들어간다. */
+function renderApp() {
+  render(<App />)
+  fireEvent.click(screen.getByRole('button', { name: '작업' }))
+}
+
 describe('Janus renderer fixture', () => {
+  it('boots on the 오늘 home and reads task state as a sentence', async () => {
+    window.history.replaceState({}, '', '/?fixture=task-runtime')
+    seedTaskRuntimeVisualFixture()
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    expect(screen.getByRole('heading', { name: '오늘' })).toBeVisible()
+    // 상태는 색이 아니라 문장으로 읽힌다 (계약 §10)
+    expect(screen.getByText('응답을 기다리고 있어요')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '보러 가기' }))
+    expect(await screen.findByRole('textbox', { name: '작업 지시' })).toBeVisible()
+  })
+
   it('shows durable turn evidence and completes slash skill names', async () => {
     window.history.replaceState({}, '', '/?fixture=task-runtime')
     seedTaskRuntimeVisualFixture()
@@ -83,7 +103,7 @@ describe('Janus renderer fixture', () => {
     })
     const user = userEvent.setup()
 
-    render(<App />)
+    renderApp()
 
     const executionRail = screen.getByText('최근 실행')
     expect(executionRail).toBeVisible()
@@ -130,7 +150,7 @@ describe('Janus renderer fixture', () => {
     })
     const user = userEvent.setup()
 
-    render(<App />)
+    renderApp()
 
     const composer = screen.getByRole('textbox', { name: 'Janus에게 위임할 목표' })
     await user.type(composer, '/')
@@ -181,7 +201,7 @@ describe('Janus renderer fixture', () => {
     })
     const user = userEvent.setup()
 
-    render(<App />)
+    renderApp()
 
     // 워커 활동은 대화창에서 걸러진다 — 모달을 열기 전에는 보이면 안 된다.
     expect(screen.queryByText('호출부를 먼저 찾는다.')).not.toBeInTheDocument()
@@ -236,7 +256,7 @@ describe('Janus renderer fixture', () => {
     })
     const user = userEvent.setup()
 
-    render(<App />)
+    renderApp()
     expect(screen.getAllByText(/남은 시간 2:0\d/).length).toBeGreaterThan(0)
 
     await user.click(screen.getByRole('button', { name: '워커 impl_worker 상세' }))
@@ -261,7 +281,7 @@ describe('Janus renderer fixture', () => {
     })
     const user = userEvent.setup()
 
-    render(<App />)
+    renderApp()
 
     expect(screen.getByText('프론트 목업 승인 대기')).toBeVisible()
     await user.click(screen.getByRole('button', { name: '거절 · 수정 요청' }))
@@ -283,7 +303,7 @@ describe('Janus renderer fixture', () => {
     })
     const user = userEvent.setup()
 
-    render(<App />)
+    renderApp()
 
     const restart = screen.getByRole('button', { name: '다시 시작' })
     expect(restart).toBeVisible()
@@ -317,7 +337,7 @@ describe('Janus renderer fixture', () => {
     useStore.setState({ delegateTask })
     const user = userEvent.setup()
 
-    render(<App />)
+    renderApp()
 
     expect(screen.getByRole('heading', { name: 'Make Task runtime restart-safe' })).toBeVisible()
     expect(screen.getByRole('navigation', { name: '기본 탐색' })).toBeVisible()
@@ -445,9 +465,9 @@ describe('Janus renderer fixture', () => {
     })
     const user = userEvent.setup()
 
-    render(<App />)
+    renderApp()
 
-    const hint = screen.getByText('제한 시간 안에 응답이 없어 거부로 처리했습니다.')
+    const hint = screen.getByText('제한 시간 안에 응답이 없어 거부로 처리했어요.')
     expect(hint).toBeVisible()
     expect(screen.queryByText('이번만 허용')).toBeNull()
     const card = hint.closest('.task-decision-card')!
@@ -479,7 +499,7 @@ describe('Janus renderer fixture', () => {
       }
     })
 
-    render(<App />)
+    renderApp()
 
     expect(screen.getByText(/모델·MTP 로딩 중 · 0초 \(지난번 74초\)/)).toBeVisible()
     localStorage.removeItem('janus.model-load-seconds')
@@ -490,7 +510,7 @@ describe('Janus renderer fixture', () => {
     seedTaskRuntimeVisualFixture()
     useStore.setState({ taskConnected: true, taskTurnActive: true })
 
-    render(<App />)
+    renderApp()
 
     const composer = screen.getByRole('textbox', { name: '작업 지시' })
     expect(composer).toBeEnabled()
@@ -508,7 +528,7 @@ describe('Janus renderer fixture', () => {
     ))
     const user = userEvent.setup()
 
-    render(<App />)
+    renderApp()
     await user.click(screen.getByRole('button', { name: '평가' }))
 
     expect(await screen.findByText('실험이 아직 없습니다')).toBeVisible()
@@ -523,7 +543,7 @@ describe('사이드바 토글', () => {
     seedTaskRuntimeVisualFixture()
     useStore.setState({ taskConnected: true, serverUp: true, mlxUp: true })
     const user = userEvent.setup()
-    render(<App />)
+    renderApp()
 
     expect(screen.getByRole('button', { name: '새 대화' })).toBeVisible()
     await user.click(screen.getByRole('button', { name: '사이드바 닫기' }))
@@ -549,7 +569,7 @@ describe('컴포저 모델 선택', () => {
       selectedAgentProfileId: session.agent_profile_id
     })
     const user = userEvent.setup()
-    render(<App />)
+    renderApp()
 
     const trigger = screen.getByRole('combobox', { name: '모델 선택' })
     expect(trigger).toBeVisible()
@@ -574,7 +594,7 @@ describe('컴포저 모델 선택', () => {
       selectedAgentProfileId: session.agent_profile_id
     })
     const user = userEvent.setup()
-    render(<App />)
+    renderApp()
 
     const trigger = screen.getByRole('combobox', { name: '모델 선택' })
     trigger.focus()

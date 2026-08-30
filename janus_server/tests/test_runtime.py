@@ -133,6 +133,53 @@ class RuntimeTests(unittest.TestCase):
             self.assertTrue(result["already_loaded"])
             self.assertNotIn("Long review instructions", result["instructions"])
 
+    def test_worker_status_violation_flags_terminal_overwrites(self):
+        # 라이브 상태 간 전이와 후속(followup) 재기동은 합법이다.
+        self.assertIsNone(runtime.worker_status_violation(None, "queued"))
+        self.assertIsNone(runtime.worker_status_violation("running", "stopping"))
+        self.assertIsNone(runtime.worker_status_violation("completed", "queued"))
+        self.assertIsNone(runtime.worker_status_violation("failed", "failed"))
+        # 종료 기록을 덮는 늦은 스레드는 레이스다 — 텔레메트리에 보여야 한다.
+        self.assertEqual("completed->failed",
+                         runtime.worker_status_violation("completed", "failed"))
+        self.assertEqual("cancelled->queued",
+                         runtime.worker_status_violation("cancelled", "queued"))
+
+    def test_read_only_narrowing_is_visible_to_the_model(self):
+        fake = FakeClient([{"text": "report"}, {"text": "edited"}])
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch.object(runtime, "resolve_local_model", lambda name: name),
+            patch.object(runtime, "make_client", lambda: fake),
+        ):
+            orch = runtime.Orchestration(
+                {**SPEC, "tools": ["read_file", "write_file"]},
+                send=lambda _event: None, approver=None,
+                workspace_context=WorkspaceContext(
+                    root=Path(tmp), task_id="task_narrow",
+                    workspace_id="workspace_narrow",
+                ),
+            )
+            orch.turn("코드 구조를 살펴봐 줘")
+            narrowed = fake.captured[0]
+            names = {t["function"]["name"] for t in narrowed["tools"]}
+            self.assertNotIn("write_file", names)
+            self.assertIn("read_file", names)
+            # 축소 사실이 모델에게 보인다 — 어휘 오판이 조용한 실패 대신
+            # 사용자에게 보고되는 실패가 되게 하는 계약.
+            note = next(m["content"] for m in reversed(narrowed["messages"])
+                        if m["role"] == "user")
+            self.assertIn("read-only tools", note)
+            self.assertIn("write tools were withheld", note)
+
+            orch.turn("확인하고 바꿔줘")  # 변형 동사 → 전체 도구, 노트 없음
+            full = fake.captured[1]
+            names = {t["function"]["name"] for t in full["tools"]}
+            self.assertIn("write_file", names)
+            note = next(m["content"] for m in reversed(full["messages"])
+                        if m["role"] == "user")
+            self.assertNotIn("read-only tools", note)
+
     @staticmethod
     def saved_run(runs: Path) -> dict:
         files = list((runs / "orch").glob("*.json"))

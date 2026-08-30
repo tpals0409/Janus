@@ -145,6 +145,21 @@ def is_read_only_request(text: str | None) -> bool:
     return intent_mod.is_read_only_request(text)
 
 
+def worker_status_violation(old: str | None, new: str) -> str | None:
+    """종료 상태에서의 불법 재전이를 판정한다 (로그 전용, 실행은 막지 않는다).
+
+    라이브 상태 간 전이는 전부 합법이다. 종료 후 유일한 합법 재진입은
+    send_worker 후속의 completed/completed_partial → queued 재기동이다.
+    늦게 도착한 스레드가 종료 기록을 덮는 레이스(completed → failed 등)를
+    텔레메트리에서 보이게 하는 것이 목적이다.
+    """
+    if old is None or old == new or old not in TERMINAL_WORKER_STATUSES:
+        return None
+    if new == "queued" and old in {"completed", "completed_partial"}:
+        return None
+    return f"{old}->{new}"
+
+
 def worker_spawn_pressure(snapshot: dict, *, max_model_queue: int =
                           MAX_MODEL_QUEUE_FOR_SPAWN) -> str | None:
     """현재 로컬 생성 queue가 worker fan-out을 더 받을 수 있는지 판정한다."""
@@ -1150,10 +1165,17 @@ class Orchestration:
 
     def _set_worker_status(self, record: dict, status: str, **extra) -> None:
         with self.lock:
+            violation = worker_status_violation(record.get("status"), status)
             record["status"] = status
             record.update(extra)
             if request := self.worker_requests.get(record["fingerprint"]):
                 request.update(status=status, **extra)
+        if violation:
+            self._sink(
+                record["worker"], "worker_state_conflict",
+                {"transition": violation},
+                dispatch_id=record.get("dispatch_id"),
+            )
         self._sink(
             record["worker"], "worker_state", {"status": status, **extra},
             dispatch_id=record.get("dispatch_id"),
@@ -1592,6 +1614,7 @@ class Orchestration:
                         int(record.get("recovery_notes") or 0) + 1
                     )
         turn_tools = list(self.tools)
+        task_text = text
         if is_read_only_request(text):
             turn_tools = [tool for tool in turn_tools if tool in T.READ_ONLY]
             removed = sorted(set(self.tools) - set(turn_tools))
@@ -1599,6 +1622,16 @@ class Orchestration:
                 self._sink(ORCH_ID, "parent_tools_restricted", {
                     "mode": "read_only", "removed_tools": removed,
                 })
+                # 축소는 어휘 판정이라 오판할 수 있다. 조용히 도구만 빼면 모델이
+                # 편집을 한 척하거나 이유 없이 실패한다 — 축소 사실을 모델에게
+                # 알려 오판이 사용자에게 보고되는 실패로 바뀌게 한다.
+                task_text = text + (
+                    "\n\n[janus runtime] This turn provides read-only tools because "
+                    "the request wording reads as investigation-only. If the request "
+                    "actually requires modifying files, do not attempt or simulate "
+                    "edits — reply that write tools were withheld for this turn and "
+                    "ask the user to restate the request with the intended change."
+                )
         if self.first_message is None:
             self.first_message = text
             self._open_span(ORCH_ID, label=self.spec.get("name"), parent_id=None,
@@ -1607,7 +1640,7 @@ class Orchestration:
             last, _ = agent_mod.run(
                 client=self.client, model=self.model,
                 system_prompt=self.spec.get("system_prompt") or "",  # session이 이미 보유
-                task=text,
+                task=task_text,
                 tool_names=(
                     turn_tools
                     + (["create_worker"] + [tool["name"] for tool in self.worker_control_tools]
