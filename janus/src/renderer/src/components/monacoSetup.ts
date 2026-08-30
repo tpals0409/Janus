@@ -16,24 +16,25 @@ import 'monaco-editor/languages/definitions/yaml/register'
 monaco.editor.defineTheme('janus-ide', {
   base: 'vs-dark',
   inherit: true,
+  /* v2 토큰 (DESIGN_SYSTEM.md §4) — Monaco는 CSS var를 못 받아 리터럴로 미러링한다 */
   rules: [
-    { token: 'diff.add', foreground: '83A995' },
-    { token: 'diff.remove', foreground: 'C97878' },
-    { token: 'diff.hunk', foreground: '7796AD', fontStyle: 'bold' },
-    { token: 'diff.header', foreground: 'A3A7AA' }
+    { token: 'diff.add', foreground: '4FB583' },
+    { token: 'diff.remove', foreground: 'B3766F' },
+    { token: 'diff.hunk', foreground: '989EA3', fontStyle: 'bold' },
+    { token: 'diff.header', foreground: '989EA3' }
   ],
   colors: {
-    'editor.background': '#171819',
-    'editor.foreground': '#d8d9d9',
-    'editorLineNumber.foreground': '#515557',
-    'editorLineNumber.activeForeground': '#a3a7aa',
-    'editor.lineHighlightBackground': '#1d1f20',
-    'editorCursor.foreground': '#91b5a2',
-    'editor.selectionBackground': '#33433b',
-    'editorIndentGuide.background1': '#242627',
-    'editorIndentGuide.activeBackground1': '#414445',
-    'editorGutter.background': '#171819',
-    'minimap.background': '#151617'
+    'editor.background': '#141517',
+    'editor.foreground': '#e6e8ea',
+    'editorLineNumber.foreground': '#55595e',
+    'editorLineNumber.activeForeground': '#989ea3',
+    'editor.lineHighlightBackground': '#191b1e',
+    'editorCursor.foreground': '#e6e8ea',
+    'editor.selectionBackground': '#2c3a33',
+    'editorIndentGuide.background1': '#1e2023',
+    'editorIndentGuide.activeBackground1': '#2c2f33',
+    'editorGutter.background': '#141517',
+    'minimap.background': '#141517'
   }
 })
 

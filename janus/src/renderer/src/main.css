@@ -1,39 +1,41 @@
 @import 'tailwindcss';
 @import '@xyflow/react/dist/style.css';
 
-/* Janus graphite system — 색 토큰의 단일 원본. 별칭은 :root 참조로만 존재한다. */
+/* Janus graphite system v2 (DESIGN_SYSTEM.md §4) — 색 토큰의 단일 원본.
+   별칭은 :root 참조로만 존재한다. 그린은 살아있음·허용/시작 두 의미뿐이다. */
 @theme {
-  --color-bg: #0e0f10;
-  --color-canvas: #171819;
-  --color-panel: #131415;
-  --color-panel-2: #151617;
-  --color-surface: #202223;
-  --color-raised: #1d1f20;
-  --color-hover: #252728;
-  --color-active: #2b2d2e;
-  --color-border: #242627;
-  --color-border-strong: #303334;
-  --color-border-emphasis: #414445;
+  --color-bg: #111214;
+  --color-canvas: #141517;
+  --color-panel: #111214;
+  --color-panel-2: #141517;
+  --color-surface: #191b1e;
+  --color-raised: #191b1e;
+  --color-hover: #202225;
+  --color-active: #26292c;
+  --color-border: #1e2023;
+  --color-spine: #26292c;
+  --color-border-strong: #2c2f33;
+  --color-border-emphasis: #43474c;
 
-  --color-fg: #f0f1f1;
-  --color-muted: #a3a7aa;
-  --color-faint: #686d71;
-  --color-disabled: #464a4d;
+  --color-fg: #e6e8ea;
+  --color-muted: #989ea3;
+  --color-faint: #6a7076;
+  --color-disabled: #43474c;
 
-  --color-accent: #83a995;
-  --color-accent-soft: rgb(131 169 149 / 12%);
-  --color-accent-fg: #91b5a2;
+  --color-accent: #4fb583;
+  --color-accent-soft: rgb(79 181 131 / 12%);
+  --color-accent-fg: #6cc79a;
 
-  --color-ok: #83a995;
-  --color-warn: #c1a36b;
-  --color-danger: #c97878;
-  --color-info: #7796ad;
+  --color-ok: #4fb583;
+  --color-warn: #d3a35c;
+  --color-danger: #b3766f;
+  --color-info: #989ea3;
 
-  --color-node-start: #83a995;
-  --color-node-llm: #a3a7aa;
-  --color-node-tool: #7796ad;
-  --color-node-agent: #f0f1f1;
-  --color-node-end: #83a995;
+  --color-node-start: #4fb583;
+  --color-node-llm: #989ea3;
+  --color-node-tool: #6a7076;
+  --color-node-agent: #e6e8ea;
+  --color-node-end: #4fb583;
 }
 
 /* 색의 원본은 위 @theme(--color-*) 하나다. 아래 별칭들은 값이 아니라
@@ -46,9 +48,10 @@
   --bg-hover: var(--color-hover);
   --bg-active: var(--color-active);
   --border-subtle: var(--color-border);
+  --spine: var(--color-spine);
   --border-default: var(--color-border-strong);
   --border-strong: var(--color-border-emphasis);
-  --focus-border: #52585d; /* 계약 §3: focus는 neutral — green은 시스템 생존 신호 전용 */
+  --focus-border: #55595e; /* 계약: focus는 neutral — green은 살아있음·허용 전용 */
   --text-primary: var(--color-fg);
   --text-secondary: var(--color-muted);
   --text-muted: var(--color-faint);
@@ -60,8 +63,8 @@
   --warning: var(--color-warn);
   --danger: var(--color-danger);
   --info: var(--color-info);
-  --diff-add-bg: rgb(100 160 120 / 10%);
-  --diff-remove-bg: rgb(190 100 100 / 10%);
+  --diff-add-bg: rgb(79 181 131 / 8%);
+  --diff-remove-bg: rgb(179 118 111 / 8%);
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -76,8 +79,8 @@
   --motion-fast: 100ms;
   --motion-default: 160ms;
   --motion-slow: 220ms;
-  --font-ui: Inter, Pretendard, system-ui, sans-serif;
-  --font-mono: "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
+  --font-ui: "Pretendard", -apple-system, "Apple SD Gothic Neo", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
   --floating-shadow: 0 16px 40px rgb(0 0 0 / 38%);
 }
 
@@ -163,13 +166,15 @@ button {
   font-size: 11px;
 }
 
+/* 계약 §9: filled green은 결정(허용·시작) 전용 — 화면에 하나만. */
 .ui-button--primary {
-  background: #eceded;
-  color: #111214;
+  background: var(--accent);
+  color: #0e1712;
+  font-weight: 600;
 }
 
 .ui-button--primary:hover:not(:disabled) {
-  background: #ffffff;
+  background: var(--accent-hover);
 }
 
 .ui-button--secondary {
@@ -431,7 +436,7 @@ button {
   flex: none;
   flex-direction: column;
   border-right: 1px solid var(--border-subtle);
-  background: #151617;
+  background: var(--bg-base);
 }
 
 .task-sidebar-actions {
@@ -790,7 +795,7 @@ button {
   border: 0;
   border-left: 1px solid var(--border-default);
   border-radius: 0;
-  background: #1b1c1c;
+  background: var(--bg-panel);
   box-shadow: -12px 0 28px rgb(0 0 0 / 8%);
   padding: 20px 16px 16px;
 }
@@ -1650,12 +1655,12 @@ button {
 }
 
 .ui-checkbox:checked {
-  border-color: #e8e9e9;
-  background: #e8e9e9;
+  border-color: var(--color-fg);
+  background: var(--color-fg);
 }
 
 .ui-checkbox:checked::after {
-  color: #111214;
+  color: var(--color-bg);
   content: '\2713';
   font-family: var(--font-mono);
   font-size: 11px;
