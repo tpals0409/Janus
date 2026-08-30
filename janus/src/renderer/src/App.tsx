@@ -9,7 +9,7 @@ import TaskSidebar from './components/tasks/TaskSidebar'
 import PromptEditor from './components/PromptEditor'
 import SkillLibrary from './components/SkillLibrary'
 import ContextPolicyEditor from './components/ContextPolicyEditor'
-import { Status, Tabs } from './components/ui'
+import { BrandMark, Status, Tabs } from './components/ui'
 import SettingsPage from './components/SettingsPage'
 import CommandPalette from './components/CommandPalette'
 import EvaluationLab from './components/EvaluationLab'
@@ -170,7 +170,7 @@ export default function App() {
   return (
     <div className="flex h-full flex-col">
       <header className="app-titlebar">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setSidebarOpen((value) => !value)}
@@ -181,6 +181,8 @@ export default function App() {
           >
             {sidebarOpen ? <PanelLeftClose size={14} /> : <PanelLeft size={14} />}
           </button>
+          {/* 계약 §7·§13: 심볼 + Janus, 화면에 한 번만. */}
+          <BrandMark />
         </div>
         <div className="app-titlebar__context">
           {nav === 'today'

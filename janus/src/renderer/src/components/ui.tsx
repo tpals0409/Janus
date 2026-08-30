@@ -525,7 +525,7 @@ export function EmptyState({
 
 export function BrandMark({ compact = false }: { compact?: boolean }) {
   return (
-    <span className={cx('janus-brand', compact && 'janus-brand--compact')} aria-label="Janus">
+    <span className="janus-brand" aria-label="Janus">
       <span className="janus-symbol" aria-hidden="true" />
       {!compact && <span className="janus-wordmark">Janus</span>}
     </span>

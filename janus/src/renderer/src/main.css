@@ -172,8 +172,8 @@ button {
 }
 
 .janus-symbol {
-  width: 23px;
-  height: 23px;
+  width: 14px;
+  height: 14px;
   flex: none;
   background: currentColor;
   mask: url('./assets/janus-symbol.svg') center / contain no-repeat;
@@ -181,14 +181,9 @@ button {
 }
 
 .janus-wordmark {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: -0.02em;
-}
-
-.janus-brand--compact .janus-symbol {
-  width: 22px;
-  height: 22px;
+  letter-spacing: -0.01em;
 }
 
 .ui-button,
