@@ -26,6 +26,7 @@
   --color-accent: #4fb583;
   --color-accent-soft: rgb(79 181 131 / 12%);
   --color-accent-fg: #6cc79a;
+  --color-on-accent: #0e1712;
 
   --color-ok: #4fb583;
   --color-warn: #d3a35c;
@@ -37,6 +38,50 @@
   --color-node-tool: #6a7076;
   --color-node-agent: #e6e8ea;
   --color-node-end: #4fb583;
+}
+
+/* 라이트 테마 — v2 토큰의 명도 반전 파생 (계약 §4). theme.ts가
+   documentElement의 data-theme을 관리하고, 여기서 @theme 변수를 덮어쓴다. */
+[data-theme='light'] {
+  --color-bg: #f1f2f4;
+  --color-canvas: #fafbfc;
+  --color-panel: #f1f2f4;
+  --color-panel-2: #f6f7f9;
+  --color-surface: #ffffff;
+  --color-raised: #ffffff;
+  --color-hover: #e9ebee;
+  --color-active: #e2e5e8;
+  --color-border: #e6e8ea;
+  --color-spine: #dde0e3;
+  --color-border-strong: #d3d6da;
+  --color-border-emphasis: #b9bec3;
+
+  --color-fg: #1b1d1f;
+  --color-muted: #5b6268;
+  --color-faint: #8a9096;
+  --color-timestamp: #9aa0a5;
+  --color-disabled: #b5babe;
+
+  --color-accent: #2e8b5f;
+  --color-accent-soft: rgb(46 139 95 / 12%);
+  --color-accent-fg: #26744f;
+  --color-on-accent: #ffffff;
+
+  --color-ok: #2e8b5f;
+  --color-warn: #9c6f1f;
+  --color-danger: #a84f44;
+  --color-info: #5b6268;
+
+  --color-node-start: #2e8b5f;
+  --color-node-llm: #5b6268;
+  --color-node-tool: #8a9096;
+  --color-node-agent: #1b1d1f;
+  --color-node-end: #2e8b5f;
+
+  --focus-border: #9aa0a5;
+  --diff-add-bg: rgb(46 139 95 / 10%);
+  --diff-remove-bg: rgb(168 79 68 / 10%);
+  --floating-shadow: 0 16px 40px rgb(15 20 25 / 16%);
 }
 
 /* 색의 원본은 위 @theme(--color-*) 하나다. 아래 별칭들은 값이 아니라
@@ -83,6 +128,13 @@
   --font-ui: "Pretendard", -apple-system, "Apple SD Gothic Neo", system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
   --floating-shadow: 0 16px 40px rgb(0 0 0 / 38%);
+}
+
+/* 테마 전환 순간 트랜지션 금지 — theme.ts가 붙였다 뗀다. */
+.theme-switching *,
+.theme-switching *::before,
+.theme-switching *::after {
+  transition: none !important;
 }
 
 html,
@@ -170,7 +222,7 @@ button {
 /* 계약 §9: filled green은 결정(허용·시작) 전용 — 화면에 하나만. */
 .ui-button--primary {
   background: var(--accent);
-  color: #0e1712;
+  color: var(--color-on-accent);
   font-weight: 600;
 }
 
@@ -469,7 +521,7 @@ button {
 .task-sidebar-nav { display: grid; flex: none; gap: 2px; border-bottom: 1px solid var(--border-subtle); padding: 7px 10px; }
 .task-sidebar-nav button { display: flex; height: 28px; align-items: center; gap: 9px; border-radius: var(--radius-sm); padding: 0 10px; color: var(--text-muted); font-size: 11.5px; }
 .task-sidebar-nav button:hover { background: var(--bg-hover); color: var(--text-primary); }
-.task-sidebar-nav button[aria-current='page'] { background: rgb(255 255 255 / 5%); color: var(--text-primary); }
+.task-sidebar-nav button[aria-current='page'] { background: var(--bg-hover); color: var(--text-primary); }
 
 .resource-sidebar__header {
   border-bottom: 1px solid var(--border-subtle);
@@ -572,7 +624,7 @@ button {
 }
 
 .resource-row[aria-selected='true'] {
-  background: rgb(255 255 255 / 4.5%);
+  background: var(--color-raised);
   color: var(--text-primary);
 }
 
@@ -2100,7 +2152,7 @@ button {
 }
 
 .skill-list-row[data-selected='true'] {
-  background: rgb(255 255 255 / 4.5%);
+  background: var(--color-raised);
 }
 
 .skill-list-row[data-selected='true']::before {
@@ -2160,11 +2212,11 @@ button {
   height: 9px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgb(255 255 255 / 8%);
+  background: color-mix(in srgb, var(--color-fg) 10%, transparent);
   border-radius: 5px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(255 255 255 / 15%);
+  background: color-mix(in srgb, var(--color-fg) 18%, transparent);
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -2710,7 +2762,7 @@ button {
 .task-primary-action {
   border: 1px solid transparent;
   background: var(--accent);
-  color: #0e1712;
+  color: var(--color-on-accent);
 }
 
 .task-quiet-action {

@@ -38,6 +38,39 @@ monaco.editor.defineTheme('janus-ide', {
   }
 })
 
+monaco.editor.defineTheme('janus-ide-light', {
+  base: 'vs',
+  inherit: true,
+  /* 라이트 파생 토큰 (main.css [data-theme='light'])의 미러 */
+  rules: [
+    { token: 'diff.add', foreground: '2E8B5F' },
+    { token: 'diff.remove', foreground: 'A84F44' },
+    { token: 'diff.hunk', foreground: '5B6268', fontStyle: 'bold' },
+    { token: 'diff.header', foreground: '5B6268' }
+  ],
+  colors: {
+    'editor.background': '#fafbfc',
+    'editor.foreground': '#1b1d1f',
+    'editorLineNumber.foreground': '#b5babe',
+    'editorLineNumber.activeForeground': '#5b6268',
+    'editor.lineHighlightBackground': '#f1f2f4',
+    'editorCursor.foreground': '#1b1d1f',
+    'editor.selectionBackground': '#d4e8dd',
+    'editorIndentGuide.background1': '#e6e8ea',
+    'editorIndentGuide.activeBackground1': '#d3d6da',
+    'editorGutter.background': '#fafbfc',
+    'minimap.background': '#fafbfc'
+  }
+})
+
+// 앱 테마를 따라간다 — theme.ts가 data-theme을 바꾸면 에디터도 같이 바뀐다.
+// 이 모듈은 FileView와 함께 lazy 로드되므로 여기서 스스로 감시해야 한다.
+const applyEditorTheme = () =>
+  monaco.editor.setTheme(document.documentElement.dataset.theme === 'light' ? 'janus-ide-light' : 'janus-ide')
+applyEditorTheme()
+new MutationObserver(applyEditorTheme)
+  .observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+
 if (!monaco.languages.getLanguages().some((language) => language.id === 'janus-diff')) {
   monaco.languages.register({ id: 'janus-diff' })
   monaco.languages.setMonarchTokensProvider('janus-diff', {

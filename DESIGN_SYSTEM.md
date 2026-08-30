@@ -75,7 +75,23 @@
 
 - 그린 채운 버튼은 화면에 하나만 — 허용·시작 같은 결정에만.
 - 앰버는 △ 글리프와 대기 타임스탬프에만. 문장 전체를 칠하지 않는다.
-- 두 번째 강조색을 만들지 않는다. 라이트 테마는 이 토큰의 명도 반전으로 파생한다(별도 트랙).
+- 두 번째 강조색을 만들지 않는다.
+
+**라이트 테마** — 같은 토큰의 명도 반전 파생. 전환은 `documentElement`의
+`data-theme`(`theme.ts`가 관리, 설정 › 화면 › 테마: 시스템/다크/라이트)이고,
+`[data-theme='light']`가 `@theme` 변수를 덮어쓴다. Monaco 테마도 같이 따라간다.
+라이트에서 그린은 대비를 위해 어두워진다 — 색의 의미는 그대로다.
+
+```css
+[data-theme='light'] {
+  --bg-base: #f1f2f4;   --bg-well: #fafbfc;   --bg-raised: #ffffff;  --bg-hover: #e9ebee;
+  --hairline: #e6e8ea;  --spine: #dde0e3;     --border: #d3d6da;
+  --text-1: #1b1d1f;    --text-2: #5b6268;    --text-3: #8a9096;
+  --text-4: #9aa0a5;    --text-faint: #b5babe;
+  --green: #2e8b5f;     --amber: #9c6f1f;     --red-dim: #a84f44;
+  /* 채운 그린 버튼의 글자는 라이트에서 흰색(on-accent) */
+}
+```
 
 ## 5. Typography
 
