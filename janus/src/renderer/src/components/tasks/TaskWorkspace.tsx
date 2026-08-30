@@ -2618,7 +2618,8 @@ function TaskDetail({ task }: { task: Task }) {
         onConfirm={() => { setConfirmArchive(false); void archiveTask() }}
       />
     </main>
-    <TaskContextPanel task={task} view={view} onView={setView} />
+    {/* 계약 §7: 인스펙터는 검사할 객체가 있을 때만 — 세션도 작업 공간도 없으면 빈 패널을 세우지 않는다. */}
+    {(session || task.workspace) && <TaskContextPanel task={task} view={view} onView={setView} />}
     </>
   )
 }

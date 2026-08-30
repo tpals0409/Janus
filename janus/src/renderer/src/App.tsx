@@ -14,6 +14,7 @@ import SettingsPage from './components/SettingsPage'
 import CommandPalette from './components/CommandPalette'
 import EvaluationLab from './components/EvaluationLab'
 import AgentOverview from './components/AgentOverview'
+import TodayView from './components/TodayView'
 
 const DESIGN_TABS = ['대시보드', '지침', '스킬', '컨텍스트', '그래프'] as const
 
@@ -33,7 +34,8 @@ export default function App() {
   const agentProfiles = useStore((s) => s.agentProfiles)
   const selectedAgentProfileId = useStore((s) => s.selectedAgentProfileId)
 
-  const [nav, setNav] = useState('tasks')
+  // 계약 §7: 홈은 '오늘' — 상태가 문장으로 읽히는 곳에서 하루가 시작된다.
+  const [nav, setNav] = useState('today')
   const [newConversation, setNewConversation] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     try { return localStorage.getItem('janus.sidebarOpen') !== '0' } catch { return true }
@@ -181,13 +183,15 @@ export default function App() {
           </button>
         </div>
         <div className="app-titlebar__context">
-          {nav === 'tasks'
-            ? task?.title ?? projects.find((project) => project.id === projectId)?.name ?? '작업'
-            : nav === 'settings'
-              ? '설정'
-              : nav === 'evaluations'
-                ? 'Evaluation Lab'
-                : selectedProfile?.name ?? '실행 프로필'}
+          {nav === 'today'
+            ? '오늘'
+            : nav === 'tasks'
+              ? task?.title ?? projects.find((project) => project.id === projectId)?.name ?? '작업'
+              : nav === 'settings'
+                ? '설정'
+                : nav === 'evaluations'
+                  ? 'Evaluation Lab'
+                  : selectedProfile?.name ?? '실행 프로필'}
         </div>
         <div className="app-titlebar__status">
           <span className="font-mono text-[10px] text-faint">local</span>
@@ -213,7 +217,15 @@ export default function App() {
             setNewConversation(true)
           }}
         />}
-        {nav === 'tasks' ? (
+        {nav === 'today' ? (
+          <TodayView
+            onOpenTask={() => setNav('tasks')}
+            onNewTask={() => {
+              setNav('tasks')
+              setNewConversation(true)
+            }}
+          />
+        ) : nav === 'tasks' ? (
           <TaskWorkspace
             newConversation={newConversation}
             onNewConversationChange={setNewConversation}
