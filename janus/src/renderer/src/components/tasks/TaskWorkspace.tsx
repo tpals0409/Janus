@@ -2686,6 +2686,17 @@ function EmptyTaskState({ hasProject, onOpenSettings }: {
   )
 }
 
+/** 이벤트 유실 보정 대상 — 준비 과도 상태이거나 위임 자동 시작을 기다리는 중. */
+export function awaitsPreparation(
+  task: { id: string; status: string; workspace?: { state: string } | null } | null,
+  pendingDelegationTaskId: string | null,
+  hasSession: boolean
+): boolean {
+  if (!task) return false
+  if (task.status === 'preparing' || task.workspace?.state === 'preparing') return true
+  return pendingDelegationTaskId === task.id && !hasSession
+}
+
 export default function TaskWorkspace({
   newConversation,
   onNewConversationChange,
@@ -2730,6 +2741,15 @@ export default function TaskWorkspace({
     'workspace',
     (event) => { if (event.task_id === task?.id) void refresh() }
   )
+
+  // workspace ready 이벤트는 재생되지 않는다 — 빠른 준비(실측 52ms)가 이벤트 소켓
+  // 핸드셰이크보다 먼저 끝나면 이벤트를 놓쳐 화면이 preparing에 영원히 갇힌다.
+  // 과도 상태 동안만 1초 폴링으로 수렴시킨다. 이벤트는 가속기, 폴링이 보증.
+  useEffect(() => {
+    if (!awaitsPreparation(task, pendingDelegation?.taskId ?? null, Boolean(session))) return
+    const id = window.setInterval(() => void refresh(), 1000)
+    return () => window.clearInterval(id)
+  }, [task, pendingDelegation, session, refresh])
 
   useEffect(() => {
     if (
