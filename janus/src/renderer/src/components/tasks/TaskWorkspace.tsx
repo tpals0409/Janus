@@ -316,7 +316,7 @@ function DelegationBar({ project }: { project: Project }) {
   return (
     <main className="new-chat-surface">
       <div className="new-chat-intro">
-        <div className="font-mono text-[11px] text-faint">{'{ | }'}</div>
+        {/* 계약 §13: 심볼은 타이틀바에 한 번만 — 여기선 반복하지 않는다. */}
         <h1>{project.name}에서 새 작업</h1>
         <p>목표를 말하면 Janus가 작업 계약과 격리된 실행 공간을 만듭니다.</p>
       </div>
