@@ -17,7 +17,14 @@ from typing import Any
 
 from .budget import empty_usage, merge_budget, normalize_budget
 
-CURRENT_SCHEMA_VERSION = 27
+CURRENT_SCHEMA_VERSION = 28
+
+#: 새 AgentProfile이 받는 기본 도구. 스킬 저작 도구가 여기 있어야 채팅에서
+#: 스킬을 만들 수 있다 (기존 프로필은 MIGRATION_28이 채운다).
+DEFAULT_PROFILE_TOOLS = [
+    "read_file", "glob", "grep", "write_file", "edit_file", "run_bash",
+    "create_skill", "import_skill",
+]
 
 DEFAULT_CONTEXT_POLICY = {
     "max_chars": 24_000,
@@ -701,6 +708,25 @@ SET tools_json = '["read_file","glob","grep","write_file","edit_file","run_bash"
 WHERE id IN ('agent_claude_code','agent_codex') AND tools_json IN ('[]','');
 """
 
+# 대화 세션에서 스킬을 만들고 가져오는 도구. 프로필 도구 목록이 로컬 경로와 MCP
+# 브리지 양쪽의 게이트라, 기존 프로필에도 넣어 줘야 채팅에서 도달한다.
+MIGRATION_28 = """
+UPDATE agent_profiles
+SET tools_json = json_insert(tools_json, '$[#]', 'create_skill'), updated_at = updated_at
+WHERE json_valid(tools_json)
+  AND json_type(tools_json) = 'array'
+  AND NOT EXISTS (
+    SELECT 1 FROM json_each(agent_profiles.tools_json) WHERE value = 'create_skill'
+  );
+UPDATE agent_profiles
+SET tools_json = json_insert(tools_json, '$[#]', 'import_skill'), updated_at = updated_at
+WHERE json_valid(tools_json)
+  AND json_type(tools_json) = 'array'
+  AND NOT EXISTS (
+    SELECT 1 FROM json_each(agent_profiles.tools_json) WHERE value = 'import_skill'
+  );
+"""
+
 MIGRATIONS = {
     1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3, 4: MIGRATION_4,
     5: MIGRATION_5, 6: MIGRATION_6, 7: MIGRATION_7, 8: MIGRATION_8,
@@ -708,7 +734,7 @@ MIGRATIONS = {
     13: MIGRATION_13, 14: MIGRATION_14, 15: MIGRATION_15, 16: MIGRATION_16,
     17: MIGRATION_17, 18: MIGRATION_18, 19: MIGRATION_19, 20: MIGRATION_20,
     21: MIGRATION_21, 22: MIGRATION_22, 23: MIGRATION_23, 24: MIGRATION_24,
-    25: MIGRATION_25, 26: MIGRATION_26, 27: MIGRATION_27,
+    25: MIGRATION_25, 26: MIGRATION_26, 27: MIGRATION_27, 28: MIGRATION_28,
 }
 
 
@@ -809,7 +835,7 @@ class DomainStore:
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     "agent_default", "Janus Local", "Janus local coding orchestrator", "",
-                    _json(["read_file", "glob", "grep", "write_file", "edit_file", "run_bash"]),
+                    _json(DEFAULT_PROFILE_TOOLS),
                     "ask", "autonomous", 15, "model_qwen38_27b_4bit",
                     _json(normalize_budget(None)), now, now,
                 ),
@@ -838,8 +864,7 @@ class DomainStore:
                     "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         agent_id, agent_name, description, "",
-                        _json(["read_file", "glob", "grep",
-                               "write_file", "edit_file", "run_bash"]),
+                        _json(DEFAULT_PROFILE_TOOLS),
                         "auto", "none", 15, model_id,
                         _json(normalize_budget(None)), now, now,
                     ),

@@ -12,6 +12,7 @@ import json
 import os
 import re
 import stat
+import tempfile
 import urllib.parse
 import urllib.request
 import zipfile
@@ -453,3 +454,88 @@ def download_github_skills(
         "root": selected,
         "skill_directories": directories,
     }
+
+
+def github_artifacts(url: str) -> tuple[dict, list[dict]]:
+    """GitHub URL 하나를 (출처 메타데이터, 컴파일된 스킬 아티팩트들)로 만든다.
+
+    설정 화면의 import와 대화 세션의 import가 같은 파이프라인을 타도록 여기 둔다.
+    """
+    with tempfile.TemporaryDirectory(prefix="janus-skill-github-") as temporary:
+        source = download_github_skills(url, temporary)
+        raw_namespace = f"github-{source['owner']}-{source['repository']}".lower()
+        namespace = (
+            raw_namespace if len(raw_namespace) <= 100
+            else f"{raw_namespace[:87]}-{hashlib.sha256(raw_namespace.encode()).hexdigest()[:12]}"
+        )
+        artifacts = []
+        for directory in source["skill_directories"]:
+            relative = directory.relative_to(source["root"]).as_posix()
+            prefix = str(source.get("subpath") or "").strip("/")
+            subpath = "/".join(item for item in (prefix, relative) if item and item != ".")
+            artifact = compile_skill_directory(
+                directory,
+                source_kind="github",
+                source_locator=source["canonical_url"],
+                source_subpath=subpath,
+                source_revision=source["revision"],
+                namespace=namespace,
+            )
+            artifact["original"]["github"] = {
+                "owner": source["owner"],
+                "repository": source["repository"],
+                "revision": source["revision"],
+                "requested_ref": source["requested_ref"],
+                "license": source["license"],
+            }
+            artifacts.append(artifact)
+        return {
+            "source": source["canonical_url"],
+            "revision": source["revision"],
+            "license": source["license"],
+        }, artifacts
+
+
+def local_artifacts(
+    path: str, *, source_kind: str | None = None, namespace: str | None = None,
+) -> list[dict]:
+    """로컬 폴더 하나에서 스킬 아티팩트들을 만든다."""
+    root = Path(path).expanduser().resolve()
+    directories = discover_skill_directories(root)
+    if not directories:
+        raise SkillImportError("선택한 폴더에서 SKILL.md를 찾지 못했습니다")
+    kind = local_source_kind(root, source_kind)
+    effective = local_namespace(root, kind, namespace)
+    artifacts = []
+    for directory in directories:
+        relative = directory.relative_to(root).as_posix()
+        artifacts.append(compile_skill_directory(
+            directory,
+            source_kind=kind,
+            source_locator=str(root),
+            source_subpath="" if relative == "." else relative,
+            namespace=effective,
+        ))
+    return artifacts
+
+
+def local_source_kind(path: Path, requested: object = None) -> str:
+    kind = str(requested or "").strip().lower()
+    if kind in {"codex", "claude", "local", "project"}:
+        return kind
+    lowered = {part.lower() for part in path.parts}
+    if ".claude" in lowered:
+        return "claude"
+    if ".codex" in lowered or ".agents" in lowered:
+        return "codex"
+    return "local"
+
+
+def local_namespace(root: Path, kind: str, requested: object = None) -> str:
+    if requested is not None and str(requested).strip():
+        return str(requested).strip()
+    generic = {"skills", ".skills", ".codex", ".claude", ".agents"}
+    label = root.name if root.name.lower() not in generic else root.parent.name
+    slug = re.sub(r"[^a-z0-9._-]+", "-", label.lower()).strip("-._") or "source"
+    digest = hashlib.sha256(str(root).encode("utf-8")).hexdigest()[:8]
+    return f"{kind}-{slug[:70]}-{digest}"

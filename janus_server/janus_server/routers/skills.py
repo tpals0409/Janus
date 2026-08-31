@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
-import re
-import tempfile
 import urllib.error
 from pathlib import Path
 
@@ -23,30 +20,6 @@ router = APIRouter()
 
 def _store_skill_artifact(artifact: dict) -> dict:
     return _skill_json(get_domain_store().import_skill_version(**artifact))
-
-
-
-def _local_source_kind(path: Path, requested: object) -> str:
-    kind = str(requested or "").strip().lower()
-    if kind in {"codex", "claude", "local", "project"}:
-        return kind
-    lowered = {part.lower() for part in path.parts}
-    if ".claude" in lowered:
-        return "claude"
-    if ".codex" in lowered or ".agents" in lowered:
-        return "codex"
-    return "local"
-
-
-
-def _local_skill_namespace(root: Path, kind: str, requested: object) -> str:
-    if requested is not None and str(requested).strip():
-        return str(requested).strip()
-    generic = {"skills", ".skills", ".codex", ".claude", ".agents"}
-    label = root.name if root.name.lower() not in generic else root.parent.name
-    slug = re.sub(r"[^a-z0-9._-]+", "-", label.lower()).strip("-._") or "source"
-    digest = hashlib.sha256(str(root).encode("utf-8")).hexdigest()[:8]
-    return f"{kind}-{slug[:70]}-{digest}"
 
 
 
@@ -72,63 +45,21 @@ def import_local_skills(body: dict):
         raise HTTPException(400, "path가 필요합니다")
     root = Path(raw_path).expanduser().resolve()
     try:
-        directories = skill_mod.discover_skill_directories(root)
-        if not directories:
-            raise skill_mod.SkillImportError("선택한 폴더에서 SKILL.md를 찾지 못했습니다")
-        kind = _local_source_kind(root, body.get("source_kind"))
-        namespace = _local_skill_namespace(root, kind, body.get("namespace"))
-        imported = []
-        for directory in directories:
-            relative = directory.relative_to(root).as_posix()
-            artifact = skill_mod.compile_skill_directory(
-                directory,
-                source_kind=kind,
-                source_locator=str(root),
-                source_subpath="" if relative == "." else relative,
-                namespace=namespace,
+        imported = [
+            _store_skill_artifact(artifact)
+            for artifact in skill_mod.local_artifacts(
+                str(root),
+                source_kind=body.get("source_kind"),
+                namespace=body.get("namespace"),
             )
-            imported.append(_store_skill_artifact(artifact))
+        ]
         return {"source": str(root), "skills": imported}
     except skill_mod.SkillImportError as error:
         raise HTTPException(400, str(error)) from error
 
 
 
-def _github_skill_artifacts(url: str) -> tuple[dict, list[dict]]:
-    with tempfile.TemporaryDirectory(prefix="janus-skill-github-") as temporary:
-        source = skill_mod.download_github_skills(url, temporary)
-        raw_namespace = f"github-{source['owner']}-{source['repository']}".lower()
-        namespace = (
-            raw_namespace if len(raw_namespace) <= 100
-            else f"{raw_namespace[:87]}-{hashlib.sha256(raw_namespace.encode()).hexdigest()[:12]}"
-        )
-        artifacts = []
-        for directory in source["skill_directories"]:
-            relative = directory.relative_to(source["root"]).as_posix()
-            prefix = str(source.get("subpath") or "").strip("/")
-            subpath = "/".join(item for item in (prefix, relative) if item and item != ".")
-            artifact = skill_mod.compile_skill_directory(
-                directory,
-                source_kind="github",
-                source_locator=source["canonical_url"],
-                source_subpath=subpath,
-                source_revision=source["revision"],
-                namespace=namespace,
-            )
-            artifact["original"]["github"] = {
-                "owner": source["owner"],
-                "repository": source["repository"],
-                "revision": source["revision"],
-                "requested_ref": source["requested_ref"],
-                "license": source["license"],
-            }
-            artifacts.append(artifact)
-        return {
-            "source": source["canonical_url"],
-            "revision": source["revision"],
-            "license": source["license"],
-        }, artifacts
-
+_github_skill_artifacts = skill_mod.github_artifacts
 
 
 def _skill_artifact_preview(artifact: dict) -> dict:
