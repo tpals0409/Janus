@@ -433,7 +433,8 @@ describe('Janus renderer fixture', () => {
     expect((screen.getByLabelText('코딩 규칙') as HTMLTextAreaElement).value).toContain('# Coding Rules')
 
     await user.click(screen.getByRole('tab', { name: '스킬' }))
-    expect(screen.getByText('설치된 스킬이 없습니다')).toBeVisible()
+    // 스킬 화면은 지연 로드된다 — 초기 렌더러 번들 밖으로 뺀 대가로 한 틱 기다린다.
+    expect(await screen.findByText('설치된 스킬이 없습니다')).toBeVisible()
     expect(screen.getByText('0개 활성', { selector: '.ui-status span:last-child' })).toBeVisible()
 
     expect(screen.queryByRole('button', { name: '모니터' })).not.toBeInTheDocument()

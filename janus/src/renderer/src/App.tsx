@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { Loader2, PanelLeft, PanelLeftClose, ShieldAlert } from 'lucide-react'
 import { useStore } from './store'
@@ -7,16 +7,26 @@ import { AgentProfilePicker, StatusBar } from './components/Shell'
 import TaskWorkspace from './components/tasks/TaskWorkspace'
 import TaskSidebar from './components/tasks/TaskSidebar'
 import PromptEditor from './components/PromptEditor'
-import SkillLibrary from './components/SkillLibrary'
 import ContextPolicyEditor from './components/ContextPolicyEditor'
 import { BrandMark, Status, Tabs } from './components/ui'
-import SettingsPage from './components/SettingsPage'
 import CommandPalette from './components/CommandPalette'
-import EvaluationLab from './components/EvaluationLab'
 import AgentOverview from './components/AgentOverview'
 import TodayView from './components/TodayView'
 
+// 작업 화면 밖의 보조 화면들 — 초기 렌더러 번들에 실을 이유가 없다. 열릴 때 받아온다.
+const SettingsPage = lazy(() => import('./components/SettingsPage'))
+const EvaluationLab = lazy(() => import('./components/EvaluationLab'))
+const SkillLibrary = lazy(() => import('./components/SkillLibrary'))
+
 const DESIGN_TABS = ['대시보드', '지침', '스킬', '컨텍스트', '그래프'] as const
+
+function ScreenFallback() {
+  return (
+    <div className="grid flex-1 place-items-center text-[12px] text-faint">
+      <Loader2 size={14} className="animate-spin" />
+    </div>
+  )
+}
 
 
 export default function App() {
@@ -234,9 +244,9 @@ export default function App() {
             onOpenSettings={() => setNav('settings')}
           />
         ) : nav === 'settings' ? (
-          <SettingsPage />
+          <Suspense fallback={<ScreenFallback />}><SettingsPage /></Suspense>
         ) : nav === 'evaluations' ? (
-          <EvaluationLab />
+          <Suspense fallback={<ScreenFallback />}><EvaluationLab /></Suspense>
         ) : nav !== 'agents' ? (
           <div className="grid flex-1 place-items-center text-[12px] text-faint">
             이 화면은 아직 구현되지 않았습니다
@@ -255,7 +265,7 @@ export default function App() {
                 ) : tab === '지침' ? (
                   <PromptEditor />
                 ) : tab === '스킬' ? (
-                  <SkillLibrary />
+                  <Suspense fallback={<ScreenFallback />}><SkillLibrary /></Suspense>
                 ) : tab === '컨텍스트' ? (
                   <ContextPolicyEditor />
                 ) : (
