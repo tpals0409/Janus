@@ -34,7 +34,7 @@ import { useAgentProfileOptions, useStore } from '../../store'
 import { useDomainEvent } from '../../domainEvents'
 import type { ApprovalRequest, ChangeLayer, ChangeSetFile, Project, Span, Task } from '../../types'
 import ContextInspector from './ContextInspector'
-import { Button, ConfirmDialog, EmptyState, Listbox, Status } from '../ui'
+import { Button, CascadingMenu, ConfirmDialog, EmptyState, Listbox, type MenuColumn, Status } from '../ui'
 import { ModelBlockedNotice, useLocalModelBlock } from '../ModelSetup'
 import { taskStatusMeta } from '../../taskStatus'
 import { modelOptions, modelSelection, subscriptionChoices } from '../../subscriptionModels'
@@ -152,83 +152,73 @@ const FileView = lazy(() => import('../FileView'))
 // 마크다운 렌더러는 초기 번들 예산을 넘긴다 — 첫 답변이 올 때 받아온다.
 const TaskMarkdown = lazy(() => import('./TaskMarkdown'))
 
-/** 구독형 실행기를 고른 경우에만 나오는 CLI 모델·사고 강도 픽커.
+/** 컴포저의 실행기 선택 — 칩 하나에서 단계적으로 펼쳐진다.
  *
- *  프로필 픽커가 "어떤 실행기로 돌릴까"라면 이건 "그 실행기를 어떤 모델로,
- *  얼마나 생각하게"다. 둘 다 작업마다 바뀌는 선택이라 설정 화면까지 가지 않는다.
- *  한쪽을 바꿀 때 다른 쪽 값을 그대로 실어 보낸다 — config를 통째로 교체하는
- *  API라서, 빠뜨리면 반대쪽 손잡이가 조용히 초기화된다.
+ *  로컬 프로필은 고를 게 실행기뿐이라 컬럼이 하나다. 구독형을 고르면 그 오른쪽으로
+ *  모델·사고 강도 컬럼이 이어진다. 칩 세 개를 나란히 두면 로컬에서 쓰지도 않는
+ *  자리가 늘 잡혀 있고, 가로가 좁은 컴포저에서 그만큼 입력이 밀린다.
+ *
+ *  모델·강도는 config를 통째로 교체하는 API를 쓰므로 한쪽을 바꿀 때 반대쪽 값을
+ *  실어 보낸다 — 빠뜨리면 반대쪽 손잡이가 조용히 초기화된다.
  */
-function ComposerSubscriptionModel() {
-  const agentProfiles = useStore((state) => state.agentProfiles)
-  const modelProfiles = useStore((state) => state.modelProfiles)
-  const selected = useStore((state) => state.selectedAgentProfileId)
-  const update = useStore((state) => state.updateModelProfileConfig)
-  const busy = useStore((state) => state.profileBusy)
-  const profile = modelProfiles.find((item) =>
-    item.id === agentProfiles.find((agent) => agent.id === selected)?.model_profile_id
-  )
-  const choices = subscriptionChoices(profile?.provider)
-  if (!profile || !choices) return null
-  const { model, effort } = modelSelection(profile)
-  return (
-    <>
-      <span className="janus-composer__model" title="구독형 모델 — 새 턴부터 적용">
-        <Listbox
-          label="구독형 모델"
-          value={model}
-          options={modelOptions(profile.provider, model)}
-          onChange={(value) => void update(profile.id, { model: value, effort })}
-          disabled={busy}
-          placement="top"
-          compact
-          className="janus-composer__model-trigger"
-        />
-      </span>
-      <span className="janus-composer__model" title="사고 강도 — 높일수록 더 오래 생각하고 사용량을 더 씁니다">
-        <Sparkles size={13} />
-        <Listbox
-          label="사고 강도"
-          value={effort}
-          options={[
-            { value: '', label: '기본' },
-            ...choices.efforts.map((level) => ({ value: level, label: level }))
-          ]}
-          onChange={(value) => void update(profile.id, { model, effort: value })}
-          disabled={busy}
-          placement="top"
-          compact
-          className="janus-composer__model-trigger"
-        />
-      </span>
-    </>
-  )
-}
-
 function ComposerModelSelect() {
   const options = useAgentProfileOptions()
   const selected = useStore((state) => state.selectedAgentProfileId)
   const selectProfile = useStore((state) => state.selectAgentProfile)
   const session = useStore((state) => state.taskSession)
+  const agentProfiles = useStore((state) => state.agentProfiles)
+  const modelProfiles = useStore((state) => state.modelProfiles)
+  const update = useStore((state) => state.updateModelProfileConfig)
+  const busy = useStore((state) => state.profileBusy)
   if (options.length === 0) return <span><Zap size={13} /> 로컬 에이전트</span>
+
+  const profile = modelProfiles.find((item) =>
+    item.id === agentProfiles.find((agent) => agent.id === selected)?.model_profile_id
+  )
+  const choices = subscriptionChoices(profile?.provider)
+  const { model, effort } = modelSelection(profile)
+  const columns: MenuColumn[] = [
+    { label: '실행기', value: selected, options, onChange: selectProfile },
+  ]
+  if (profile && choices) {
+    columns.push({
+      label: '모델',
+      value: model,
+      options: modelOptions(profile.provider, model),
+      onChange: (value) => void update(profile.id, { model: value, effort }),
+    })
+    columns.push({
+      label: '사고 강도',
+      value: effort,
+      options: [
+        { value: '', label: '기본' },
+        ...choices.efforts.map((level) => ({ value: level, label: level })),
+      ],
+      onChange: (value) => void update(profile.id, { model, effort: value }),
+    })
+  }
+
+  // 요약은 목록에 보이는 라벨을 그대로 쓴다 — 칩이 'opus'라 쓰고 메뉴가 'Opus'라
+  // 쓰면 같은 값의 두 표기를 사용자가 대조하게 된다.
+  const summary = columns
+    .map((column) => column.options.find((option) => option.value === column.value)?.label)
+    .filter(Boolean)
+    .join(' · ')
   const differs = Boolean(session && session.agent_profile_id !== selected)
   return (
-    <>
-      <span className="janus-composer__model" title="모델 선택 — 새 시도·새 대화부터 적용">
-        <Zap size={13} />
-        <Listbox
-          label="모델 선택"
-          value={selected}
-          options={options}
-          onChange={selectProfile}
-          placement="top"
-          compact
-          className="janus-composer__model-trigger"
-        />
-        {differs && <em>새 시도부터</em>}
-      </span>
-      <ComposerSubscriptionModel />
-    </>
+    <span className="janus-composer__model" title="실행기·모델·사고 강도 — 새 턴부터 적용">
+      <CascadingMenu
+        label="모델 선택"
+        summary={summary}
+        columns={columns}
+        disabled={busy}
+        placement="top"
+        compact
+        icon={<Zap size={13} aria-hidden="true" />}
+        className="janus-composer__model-trigger"
+      />
+      {differs && <em>새 시도부터</em>}
+    </span>
   )
 }
 

@@ -378,6 +378,200 @@ export function Listbox<T extends string>({
   )
 }
 
+export type MenuColumn<T extends string = string> = {
+  /** 컬럼의 접근성 이름. 테스트와 스크린리더가 이걸로 컬럼을 찾는다. */
+  label: string
+  value: T
+  options: readonly ListboxOption<T>[]
+  onChange: (value: T) => void
+}
+
+/** 단계가 있는 선택을 칩 하나로 접는다 — 컬럼이 왼쪽에서 오른쪽으로 이어진다.
+ *
+ *  진짜 flyout 대신 한 패널 안의 컬럼들로 그린다: 띄울 상자가 하나뿐이라
+ *  위치 계산이 한 번이면 끝나고, 컬럼이 몇 개든 화면 밖으로 새지 않는다.
+ *  각 컬럼은 앞 컬럼의 **확정된** 선택을 따른다 — 마우스가 스쳐 간 값이 아니라.
+ *  마지막 컬럼에서 고르면 닫히고, 앞 컬럼에서 고르면 열린 채 뒤가 갱신된다.
+ */
+export function CascadingMenu({
+  label,
+  summary,
+  columns,
+  placement = 'auto',
+  compact = false,
+  disabled = false,
+  className,
+  icon,
+}: {
+  label: string
+  summary: string
+  columns: readonly MenuColumn[]
+  placement?: 'auto' | 'top' | 'bottom'
+  compact?: boolean
+  disabled?: boolean
+  className?: string
+  icon?: ReactNode
+}) {
+  const id = useId()
+  const trigger = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false)
+  const [box, setBox] = useState<{ left: number; top?: number; bottom?: number } | null>(null)
+  const [cursor, setCursor] = useState<[number, number]>([0, 0])
+  const [pending, setPending] = useState<number | null>(null)
+
+  const indexOf = (column: number) => {
+    const found = columns[column]?.options.findIndex(
+      (option) => option.value === columns[column].value,
+    )
+    return found === undefined || found < 0 ? 0 : found
+  }
+
+  const openMenu = () => {
+    const rect = trigger.current?.getBoundingClientRect()
+    if (disabled || columns.length === 0 || !rect) return
+    const below = window.innerHeight - rect.bottom
+    const dropUp = placement === 'top' || (placement === 'auto' && below < 220 && rect.top > below)
+    setBox({
+      left: rect.left,
+      ...(dropUp ? { bottom: window.innerHeight - rect.top + 6 } : { top: rect.bottom + 6 }),
+    })
+    setCursor([0, indexOf(0)])
+    setOpen(true)
+  }
+
+  const close = () => {
+    setOpen(false)
+    trigger.current?.focus()
+  }
+
+  const commit = (column: number, index: number) => {
+    const option = columns[column]?.options[index]
+    if (!option || option.disabled) return
+    if (option.value !== columns[column].value) columns[column].onChange(option.value)
+    setCursor([column, index])
+    // 닫을지는 **갱신된 뒤에** 정한다. 고른 값이 하위 단계를 새로 여는 경우
+    // (로컬 → 구독형: 컬럼 1개 → 3개) 클릭 시점의 컬럼 수로 판단하면 방금
+    // 펼쳐진 단계를 보여주지도 않고 닫힌다.
+    setPending(column)
+  }
+
+  useEffect(() => {
+    if (pending === null) return
+    setPending(null)
+    if (pending >= columns.length - 1) close()
+    // close는 트리거로 포커스를 되돌릴 뿐 렌더에 쓰는 값을 읽지 않는다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, columns.length])
+
+  useEffect(() => {
+    if (!open) return
+    const dismiss = (event: Event) => {
+      const target = event.target as HTMLElement | null
+      if (trigger.current?.contains(target as Node)) return
+      if (target?.closest?.(`[data-cascade="${id}"]`)) return
+      setOpen(false)
+    }
+    const dismissOnMove = () => setOpen(false)
+    document.addEventListener('pointerdown', dismiss)
+    window.addEventListener('resize', dismissOnMove)
+    window.addEventListener('scroll', dismissOnMove, true)
+    return () => {
+      document.removeEventListener('pointerdown', dismiss)
+      window.removeEventListener('resize', dismissOnMove)
+      window.removeEventListener('scroll', dismissOnMove, true)
+    }
+  }, [open, id])
+
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (!open) {
+      if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key)) {
+        event.preventDefault()
+        openMenu()
+      }
+      return
+    }
+    const [column, index] = cursor
+    const options = columns[column]?.options ?? []
+    const move = (delta: number) => {
+      let next = index
+      for (let step = 0; step < options.length; step += 1) {
+        next = (next + delta + options.length) % options.length
+        if (!options[next].disabled) return setCursor([column, next])
+      }
+    }
+    if (event.key === 'Escape') { event.preventDefault(); close() }
+    else if (event.key === 'ArrowDown') { event.preventDefault(); move(1) }
+    else if (event.key === 'ArrowUp') { event.preventDefault(); move(-1) }
+    else if (event.key === 'ArrowRight') {
+      event.preventDefault()
+      if (column + 1 < columns.length) setCursor([column + 1, indexOf(column + 1)])
+    } else if (event.key === 'ArrowLeft') {
+      event.preventDefault()
+      if (column > 0) setCursor([column - 1, indexOf(column - 1)])
+    } else if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      commit(column, index)
+    } else if (event.key === 'Tab') setOpen(false)
+  }
+
+  return (
+    <>
+      <button
+        ref={trigger}
+        type="button"
+        disabled={disabled}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={label}
+        className={cx('ui-listbox', compact && 'ui-listbox--compact', className)}
+        onClick={() => (open ? setOpen(false) : openMenu())}
+        onKeyDown={onKeyDown}
+      >
+        {icon}
+        <span className="ui-listbox__value">{summary}</span>
+        <ChevronDown size={compact ? 11 : 13} strokeWidth={1.75} aria-hidden="true" />
+      </button>
+      {open && box && createPortal(
+        <div
+          data-cascade={id}
+          className="ui-cascade"
+          style={{ left: box.left, top: box.top, bottom: box.bottom }}
+        >
+          {columns.map((column, columnIndex) => (
+            <div
+              key={column.label}
+              role="listbox"
+              aria-label={column.label}
+              className="ui-cascade__column"
+            >
+              {column.options.map((option, index) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="option"
+                  aria-selected={option.value === column.value}
+                  disabled={option.disabled}
+                  data-active={
+                    columnIndex === cursor[0] && index === cursor[1] ? '' : undefined
+                  }
+                  className="ui-listbox__option"
+                  onMouseEnter={() => setCursor([columnIndex, index])}
+                  onClick={() => commit(columnIndex, index)}
+                >
+                  <Check size={12} strokeWidth={2.25} aria-hidden="true" />
+                  <span>{option.label}</span>
+                  {option.hint && <small>{option.hint}</small>}
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </>
+  )
+}
+
 export function Checkbox({
   label,
   description,

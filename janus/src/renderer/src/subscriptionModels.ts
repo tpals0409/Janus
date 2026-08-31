@@ -9,7 +9,7 @@ import type { ModelProfile } from './types'
 export const SUBSCRIPTION_CHOICES = {
   claude_code: {
     models: [
-      { value: '', label: '기본값' },
+      { value: '', label: '기본' },
       { value: 'fable', label: 'Fable' },
       { value: 'opus', label: 'Opus' },
       { value: 'sonnet', label: 'Sonnet' },
@@ -19,7 +19,7 @@ export const SUBSCRIPTION_CHOICES = {
   },
   codex: {
     models: [
-      { value: '', label: '기본값' },
+      { value: '', label: '기본' },
       { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
       { value: 'gpt-5.6-codex', label: 'GPT-5.6 Codex' },
       { value: 'gpt-5.6', label: 'GPT-5.6' }
