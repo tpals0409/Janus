@@ -211,6 +211,26 @@ def _echo(text: str, **_):
     return {"text": text}
 
 
+# 스킬 라이브러리 쓰기는 저장소를 봐야 한다. 도구 레이어가 그 의존을 지지 않도록
+# 호출 시점에 위임한다 — skill_authoring이 저장소와 세션을 아는 유일한 지점이다.
+def _create_skill(**kwargs):
+    from . import skill_authoring
+
+    return skill_authoring.create_skill(**kwargs)
+
+
+def _import_skill(**kwargs):
+    from . import skill_authoring
+
+    return skill_authoring.import_skill(**kwargs)
+
+
+def _render_skill(value):
+    from . import skill_authoring
+
+    return skill_authoring.render(value)
+
+
 # ─────────────────────────── renderers ───────────────────────────
 
 
@@ -326,6 +346,35 @@ TOOLS = [
        "Check the [exit code: N] on every result. "
        "A non-zero code means it failed — investigate before continuing.",
        needs_approval=True, requires_workspace=True, resource_class="cpu_tool"),
+    # 스킬 라이브러리 쓰기 — 승인이 필요하므로 자동으로 MCP 브리지에도 실린다
+    # (mcp_bridge.BRIDGED = DANGEROUS). 구독형 CLI 세션도 같은 도구를 쓴다.
+    # requires_workspace는 여기서 "세션 컨텍스트가 있어야 한다"는 뜻이다 — 어떤
+    # AgentProfile에 붙일지는 dispatch에서만 알 수 있다.
+    _t("create_skill", _create_skill, _render_skill,
+       _obj(["name", "description", "instructions"],
+            name={**_S, "description": "Lowercase slug, e.g. release-checklist."},
+            description={**_S, "description": "One line: when this skill applies."},
+            instructions={**_S, "description": "The reusable procedure, in Markdown."},
+            activation_mode={**_S, "enum": ["auto", "manual", "off"],
+                             "description": "auto loads itself when relevant; "
+                                            "manual only when the user names it."}),
+       "Save a reusable procedure into the Janus skill library.",
+       "Interview the user before calling this: ask what the skill is for, when it "
+       "should trigger, and the concrete steps — one question at a time, using "
+       "finish_turn with outcome input_required to hand the turn back. Only call "
+       "this once the answers are specific enough that another agent could follow "
+       "them without you. Ask which activation_mode they want rather than guessing.",
+       needs_approval=True, requires_workspace=True, resource_class="cpu_tool"),
+    _t("import_skill", _import_skill, _render_skill,
+       _obj(["source"],
+            source={**_S, "description": "GitHub URL or local folder path holding SKILL.md."},
+            activation_mode={**_S, "enum": ["auto", "manual", "off"],
+                             "description": "How the imported skills activate."}),
+       "Import existing skills from a GitHub repository or a local folder.",
+       "Use this when the user points at an existing skill source instead of "
+       "describing a new procedure. Confirm the source and the activation mode "
+       "with the user before importing.",
+       needs_approval=True, requires_workspace=True, resource_class="io_tool"),
 ]
 
 REGISTRY: dict[str, dict] = {t["name"]: t for t in TOOLS}
@@ -490,7 +539,12 @@ def demo():
     # 승인 분류가 보존됐는지 — agent 노드 안전 규칙이 여기 기댄다
     # http_get도 승인 대상이다 — 이 단언이 3개만 기대해 self-check가 실패하고 있었고,
     # 아무도 이 모듈을 돌리지 않아 드러나지 않았다.
-    assert DANGEROUS == {"write_file", "edit_file", "run_bash", "http_get"}, DANGEROUS
+    # 스킬 라이브러리 쓰기도 승인 대상이다 — 그 덕에 MCP 브리지(BRIDGED=DANGEROUS)로
+    # 구독형 CLI 세션에도 같은 승인 게이트를 지나 실린다.
+    assert DANGEROUS == {
+        "write_file", "edit_file", "run_bash", "http_get",
+        "create_skill", "import_skill",
+    }, DANGEROUS
     assert "run_bash" not in READ_ONLY and "grep" in READ_ONLY
     assert all("fn" not in d and "handler" not in d for d in listing())
     assert len(schemas_for(["grep", "nope"])) == 1

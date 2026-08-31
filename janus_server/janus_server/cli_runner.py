@@ -77,6 +77,35 @@ def claude_tools(janus_tools: object, *, bridged: list[str] | None = None) -> li
 def mcp_tool_name(janus_name: str) -> str:
     """Claude Code가 MCP 도구를 부르는 이름."""
     return f"mcp__{mcp_bridge.SERVER_NAME}__{janus_name}"
+
+
+# 구독형 CLI가 받는 사고 강도. 두 CLI가 서로 다른 어휘를 쓰므로 각자의 것만 넘긴다 —
+# 모르는 값을 그대로 넘기면 CLI가 인자 오류로 죽어 턴 전체가 실패한다.
+CLI_EFFORTS = {
+    "claude_code": ("low", "medium", "high", "xhigh", "max"),
+    "codex": ("minimal", "low", "medium", "high"),
+}
+
+
+def model_flags(provider: str, config: object) -> list[str]:
+    """ModelProfile.config의 model/effort를 해당 CLI의 인자로 옮긴다.
+
+    값이 없거나 그 CLI가 모르는 effort면 아무것도 넘기지 않는다 — 그러면 CLI가
+    자기 기본값(구독 플랜의 기본 모델)으로 돈다. 조용한 폴백이 인자 오류보다 낫다.
+    """
+    if not isinstance(config, dict):
+        return []
+    model = str(config.get("model") or "").strip()
+    effort = str(config.get("effort") or "").strip().lower()
+    flags: list[str] = []
+    if model:
+        flags += ["--model", model]
+    if effort in CLI_EFFORTS.get(provider, ()):
+        if provider == "claude_code":
+            flags += ["--effort", effort]
+        else:  # codex는 전용 플래그가 없어 config override로 준다
+            flags += ["-c", f'model_reasoning_effort="{effort}"']
+    return flags
 # 주입한 계약의 판. 이걸 올리면 기존 대화도 새 계약을 1회 다시 받는다.
 # 1 = 3문장 환경 안내(v1.0.21~22). 2 = 페르소나·코딩 규칙·outcome 계약.
 CONTEXT_VERSION = 2
@@ -389,10 +418,12 @@ class CliOrchestration:
         inject = not self._context_injected
         if inject:
             self._injecting_context = True
+        selection = model_flags(self.provider, self.spec.get("model_config"))
         if self.provider == "claude_code":
             bridged = self.mcp_tool_names()
             command = [
                 CLI_BINS["claude_code"](), "-p", text,
+                *selection,
                 "--output-format", "stream-json", "--verbose",
                 # 위험 도구는 MCP로 Janus를 거치므로 승인은 Janus가 묻는다. 여기서
                 # 또 물으면 답할 사람이 없는 headless에서 그냥 거부로 끝난다.
@@ -428,12 +459,12 @@ class CliOrchestration:
             # exec resume에는 --sandbox 플래그가 없어 같은 정책을 config override로 준다.
             return [
                 binary, "exec", "resume", "--json", "--ignore-user-config",
-                "-c", f'sandbox_mode="{sandbox}"',
+                "-c", f'sandbox_mode="{sandbox}"', *selection,
                 self.cli_session_id, prompt,
             ]
         return [
             binary, "exec", "--json", "--sandbox", sandbox,
-            "--ignore-user-config", prompt,
+            "--ignore-user-config", *selection, prompt,
         ]
 
     # ── MCP 다리 (routers/mcp.py가 부른다) ──

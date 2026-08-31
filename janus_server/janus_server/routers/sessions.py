@@ -45,6 +45,8 @@ def _task_runtime_spec(
         "description": profile["description"],
         "model": model["model_key"],
         "provider": model["provider"],
+        # 구독형 CLI의 모델·사고 강도 선택. 로컬 경로는 읽지 않는다.
+        "model_config": model["config"],
         "system_prompt": profile["system_prompt"],
         "tools": profile["tools"],
         "approval": profile["approval"],

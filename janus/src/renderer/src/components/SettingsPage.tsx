@@ -4,7 +4,7 @@ import { useAgentProfileOptions, useStore } from '../store'
 import ModelSetup, { ModelChoice } from './ModelSetup'
 import { Listbox } from './ui'
 import { setThemePref, themePref, type ThemePref } from '../theme'
-import type { RuntimeSettingsSnapshot, RuntimeSettingsValues } from '../types'
+import type { ModelProfile, RuntimeSettingsSnapshot, RuntimeSettingsValues } from '../types'
 
 const THEME_LABEL: Record<ThemePref, string> = {
   system: '시스템 따름',
@@ -18,6 +18,75 @@ const MTP_LABEL: Record<RuntimeSettingsValues['mtpPolicy'], string> = {
   off: '끔 — 항상 일반 디코딩'
 }
 
+// 구독형 실행기의 손잡이. effort 어휘가 CLI마다 달라 서버도 provider별로만 받는다
+// (cli_runner.CLI_EFFORTS) — 여기 목록이 그 계약의 화면 쪽 절반이다.
+const SUBSCRIPTION_CHOICES = {
+  claude_code: {
+    models: [
+      { value: '', label: '기본값 — CLI 설정 따름' },
+      { value: 'fable', label: 'Fable' },
+      { value: 'opus', label: 'Opus' },
+      { value: 'sonnet', label: 'Sonnet' },
+      { value: 'haiku', label: 'Haiku' }
+    ],
+    efforts: ['low', 'medium', 'high', 'xhigh', 'max']
+  },
+  codex: {
+    models: [
+      { value: '', label: '기본값 — CLI 설정 따름' },
+      { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
+      { value: 'gpt-5.6-codex', label: 'GPT-5.6 Codex' },
+      { value: 'gpt-5.6', label: 'GPT-5.6' }
+    ],
+    efforts: ['minimal', 'low', 'medium', 'high']
+  }
+} as const
+
+/** 구독형 CLI의 모델·사고 강도. 저장 즉시 다음 턴부터 적용된다. */
+function SubscriptionModelFields({ profile }: { profile: ModelProfile }) {
+  const update = useStore((state) => state.updateModelProfileConfig)
+  const busy = useStore((state) => state.profileBusy)
+  const error = useStore((state) => state.profileError)
+  const choices = SUBSCRIPTION_CHOICES[profile.provider as 'claude_code' | 'codex']
+  if (!choices) return null
+  // config는 서버가 항상 채우지만, 설정 화면이 낡은 스냅샷 하나로 죽으면 안 된다.
+  const config = profile.config ?? {}
+  const model = String(config.model ?? '')
+  const effort = String(config.effort ?? '')
+  return (
+    <>
+      <div className="settings-field">
+        <span className="settings-field__name">모델 ({profile.name})</span>
+        <Listbox
+          label={`모델 (${profile.name})`}
+          value={model}
+          options={choices.models.map((item) => ({ value: item.value, label: item.label }))}
+          onChange={(value) => void update(profile.id, { model: value, effort })}
+          disabled={busy}
+          compact
+        />
+        <em>구독 플랜이 주는 모델만 고를 수 있습니다. 새 턴부터 적용됩니다.</em>
+      </div>
+      <div className="settings-field">
+        <span className="settings-field__name">사고 강도</span>
+        <Listbox
+          label="사고 강도"
+          value={effort}
+          options={[
+            { value: '', label: '기본값 — CLI 설정 따름' },
+            ...choices.efforts.map((level) => ({ value: level, label: level }))
+          ]}
+          onChange={(value) => void update(profile.id, { model, effort: value })}
+          disabled={busy}
+          compact
+        />
+        <em>높일수록 더 오래 생각하고 더 많은 사용량을 씁니다.</em>
+      </div>
+      {error && <p className="settings-dialog__warning">{error}</p>}
+    </>
+  )
+}
+
 /** 설정 화면 — 모델 선택은 즉시 적용, 런타임 손잡이는 저장 시 해당 서비스만 재시작. */
 export default function SettingsPage() {
   const agentProfiles = useStore((state) => state.agentProfiles)
@@ -25,9 +94,10 @@ export default function SettingsPage() {
   const selectedAgentProfileId = useStore((state) => state.selectedAgentProfileId)
   const selectAgentProfile = useStore((state) => state.selectAgentProfile)
   const profileOptions = useAgentProfileOptions()
-  const selectedProvider = modelProfiles.find((model) =>
+  const selectedModelProfile = modelProfiles.find((model) =>
     model.id === agentProfiles.find((profile) => profile.id === selectedAgentProfileId)?.model_profile_id
-  )?.provider ?? 'local'
+  )
+  const selectedProvider = selectedModelProfile?.provider ?? 'local'
   const [snapshot, setSnapshot] = useState<RuntimeSettingsSnapshot | null>(null)
   const [draft, setDraft] = useState<RuntimeSettingsValues | null>(null)
   const [saving, setSaving] = useState(false)
@@ -107,6 +177,9 @@ export default function SettingsPage() {
             </div>
           ) : (
             <p className="text-[11px] text-faint">프로필을 불러오는 중입니다.</p>
+          )}
+          {selectedModelProfile && selectedProvider !== 'local' && (
+            <SubscriptionModelFields profile={selectedModelProfile} />
           )}
         </section>
 

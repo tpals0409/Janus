@@ -421,6 +421,42 @@ class McpApprovalTests(unittest.TestCase):
             runner.spec["approval"] = "auto"
             self.assertTrue(runner.mcp_approve("write_file", {"path": "a", "content": "b"}))
 
+    def test_model_and_effort_selection_reaches_both_clis(self):
+        """구독형도 모델·사고 강도를 고를 수 있어야 한다 — 전에는 CLI 기본값에 갇혔다."""
+        with tempfile.TemporaryDirectory() as tmp:
+            claude, _ = make_runner(tmp)
+            claude.spec["model_config"] = {"model": "opus", "effort": "high"}
+            command = claude._command("hi")
+            self.assertEqual(["--model", "opus"], command[3:5])
+            self.assertIn("--effort", command)
+            self.assertEqual("high", command[command.index("--effort") + 1])
+
+            codex, _ = make_runner(tmp, provider="codex")
+            codex.spec["model_config"] = {"model": "gpt-5.6-sol", "effort": "low"}
+            command = codex._command("hi")
+            self.assertIn("--model", command)
+            self.assertEqual("gpt-5.6-sol", command[command.index("--model") + 1])
+            self.assertIn('model_reasoning_effort="low"', command)
+            # 프롬프트는 항상 마지막 위치를 지킨다 — 플래그가 인자 순서를 깨면 안 된다.
+            # (첫 턴은 Janus 계약이 프롬프트 앞에 실리므로 끝으로 확인한다.)
+            self.assertTrue(command[-1].endswith("hi"), command[-1][-40:])
+
+            # resume 경로에서도 같은 선택이 유지되고, thread id·프롬프트가 끝에 남는다.
+            codex.cli_session_id = "th-1"
+            resumed = codex._command("again")
+            self.assertIn("gpt-5.6-sol", resumed)
+            self.assertEqual("th-1", resumed[-2])
+            self.assertTrue(resumed[-1].endswith("again"), resumed[-1][-40:])
+
+    def test_unknown_effort_is_dropped_rather_than_passed_through(self):
+        """CLI가 모르는 값을 넘기면 인자 오류로 턴 전체가 죽는다 — 조용히 기본값으로."""
+        self.assertEqual([], cli_runner.model_flags("claude_code", {"effort": "minimal"}))
+        self.assertEqual([], cli_runner.model_flags("codex", {"effort": "xhigh"}))
+        self.assertEqual([], cli_runner.model_flags("claude_code", None))
+        self.assertEqual(
+            ["--model", "sonnet"], cli_runner.model_flags("claude_code", {"model": "sonnet"}),
+        )
+
     def test_codex_gets_no_mcp_bridge_yet(self):
         """codex는 streamable HTTP MCP를 지원하지만 헤더 인증이 아니라 bearer다.
         검증되지 않은 배선을 붙이는 대신, 범위 제한만 걸린 상태를 명시한다."""
