@@ -37,6 +37,7 @@ import ContextInspector from './ContextInspector'
 import { Button, ConfirmDialog, EmptyState, Listbox, Status } from '../ui'
 import { ModelBlockedNotice, useLocalModelBlock } from '../ModelSetup'
 import { taskStatusMeta } from '../../taskStatus'
+import { modelOptions, modelSelection, subscriptionChoices } from '../../subscriptionModels'
 
 interface TranscriptItem {
   key: string
@@ -151,6 +152,39 @@ const FileView = lazy(() => import('../FileView'))
 // 마크다운 렌더러는 초기 번들 예산을 넘긴다 — 첫 답변이 올 때 받아온다.
 const TaskMarkdown = lazy(() => import('./TaskMarkdown'))
 
+/** 구독형 실행기를 고른 경우에만 나오는 CLI 모델 픽커.
+ *
+ *  프로필 픽커가 "어떤 실행기로 돌릴까"라면 이건 "그 실행기의 어떤 모델로"다.
+ *  작업마다 바뀌는 선택이라 설정 화면까지 가지 않고 컴포저에서 바로 바꾼다.
+ */
+function ComposerSubscriptionModel() {
+  const agentProfiles = useStore((state) => state.agentProfiles)
+  const modelProfiles = useStore((state) => state.modelProfiles)
+  const selected = useStore((state) => state.selectedAgentProfileId)
+  const update = useStore((state) => state.updateModelProfileConfig)
+  const busy = useStore((state) => state.profileBusy)
+  const profile = modelProfiles.find((item) =>
+    item.id === agentProfiles.find((agent) => agent.id === selected)?.model_profile_id
+  )
+  const choices = subscriptionChoices(profile?.provider)
+  if (!profile || !choices) return null
+  const { model, effort } = modelSelection(profile)
+  return (
+    <span className="janus-composer__model" title="구독형 모델 — 새 턴부터 적용">
+      <Listbox
+        label="구독형 모델"
+        value={model}
+        options={modelOptions(profile.provider, model)}
+        onChange={(value) => void update(profile.id, { model: value, effort })}
+        disabled={busy}
+        placement="top"
+        compact
+        className="janus-composer__model-trigger"
+      />
+    </span>
+  )
+}
+
 function ComposerModelSelect() {
   const options = useAgentProfileOptions()
   const selected = useStore((state) => state.selectedAgentProfileId)
@@ -159,19 +193,22 @@ function ComposerModelSelect() {
   if (options.length === 0) return <span><Zap size={13} /> 로컬 에이전트</span>
   const differs = Boolean(session && session.agent_profile_id !== selected)
   return (
-    <span className="janus-composer__model" title="모델 선택 — 새 시도·새 대화부터 적용">
-      <Zap size={13} />
-      <Listbox
-        label="모델 선택"
-        value={selected}
-        options={options}
-        onChange={selectProfile}
-        placement="top"
-        compact
-        className="janus-composer__model-trigger"
-      />
-      {differs && <em>새 시도부터</em>}
-    </span>
+    <>
+      <span className="janus-composer__model" title="모델 선택 — 새 시도·새 대화부터 적용">
+        <Zap size={13} />
+        <Listbox
+          label="모델 선택"
+          value={selected}
+          options={options}
+          onChange={selectProfile}
+          placement="top"
+          compact
+          className="janus-composer__model-trigger"
+        />
+        {differs && <em>새 시도부터</em>}
+      </span>
+      <ComposerSubscriptionModel />
+    </>
   )
 }
 

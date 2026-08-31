@@ -4,6 +4,7 @@ import { useAgentProfileOptions, useStore } from '../store'
 import ModelSetup, { ModelChoice } from './ModelSetup'
 import { Listbox } from './ui'
 import { setThemePref, themePref, type ThemePref } from '../theme'
+import { modelOptions, modelSelection, subscriptionChoices } from '../subscriptionModels'
 import type { ModelProfile, RuntimeSettingsSnapshot, RuntimeSettingsValues } from '../types'
 
 const THEME_LABEL: Record<ThemePref, string> = {
@@ -18,41 +19,14 @@ const MTP_LABEL: Record<RuntimeSettingsValues['mtpPolicy'], string> = {
   off: '끔 — 항상 일반 디코딩'
 }
 
-// 구독형 실행기의 손잡이. effort 어휘가 CLI마다 달라 서버도 provider별로만 받는다
-// (cli_runner.CLI_EFFORTS) — 여기 목록이 그 계약의 화면 쪽 절반이다.
-const SUBSCRIPTION_CHOICES = {
-  claude_code: {
-    models: [
-      { value: '', label: '기본값 — CLI 설정 따름' },
-      { value: 'fable', label: 'Fable' },
-      { value: 'opus', label: 'Opus' },
-      { value: 'sonnet', label: 'Sonnet' },
-      { value: 'haiku', label: 'Haiku' }
-    ],
-    efforts: ['low', 'medium', 'high', 'xhigh', 'max']
-  },
-  codex: {
-    models: [
-      { value: '', label: '기본값 — CLI 설정 따름' },
-      { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
-      { value: 'gpt-5.6-codex', label: 'GPT-5.6 Codex' },
-      { value: 'gpt-5.6', label: 'GPT-5.6' }
-    ],
-    efforts: ['minimal', 'low', 'medium', 'high']
-  }
-} as const
-
 /** 구독형 CLI의 모델·사고 강도. 저장 즉시 다음 턴부터 적용된다. */
 function SubscriptionModelFields({ profile }: { profile: ModelProfile }) {
   const update = useStore((state) => state.updateModelProfileConfig)
   const busy = useStore((state) => state.profileBusy)
   const error = useStore((state) => state.profileError)
-  const choices = SUBSCRIPTION_CHOICES[profile.provider as 'claude_code' | 'codex']
+  const choices = subscriptionChoices(profile.provider)
   if (!choices) return null
-  // config는 서버가 항상 채우지만, 설정 화면이 낡은 스냅샷 하나로 죽으면 안 된다.
-  const config = profile.config ?? {}
-  const model = String(config.model ?? '')
-  const effort = String(config.effort ?? '')
+  const { model, effort } = modelSelection(profile)
   return (
     <>
       <div className="settings-field">
@@ -60,7 +34,7 @@ function SubscriptionModelFields({ profile }: { profile: ModelProfile }) {
         <Listbox
           label={`모델 (${profile.name})`}
           value={model}
-          options={choices.models.map((item) => ({ value: item.value, label: item.label }))}
+          options={modelOptions(profile.provider, model)}
           onChange={(value) => void update(profile.id, { model: value, effort })}
           disabled={busy}
           compact
