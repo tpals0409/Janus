@@ -1857,6 +1857,26 @@ class DomainStore:
                 connection, "SELECT * FROM model_profiles WHERE id=?", (profile_id,), "ModelProfile"
             )
 
+    def update_model_profile_config(self, profile_id: str, config: dict) -> dict:
+        """구독형 프로필의 model/effort 선택을 갱신한다 (config_json 전체 교체).
+
+        provider·model_key는 프로필의 정체성이라 건드리지 않는다 — 모델 선택은
+        같은 실행기 안에서의 손잡이지, 다른 실행기로 바꾸는 일이 아니다.
+        """
+        if not isinstance(config, dict):
+            raise Conflict("config는 객체여야 합니다")
+        with self.transaction(immediate=True) as connection:
+            changed = connection.execute(
+                "UPDATE model_profiles SET config_json=?,updated_at=? WHERE id=?",
+                (_json(config), _now(), profile_id),
+            ).rowcount
+            if not changed:
+                self._one(
+                    connection, "SELECT * FROM model_profiles WHERE id=?",
+                    (profile_id,), "ModelProfile",
+                )
+        return self.get_model_profile(profile_id)
+
     def list_agent_profiles(self, *, include_archived: bool = False) -> list[dict]:
         where = "" if include_archived else "WHERE archived_at IS NULL"
         with self._connect() as connection:

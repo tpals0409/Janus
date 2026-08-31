@@ -176,6 +176,9 @@ interface State {
   loadLatestTaskSession(): Promise<void>
   selectAgentProfile(id: string): void
   updateAgentProfile(id: string, changes: Partial<AgentProfile>): Promise<boolean>
+  updateModelProfileConfig(
+    id: string, config: { model?: string; effort?: string }
+  ): Promise<boolean>
   loadSkills(): Promise<void>
   loadAgentProfileSkills(profileId?: string): Promise<void>
   previewGithubSkills(url: string): Promise<void>
@@ -1009,6 +1012,27 @@ export const useStore = create<State>((set, get) => ({
       })) as AgentProfile
       set((state) => ({
         agentProfiles: state.agentProfiles.map((item) => item.id === id ? profile : item),
+        profileError: null
+      }))
+      return true
+    } catch (error) {
+      set({ profileError: errorMessage(error) })
+      return false
+    } finally {
+      set({ profileBusy: false })
+    }
+  },
+
+  async updateModelProfileConfig(id, config) {
+    set({ profileBusy: true, profileError: null })
+    try {
+      const profile = (await apiJson(`${BASE}/profiles/models/${id}/config`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config)
+      })) as ModelProfile
+      set((state) => ({
+        modelProfiles: state.modelProfiles.map((item) => item.id === id ? profile : item),
         profileError: null
       }))
       return true
