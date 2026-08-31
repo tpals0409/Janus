@@ -152,10 +152,12 @@ const FileView = lazy(() => import('../FileView'))
 // 마크다운 렌더러는 초기 번들 예산을 넘긴다 — 첫 답변이 올 때 받아온다.
 const TaskMarkdown = lazy(() => import('./TaskMarkdown'))
 
-/** 구독형 실행기를 고른 경우에만 나오는 CLI 모델 픽커.
+/** 구독형 실행기를 고른 경우에만 나오는 CLI 모델·사고 강도 픽커.
  *
- *  프로필 픽커가 "어떤 실행기로 돌릴까"라면 이건 "그 실행기의 어떤 모델로"다.
- *  작업마다 바뀌는 선택이라 설정 화면까지 가지 않고 컴포저에서 바로 바꾼다.
+ *  프로필 픽커가 "어떤 실행기로 돌릴까"라면 이건 "그 실행기를 어떤 모델로,
+ *  얼마나 생각하게"다. 둘 다 작업마다 바뀌는 선택이라 설정 화면까지 가지 않는다.
+ *  한쪽을 바꿀 때 다른 쪽 값을 그대로 실어 보낸다 — config를 통째로 교체하는
+ *  API라서, 빠뜨리면 반대쪽 손잡이가 조용히 초기화된다.
  */
 function ComposerSubscriptionModel() {
   const agentProfiles = useStore((state) => state.agentProfiles)
@@ -170,18 +172,36 @@ function ComposerSubscriptionModel() {
   if (!profile || !choices) return null
   const { model, effort } = modelSelection(profile)
   return (
-    <span className="janus-composer__model" title="구독형 모델 — 새 턴부터 적용">
-      <Listbox
-        label="구독형 모델"
-        value={model}
-        options={modelOptions(profile.provider, model)}
-        onChange={(value) => void update(profile.id, { model: value, effort })}
-        disabled={busy}
-        placement="top"
-        compact
-        className="janus-composer__model-trigger"
-      />
-    </span>
+    <>
+      <span className="janus-composer__model" title="구독형 모델 — 새 턴부터 적용">
+        <Listbox
+          label="구독형 모델"
+          value={model}
+          options={modelOptions(profile.provider, model)}
+          onChange={(value) => void update(profile.id, { model: value, effort })}
+          disabled={busy}
+          placement="top"
+          compact
+          className="janus-composer__model-trigger"
+        />
+      </span>
+      <span className="janus-composer__model" title="사고 강도 — 높일수록 더 오래 생각하고 사용량을 더 씁니다">
+        <Sparkles size={13} />
+        <Listbox
+          label="사고 강도"
+          value={effort}
+          options={[
+            { value: '', label: '기본' },
+            ...choices.efforts.map((level) => ({ value: level, label: level }))
+          ]}
+          onChange={(value) => void update(profile.id, { model, effort: value })}
+          disabled={busy}
+          placement="top"
+          compact
+          className="janus-composer__model-trigger"
+        />
+      </span>
+    </>
   )
 }
 

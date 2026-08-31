@@ -635,6 +635,7 @@ describe('컴포저 모델 선택', () => {
 
     // 로컬 프로필에는 CLI 모델이라는 개념이 없다 — 픽커가 아예 없어야 한다.
     expect(screen.queryByRole('combobox', { name: '구독형 모델' })).toBeNull()
+    expect(screen.queryByRole('combobox', { name: '사고 강도' })).toBeNull()
 
     await user.click(screen.getByRole('combobox', { name: '모델 선택' }))
     await user.click(await screen.findByRole('option', { name: /Claude Code/ }))
@@ -646,5 +647,35 @@ describe('컴포저 모델 선택', () => {
 
     // 모델만 바꾸고 사고 강도는 유지한다 — 한쪽 손잡이가 다른 쪽을 지우면 안 된다.
     expect(saved).toEqual([['model_claude_code', { model: 'opus', effort: 'high' }]])
+
+    // 반대 방향도 같다: 강도를 바꿔도 모델은 남는다.
+    const effort = screen.getByRole('combobox', { name: '사고 강도' })
+    expect(effort).toHaveTextContent('high')
+    await user.click(effort)
+    await user.click(await screen.findByRole('option', { name: 'max' }))
+    expect(saved[1]).toEqual(['model_claude_code', { model: 'sonnet', effort: 'max' }])
+  })
+
+  it('offers only the effort levels the selected CLI understands', async () => {
+    window.history.replaceState({}, '', '/?fixture=task-runtime')
+    seedTaskRuntimeVisualFixture()
+    useStore.setState({
+      taskConnected: true, serverUp: true, mlxUp: true,
+      agentProfiles: [
+        { id: 'agent_codex', name: 'Codex (구독)', model_profile_id: 'model_codex',
+          budget: { queue: { priority: 0, timeout_ms: 300000 } } }
+      ] as never,
+      modelProfiles: [
+        { id: 'model_codex', name: 'Codex', provider: 'codex', config: {} }
+      ] as never,
+      selectedAgentProfileId: 'agent_codex'
+    })
+    const user = userEvent.setup()
+    renderApp()
+
+    await user.click(screen.getByRole('combobox', { name: '사고 강도' }))
+    // codex는 minimal을 알고 xhigh를 모른다 — 모르는 값을 보여주면 서버가 거부한다.
+    expect(await screen.findByRole('option', { name: 'minimal' })).toBeVisible()
+    expect(screen.queryByRole('option', { name: 'xhigh' })).toBeNull()
   })
 })
