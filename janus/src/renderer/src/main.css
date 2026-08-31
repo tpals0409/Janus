@@ -1931,6 +1931,33 @@ button {
   padding: var(--space-1);
 }
 
+/* 계단식 메뉴 — 컬럼을 옆으로 이어 붙인다. 각 컬럼은 앞 선택의 하위 단계다. */
+.ui-cascade {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  box-shadow: var(--floating-shadow);
+  padding: var(--space-1);
+}
+
+.ui-cascade__column {
+  display: flex;
+  flex-direction: column;
+  min-width: 116px;
+  max-height: min(320px, 50vh);
+  overflow-y: auto;
+}
+
+.ui-cascade__column + .ui-cascade__column {
+  border-left: 1px solid var(--border-subtle);
+  padding-left: var(--space-1);
+}
+
 .ui-listbox__option {
   display: flex;
   width: 100%;
@@ -3469,7 +3496,8 @@ textarea:focus-visible {
 .janus-composer__model-trigger {
   min-height: 0;
   width: auto;
-  max-width: 150px;
+  /* 구독형은 실행기·모델·강도를 한 줄로 요약한다 — 150px에서는 모델 이름이 잘렸다. */
+  max-width: 260px;
   gap: 4px;
   border: 0;
   border-radius: 0;

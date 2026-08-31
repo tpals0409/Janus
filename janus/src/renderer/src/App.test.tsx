@@ -555,65 +555,8 @@ describe('사이드바 토글', () => {
 })
 
 describe('컴포저 모델 선택', () => {
-  it('switches the profile from the chat composer and flags mid-session changes', async () => {
-    window.history.replaceState({}, '', '/?fixture=task-runtime')
-    seedTaskRuntimeVisualFixture()
+  const localAndSubscription = () => {
     const session = useStore.getState().taskSession!
-    useStore.setState({
-      taskConnected: true, serverUp: true, mlxUp: true,
-      agentProfiles: [
-        { id: session.agent_profile_id, name: 'Janus Local',
-          budget: { queue: { priority: 0, timeout_ms: 300000 } } },
-        { id: 'agent_claude_code', name: 'Claude Code (구독)',
-          budget: { queue: { priority: 0, timeout_ms: 300000 } } }
-      ] as never,
-      selectedAgentProfileId: session.agent_profile_id
-    })
-    const user = userEvent.setup()
-    renderApp()
-
-    const trigger = screen.getByRole('combobox', { name: '모델 선택' })
-    expect(trigger).toBeVisible()
-    await user.click(trigger)
-    await user.click(await screen.findByRole('option', { name: /Claude Code/ }))
-    expect(useStore.getState().selectedAgentProfileId).toBe('agent_claude_code')
-    expect(screen.getByText('새 시도부터')).toBeVisible()
-  })
-
-  it('drives the composer listbox with the keyboard and closes on Escape', async () => {
-    window.history.replaceState({}, '', '/?fixture=task-runtime')
-    seedTaskRuntimeVisualFixture()
-    const session = useStore.getState().taskSession!
-    useStore.setState({
-      taskConnected: true, serverUp: true, mlxUp: true,
-      agentProfiles: [
-        { id: session.agent_profile_id, name: 'Janus Local',
-          budget: { queue: { priority: 0, timeout_ms: 300000 } } },
-        { id: 'agent_claude_code', name: 'Claude Code (구독)',
-          budget: { queue: { priority: 0, timeout_ms: 300000 } } }
-      ] as never,
-      selectedAgentProfileId: session.agent_profile_id
-    })
-    const user = userEvent.setup()
-    renderApp()
-
-    const trigger = screen.getByRole('combobox', { name: '모델 선택' })
-    trigger.focus()
-    await user.keyboard('{ArrowDown}')            // 닫힌 상태에서 화살표 = 열기
-    expect(await screen.findByRole('listbox')).toBeVisible()
-    await user.keyboard('{Escape}')
-    expect(screen.queryByRole('listbox')).toBeNull()
-    expect(useStore.getState().selectedAgentProfileId).toBe(session.agent_profile_id)
-
-    await user.keyboard('{ArrowDown}{ArrowDown}{Enter}')
-    expect(useStore.getState().selectedAgentProfileId).toBe('agent_claude_code')
-  })
-
-  it('picks the subscription CLI model from the composer, local profiles show none', async () => {
-    window.history.replaceState({}, '', '/?fixture=task-runtime')
-    seedTaskRuntimeVisualFixture()
-    const session = useStore.getState().taskSession!
-    const saved: Array<[string, { model?: string; effort?: string }]> = []
     useStore.setState({
       taskConnected: true, serverUp: true, mlxUp: true,
       agentProfiles: [
@@ -627,33 +570,76 @@ describe('컴포저 모델 선택', () => {
         { id: 'model_claude_code', name: 'Claude Code', provider: 'claude_code',
           config: { model: 'sonnet', effort: 'high' } }
       ] as never,
-      selectedAgentProfileId: session.agent_profile_id,
+      selectedAgentProfileId: session.agent_profile_id
+    })
+    return session
+  }
+
+  it('switches the profile from the chat composer and flags mid-session changes', async () => {
+    window.history.replaceState({}, '', '/?fixture=task-runtime')
+    seedTaskRuntimeVisualFixture()
+    localAndSubscription()
+    const user = userEvent.setup()
+    renderApp()
+
+    const trigger = screen.getByRole('button', { name: '모델 선택' })
+    expect(trigger).toBeVisible()
+    await user.click(trigger)
+    await user.click(await screen.findByRole('option', { name: /Claude Code/ }))
+    expect(useStore.getState().selectedAgentProfileId).toBe('agent_claude_code')
+    expect(screen.getByText('새 시도부터')).toBeVisible()
+  })
+
+  it('drives the cascading menu with the keyboard and closes on Escape', async () => {
+    window.history.replaceState({}, '', '/?fixture=task-runtime')
+    seedTaskRuntimeVisualFixture()
+    const session = localAndSubscription()
+    const user = userEvent.setup()
+    renderApp()
+
+    const trigger = screen.getByRole('button', { name: '모델 선택' })
+    trigger.focus()
+    await user.keyboard('{ArrowDown}')            // 닫힌 상태에서 화살표 = 열기
+    expect(await screen.findByRole('listbox', { name: '실행기' })).toBeVisible()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('listbox', { name: '실행기' })).toBeNull()
+    expect(useStore.getState().selectedAgentProfileId).toBe(session.agent_profile_id)
+
+    await user.keyboard('{ArrowDown}{ArrowDown}{Enter}')
+    expect(useStore.getState().selectedAgentProfileId).toBe('agent_claude_code')
+  })
+
+  it('reveals model and effort columns only after a subscription runner is chosen', async () => {
+    window.history.replaceState({}, '', '/?fixture=task-runtime')
+    seedTaskRuntimeVisualFixture()
+    localAndSubscription()
+    const saved: Array<[string, { model?: string; effort?: string }]> = []
+    useStore.setState({
       updateModelProfileConfig: async (id, config) => { saved.push([id, config]); return true }
     })
     const user = userEvent.setup()
     renderApp()
 
-    // 로컬 프로필에는 CLI 모델이라는 개념이 없다 — 픽커가 아예 없어야 한다.
-    expect(screen.queryByRole('combobox', { name: '구독형 모델' })).toBeNull()
-    expect(screen.queryByRole('combobox', { name: '사고 강도' })).toBeNull()
+    // 로컬 실행기에는 하위 단계가 없다 — 컬럼이 하나뿐이어야 한다.
+    await user.click(screen.getByRole('button', { name: '모델 선택' }))
+    expect(await screen.findByRole('listbox', { name: '실행기' })).toBeVisible()
+    expect(screen.queryByRole('listbox', { name: '모델' })).toBeNull()
 
-    await user.click(screen.getByRole('combobox', { name: '모델 선택' }))
-    await user.click(await screen.findByRole('option', { name: /Claude Code/ }))
+    // 구독형을 고르면 그 자리에서 하위 컬럼이 펼쳐진다 — 다시 열 필요가 없다.
+    await user.click(screen.getByRole('option', { name: /Claude Code/ }))
+    const models = await screen.findByRole('listbox', { name: '모델' })
+    expect(models).toBeVisible()
+    expect(screen.getByRole('listbox', { name: '사고 강도' })).toBeVisible()
 
-    const model = await screen.findByRole('combobox', { name: '구독형 모델' })
-    expect(model).toHaveTextContent('Sonnet')
-    await user.click(model)
-    await user.click(await screen.findByRole('option', { name: 'Opus' }))
-
+    await user.click(within(models).getByRole('option', { name: 'Opus' }))
     // 모델만 바꾸고 사고 강도는 유지한다 — 한쪽 손잡이가 다른 쪽을 지우면 안 된다.
     expect(saved).toEqual([['model_claude_code', { model: 'opus', effort: 'high' }]])
 
-    // 반대 방향도 같다: 강도를 바꿔도 모델은 남는다.
-    const effort = screen.getByRole('combobox', { name: '사고 강도' })
-    expect(effort).toHaveTextContent('high')
-    await user.click(effort)
-    await user.click(await screen.findByRole('option', { name: 'max' }))
+    // 마지막 컬럼에서 고르면 닫힌다.
+    const efforts = screen.getByRole('listbox', { name: '사고 강도' })
+    await user.click(within(efforts).getByRole('option', { name: 'max' }))
     expect(saved[1]).toEqual(['model_claude_code', { model: 'sonnet', effort: 'max' }])
+    expect(screen.queryByRole('listbox', { name: '사고 강도' })).toBeNull()
   })
 
   it('offers only the effort levels the selected CLI understands', async () => {
@@ -673,9 +659,10 @@ describe('컴포저 모델 선택', () => {
     const user = userEvent.setup()
     renderApp()
 
-    await user.click(screen.getByRole('combobox', { name: '사고 강도' }))
+    await user.click(screen.getByRole('button', { name: '모델 선택' }))
+    const efforts = await screen.findByRole('listbox', { name: '사고 강도' })
     // codex는 minimal을 알고 xhigh를 모른다 — 모르는 값을 보여주면 서버가 거부한다.
-    expect(await screen.findByRole('option', { name: 'minimal' })).toBeVisible()
-    expect(screen.queryByRole('option', { name: 'xhigh' })).toBeNull()
+    expect(within(efforts).getByRole('option', { name: 'minimal' })).toBeVisible()
+    expect(within(efforts).queryByRole('option', { name: 'xhigh' })).toBeNull()
   })
 })

@@ -150,6 +150,13 @@ export function seedTaskRuntimeVisualFixture(): void {
       include_workspace_root: true
     }
   }
+  const subscriptionProfile: AgentProfile = {
+    ...profile,
+    id: 'agent_claude_code',
+    name: 'Claude Code (구독)',
+    description: 'Claude 구독으로 claude CLI를 실행기로 사용',
+    model_profile_id: 'model_claude_code'
+  }
   useStore.setState({
     serverUp: true,
     authFailed: false,
@@ -159,7 +166,20 @@ export function seedTaskRuntimeVisualFixture(): void {
     tasks: [task],
     taskId,
     task,
-    agentProfiles: [profile],
+    agentProfiles: [profile, subscriptionProfile],
+    // 구독형 모델·사고 강도는 이 상태에서만 화면에 나온다 — 디자인 QA가
+    // 실행기 계단식 메뉴의 펼쳐진 모습을 볼 수 있어야 한다.
+    modelProfiles: [
+      {
+        id: 'model_qwen38_27b_4bit', name: 'Qwen3.8 27B 4-bit', provider: 'local',
+        model_key: 'qwen3.8-27b', quantization: '4-bit MLX', config: {}
+      },
+      {
+        id: 'model_claude_code', name: 'Claude Code (구독)', provider: 'claude_code',
+        model_key: 'default', quantization: 'subscription',
+        config: { model: 'opus', effort: 'high' }
+      }
+    ],
     selectedAgentProfileId: profile.id,
     agentProfileSkills: [],
     workspaceInspection: {
