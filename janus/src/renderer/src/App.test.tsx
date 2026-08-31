@@ -608,4 +608,43 @@ describe('컴포저 모델 선택', () => {
     await user.keyboard('{ArrowDown}{ArrowDown}{Enter}')
     expect(useStore.getState().selectedAgentProfileId).toBe('agent_claude_code')
   })
+
+  it('picks the subscription CLI model from the composer, local profiles show none', async () => {
+    window.history.replaceState({}, '', '/?fixture=task-runtime')
+    seedTaskRuntimeVisualFixture()
+    const session = useStore.getState().taskSession!
+    const saved: Array<[string, { model?: string; effort?: string }]> = []
+    useStore.setState({
+      taskConnected: true, serverUp: true, mlxUp: true,
+      agentProfiles: [
+        { id: session.agent_profile_id, name: 'Janus Local', model_profile_id: 'model_local',
+          budget: { queue: { priority: 0, timeout_ms: 300000 } } },
+        { id: 'agent_claude_code', name: 'Claude Code (구독)', model_profile_id: 'model_claude_code',
+          budget: { queue: { priority: 0, timeout_ms: 300000 } } }
+      ] as never,
+      modelProfiles: [
+        { id: 'model_local', name: 'Qwen', provider: 'local', config: {} },
+        { id: 'model_claude_code', name: 'Claude Code', provider: 'claude_code',
+          config: { model: 'sonnet', effort: 'high' } }
+      ] as never,
+      selectedAgentProfileId: session.agent_profile_id,
+      updateModelProfileConfig: async (id, config) => { saved.push([id, config]); return true }
+    })
+    const user = userEvent.setup()
+    renderApp()
+
+    // 로컬 프로필에는 CLI 모델이라는 개념이 없다 — 픽커가 아예 없어야 한다.
+    expect(screen.queryByRole('combobox', { name: '구독형 모델' })).toBeNull()
+
+    await user.click(screen.getByRole('combobox', { name: '모델 선택' }))
+    await user.click(await screen.findByRole('option', { name: /Claude Code/ }))
+
+    const model = await screen.findByRole('combobox', { name: '구독형 모델' })
+    expect(model).toHaveTextContent('Sonnet')
+    await user.click(model)
+    await user.click(await screen.findByRole('option', { name: 'Opus' }))
+
+    // 모델만 바꾸고 사고 강도는 유지한다 — 한쪽 손잡이가 다른 쪽을 지우면 안 된다.
+    expect(saved).toEqual([['model_claude_code', { model: 'opus', effort: 'high' }]])
+  })
 })
