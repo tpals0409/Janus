@@ -11,8 +11,7 @@
     "resolveJsonModule": true,
     "noEmit": true,
     "types": ["node", "vite/client"],
-    "baseUrl": ".",
-    "paths": { "@/*": ["src/renderer/src/*"] }
+    "paths": { "@/*": ["./src/renderer/src/*"] }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "electron.vite.config.ts"]
 }
