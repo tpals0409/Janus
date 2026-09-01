@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import {
-  Bot, Cpu, FolderPlus, Github, GitCommitHorizontal, Loader2, LockKeyhole,
+  Bot, Cpu, FolderPlus, GitCommitHorizontal, GitFork, Loader2, LockKeyhole,
   PackageOpen, Search, ShieldAlert, X,
 } from 'lucide-react'
 import type { SkillActivationMode, SkillSummary } from '../types'
@@ -74,7 +74,7 @@ export default function SkillLibrary() {
     <section className="workspace-surface">
       <div className="skill-import-bar">
         <form onSubmit={submitGithub} className="skill-import-form">
-          <Github size={13} className="ml-3 shrink-0 text-faint" />
+          <GitFork size={13} className="ml-3 shrink-0 text-faint" />
           <input
             value={githubUrl}
             onChange={(event) => setGithubUrl(event.target.value)}
@@ -110,7 +110,7 @@ export default function SkillLibrary() {
         <Dialog open title="가져올 GitHub 스킬 확인" onClose={dismissPreview}>
             <header className="flex items-start gap-3 border-b border-border px-5 py-4">
               <div className="workspace-toolbar__icon">
-                <Github size={16} strokeWidth={1.5} />
+                <GitFork size={16} strokeWidth={1.5} />
               </div>
               <div className="min-w-0 flex-1">
                 <h3 id="skill-import-title" className="text-[13px] font-medium">가져올 GitHub 스킬 확인</h3>
