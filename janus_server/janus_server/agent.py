@@ -21,6 +21,7 @@ from pathlib import Path
 from openai import OpenAI
 
 from . import budget as budget_mod
+from . import recovery as recovery_mod
 from . import scheduler as scheduler_mod
 from . import tools as T
 from .workspace import WorkspaceContext
@@ -60,6 +61,9 @@ DISCOVERY_TOOLS = frozenset({
 # 생성 스레드가 실제로 요청을 보내기 시작할 때까지 기다리는 상한. 순서 보장용일
 # 뿐이라 짧다 — 넘겨도 그냥 진행한다.
 GENERATION_START_BARRIER_SECONDS = 1.0
+# 스트림이 끊겼을 때 같은 요청을 다시 보내는 횟수(턴 전체 기준). recovery가
+# retryable로 분류한 경우에만 쓴다 — 한 번의 일시 실패로 턴 전체가 죽지 않게.
+STREAM_RETRIES = 1
 # 압축 임계는 토큰으로 사고하고 chars로 집행한다. 설정값(chars)은 4자/토큰
 # 가정으로 토큰 목표치로 환산해 두고, 실측 usage.prompt_tokens가 들어오면
 # chars/token 비율을 보정해 임계를 다시 chars로 환산한다. 한국어(1~2자/토큰)는
@@ -326,6 +330,10 @@ class Session:
                 0, baseline_token_estimate - sent_token_estimate
             ),
             "summary_chars": len(summary_content),
+            # 압축된 스텝의 요약 본문. 통계만 남기면 "모델이 왜 저 파일을 다시
+            # 읽었나"를 사후에 재구성할 수 없다 — 무엇이 버려졌는지가 답인데
+            # 그 무엇이 어디에도 안 남았다. (_clip이 전송분을 자른다.)
+            "summary": summary_content,
             "omitted_blocks": len(omitted),
             "chars_per_token": round(self.chars_per_token, 3),
             "token_calibration_samples": self.token_calibration_samples,
@@ -551,6 +559,7 @@ def run(
     schemas = T.schemas_for(tool_names, registry=reg)
     fail_streak: dict[str, int] = {}
     empty_response_streak = 0
+    stream_retries = 0
     force_direct_next = False
     last_text = ""
     tok_prompt = tok_completion = 0
@@ -620,6 +629,7 @@ def run(
         if schemas:
             kwargs["tools"] = schemas
         generation_id = uuid.uuid4().hex[:16]
+        retry_step = False
         emit("resource_queue_enter", resource="model_generation",
              operation_id=generation_id, step=step + 1)
         try:
@@ -683,13 +693,27 @@ def run(
                 emit("model_generation_end", operation_id=generation_id,
                      step=step + 1, status="error",
                      error=f"{type(error).__name__}: {error}")
-                raise
+                # recovery는 model_oom·timeout 같은 일시 실패를 이미 분류할 줄
+                # 안다. 그 판정을 쓰지 않아, 스트림이 한 번 끊기면 턴 전체가
+                # 죽고 그때까지의 작업이 사용자에게 실패로 보였다.
+                classified = recovery_mod.classify_failure(error)
+                if classified["retryable"] and stream_retries < STREAM_RETRIES:
+                    stream_retries += 1
+                    # emit의 첫 인자가 이벤트 kind다 — 분류명은 다른 키로 싣는다.
+                    emit("model_generation_retry", step=step + 1,
+                         failure_kind=classified["kind"], attempt=stream_retries,
+                         error=classified["detail"])
+                    retry_step = True
+                else:
+                    raise
             else:
                 emit("model_generation_end", operation_id=generation_id,
                      step=step + 1,
                      status=("cancelled" if cancel is not None and cancel.is_set()
                              else "budget_exhausted" if emit_budget_exhaustion()
                              else "success"))
+        if retry_step:
+            continue  # 같은 요청을 한 번 더 — lease는 with 블록이 이미 반납했다
         if usage:
             tok_prompt += usage["prompt_tokens"]
             tok_completion += usage["completion_tokens"]

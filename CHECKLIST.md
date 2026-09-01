@@ -159,15 +159,18 @@
 - [x] 토큰 델타마다 SQLite IMMEDIATE 트랜잭션 + fsync — 전 워커 토큰이 단일 writer에
       직렬화된다. 델타 비영속화 또는 배칭 + WAL/`synchronous=NORMAL`
       (`agent.py:343,346`, `domain.py:2664`, `domain.py:749-757`)
-- [ ] `telemetry.events`·`node_events`·`worker_records`·`session_events` 무상한 성장과
-      스팬별 전체 복사 O(n²) — 상한/프루닝 (`telemetry.py:66`, `runtime.py:671,706,1085`)
-- [ ] 압축 발동 스텝의 실제 프롬프트가 기록되지 않아 사후 재구성 불가 (`agent.py:451`)
-- [ ] MCP 브리지 경로(CLI 세션 write/bash)에 이벤트·스팬·토큰 회계 부재
-      (`mcp_bridge.py:98-103`, `routers/mcp.py:32`)
-- [ ] event bus: `"operations"` 이중 발행으로 큐 깊이 반감, overflow 시 gap 신호 없는
-      drop-oldest, 죽은 구독자 미제거 (`shared.py:93-101`, `event_bus.py:56-70`)
-- [ ] 모델 스트림 예외 시 부분 결과 폐기·재시도 없음 — `recovery.classify_failure`의
-      retryable 분류가 agent 루프에서 미사용 (`agent.py:509-517`, `recovery.py:22-50`)
+- [x] `telemetry.events`(5,000)·`node_events`(2,000) 상한과 버려진 건수 보고. `worker_records`
+      프루닝과 `session_events` 보존정책은 보류 — 전자는 회수 노트의 근거이고 후자는
+      트랜스크립트 복원의 원본이라 삭제 정책이 별도 제품 결정이다
+- [x] 압축 스텝의 요약 본문을 `context_window` 이벤트에 싣는다 — 무엇이 버려졌는지가
+      답인데 그 무엇이 어디에도 안 남았다
+- [x] MCP 브리지가 로컬 경로와 같은 tool_start/tool_result 이벤트를 낸다. dispatch별
+      컨텍스트 문제는 오판이었다 — `orch.workspace_context`가 이미 dispatch_id를 갖는다
+- [x] event bus: overflow 시 조용한 drop-oldest 대신 `resync` 지시(렌더러가 전 구독자를
+      깨워 다시 읽는다), 죽은 루프 구독자 자동 해제. `"operations"` 이중 발행은 낭비가
+      아니라 두 메시지가 각각 소비되는 것이라 유지 — 감사 당시 오판
+- [x] 모델 스트림 예외를 `recovery.classify_failure`로 분류해 retryable이면 같은 요청을
+      1회 재시도한다 — 한 번의 일시 실패로 턴 전체가 죽지 않는다
 
 ### 38. 죽은 코드 정리
 

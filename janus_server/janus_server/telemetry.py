@@ -16,6 +16,10 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 
 SCHEMA_VERSION = 2
+# 원시 이벤트 버퍼 상한. 스트리밍 델타만으로 스텝당 수천 건이 쌓이고
+# snapshot()이 매번 전부 복사한다 — 구간과 usage 집계는 별도로 유지되므로
+# 원시 이벤트는 최근분만 있으면 트레이스를 읽는 데 충분하다.
+MAX_EVENTS = 5_000
 
 
 def _id(prefix: str) -> str:
@@ -64,6 +68,9 @@ class ExecutionTelemetry:
         self.started_at = datetime.now(UTC).isoformat()
         self.lock = threading.Lock()
         self.events: list[dict] = []
+        # 상한을 넘겨 버린 원시 이벤트 수. 조용히 사라지면 트레이스를 읽는 쪽이
+        # "이게 전부"라고 오해한다.
+        self.dropped_events = 0
         self.intervals: list[dict] = []
         self._open: dict[tuple[str, str], tuple[int, dict]] = {}
         self._active_turn: tuple[int, str] | None = None
@@ -159,6 +166,13 @@ class ExecutionTelemetry:
         operation_id = str(data.get("operation_id") or "")
         with self.lock:
             self.events.append(event)
+            # 상한 없이 모으면 스트리밍 델타만으로 스텝당 수천 건이 쌓이고,
+            # snapshot()이 매번 전부 복사해 DB로 내보낸다. 구간(intervals)과
+            # usage 집계는 따로 유지되므로 원시 이벤트는 최근분만 있으면 된다.
+            if len(self.events) > MAX_EVENTS:
+                dropped = len(self.events) - MAX_EVENTS
+                del self.events[:dropped]
+                self.dropped_events += dropped
             pair = self._PAIRS.get(kind)
             if pair and operation_id:
                 category, _ = pair
@@ -247,4 +261,7 @@ class ExecutionTelemetry:
             "memory_snapshots": memory,
             "intervals": intervals,
             "events": events,
+            # 상한에 걸려 버려진 원시 이벤트 수. 0이 아니면 events는 꼬리만
+            # 담고 있다는 뜻이다.
+            "dropped_events": self.dropped_events,
         }

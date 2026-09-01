@@ -98,6 +98,25 @@ class PrefixCacheTests(unittest.TestCase):
             len("SYSTEM PROMPT"), session.context_stats["cache_candidate_chars"]
         )
 
+    def test_a_compacted_step_records_what_it_dropped(self):
+        """통계만 남기면 "모델이 왜 저 파일을 다시 읽었나"를 재구성할 수 없다."""
+        session = self.build()
+        session.derive_messages()
+
+        stats = session.context_stats
+        self.assertTrue(stats["compacted"])
+        self.assertGreater(stats["summary_chars"], 0)
+        self.assertEqual(stats["summary_chars"], len(stats["summary"]))
+        # 버려진 초기 요청이 요약에 남아 있다.
+        self.assertIn("request 0", stats["summary"])
+
+    def test_an_uncompacted_step_carries_no_summary(self):
+        session = agent.Session("system", context_max_chars=None)
+        session.append("user", content="hello")
+        session.derive_messages()
+        self.assertFalse(session.context_stats["compacted"])
+        self.assertEqual("", session.context_stats["summary"])
+
     def test_measured_cache_hits_sit_next_to_the_probe(self):
         """접두사를 지켰는지(prefix_reused)와 서버가 실제로 재사용했는지는 다르다."""
         session = agent.Session("system", context_max_chars=None)

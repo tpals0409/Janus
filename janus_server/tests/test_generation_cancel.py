@@ -20,7 +20,7 @@ os.environ.setdefault("JANUS_ALLOWED_ORIGINS", "http://localhost:5173")
 
 from janus_server import agent
 from janus_server.workspace import WorkspaceContext
-from tests.fakes import FakeStream, text_chunk, usage_chunk
+from tests.fakes import FakeClient, FakeStream, text_chunk, usage_chunk
 
 
 class StalledClient:
@@ -121,6 +121,55 @@ class GenerationCancelTests(unittest.TestCase):
         self.assertEqual("late", text)
         self.assertEqual([], calls)
         self.assertEqual(1, usage["prompt_tokens"])
+
+
+class TransientStreamFailureTests(unittest.TestCase):
+    """스트림이 한 번 끊겼다고 턴 전체가 죽으면 안 된다.
+
+    recovery는 model_oom·timeout 같은 일시 실패를 이미 분류할 줄 아는데,
+    agent 루프가 그 판정을 쓰지 않아 그때까지의 작업이 실패로 보였다.
+    """
+
+    def run_turn(self, turns) -> tuple[str, list[dict]]:
+        events: list[dict] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = WorkspaceContext(
+                Path(tmp), "task-retry", "workspace-retry", "dispatch-retry",
+            )
+            last, _ = agent.run(
+                client=FakeClient(turns), model="fake", system_prompt="",
+                task="go", tool_names=[], workspace_context=workspace,
+                approve=lambda _n, _a: True,
+                emit=lambda kind, **data: events.append({"kind": kind, **data}),
+                max_steps=4,
+            )
+        return last, events
+
+    def test_a_retryable_stream_failure_is_retried_once(self):
+        def boom():
+            raise RuntimeError("connection reset")
+
+        last, events = self.run_turn([boom, {"text": "복구 후 답변"}])
+
+        self.assertEqual("복구 후 답변", last)
+        retries = [e for e in events if e["kind"] == "model_generation_retry"]
+        self.assertEqual(1, len(retries))
+        self.assertEqual("runtime_error", retries[0]["failure_kind"])
+
+    def test_a_second_failure_still_surfaces(self):
+        def boom():
+            raise RuntimeError("connection reset")
+
+        with self.assertRaisesRegex(RuntimeError, "connection reset"):
+            self.run_turn([boom, boom, {"text": "안 쓰임"}])
+
+    def test_a_non_retryable_failure_is_not_retried(self):
+        def boom():
+            # worktree 충돌은 recovery가 retryable=False로 분류한다.
+            raise RuntimeError("worktree already checked out")
+
+        with self.assertRaisesRegex(RuntimeError, "already checked out"):
+            self.run_turn([boom, {"text": "안 쓰임"}])
 
 
 if __name__ == "__main__":

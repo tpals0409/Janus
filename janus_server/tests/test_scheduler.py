@@ -90,9 +90,12 @@ class SchedulerTests(unittest.TestCase):
             def fail_generation():
                 raise RuntimeError("generation failed")
 
+            # 일시 실패는 한 번 재시도되므로(agent.STREAM_RETRIES) 실제로
+            # 전파시키려면 재시도까지 실패해야 한다.
+            attempts = agent.STREAM_RETRIES + 1
             with self.assertRaisesRegex(RuntimeError, "generation failed"):
                 agent.run(
-                    client=FakeClient([fail_generation]), model="fake",
+                    client=FakeClient([fail_generation] * attempts), model="fake",
                     system_prompt="test", task="go", tool_names=[],
                     workspace_context=context, approve=lambda *_: True,
                     emit=lambda *_args, **_kwargs: None, scheduler=scheduler,

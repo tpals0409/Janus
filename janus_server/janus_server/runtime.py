@@ -59,6 +59,9 @@ ORCHESTRATOR_SYSTEM_MAX_CHARS = 12_000
 # 본문은 load_skill이 가져오니 여기서는 "무엇이 있는지"만 알리면 된다.
 SKILL_CATALOG_MAX_ENTRIES = 12
 SKILL_CATALOG_DESCRIPTION_CHARS = 160
+# 노드별 in-memory 이벤트 버퍼 상한. 스팬 종료·스냅샷마다 전체가 복사되므로
+# 무제한이면 긴 세션에서 메모리가 이벤트 수의 제곱으로 늘어난다.
+MAX_NODE_EVENTS = 2_000
 WORKER_TASK_MAX_CHARS = 6_000
 WORKER_CONTEXT_MAX_CHARS = 4_000
 # 반환 방향 핸드오프 예산 — 워커 보고가 오케스트레이터 컨텍스트로 돌아올 때의
@@ -742,7 +745,13 @@ class Orchestration:
         )
         ev = {"type": "agent_event", **measured}
         with self.lock:
-            self.node_events.setdefault(node_id, []).append(ev)
+            events = self.node_events.setdefault(node_id, [])
+            events.append(ev)
+            # 노드별 이벤트는 스팬을 닫을 때마다 통째로 복사되고 스냅샷에서 또
+            # 복사된다. 상한이 없으면 긴 세션에서 이벤트 수에 대해 O(n²) 메모리다.
+            # 영속 기록은 send() 쪽이 따로 남기므로 여기서는 최근 것만 있으면 된다.
+            if len(events) > MAX_NODE_EVENTS:
+                del events[:len(events) - MAX_NODE_EVENTS]
             if kind == "usage":
                 u = self.node_usage.setdefault(
                     node_id, {"prompt_tokens": 0, "completion_tokens": 0,
