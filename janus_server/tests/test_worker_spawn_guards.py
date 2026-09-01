@@ -25,7 +25,7 @@ from tests.fakes import FakeClient
 PARENT_TOOLS = ["read_file", "glob", "grep", "write_file", "edit_file", "run_bash"]
 
 
-def make_orchestration(fake: FakeClient, root: Path, send=None):
+def make_orchestration(fake: FakeClient, root: Path, send=None, prior=None):
     context = WorkspaceContext(
         root=root, task_id="task_guard", workspace_id="workspace_guard",
     ).for_dispatch("dispatch_guard")
@@ -41,6 +41,7 @@ def make_orchestration(fake: FakeClient, root: Path, send=None):
         orch = runtime.Orchestration(
             spec, send=send or (lambda _event: None), approver=lambda *_args: True,
             workspace_context=context, scheduler=ResourceScheduler(),
+            prior_spawn_counts=prior,
         )
     orch.current_dispatch_id = "dispatch_guard"
     orch.current_user_text = "워커를 배치해서 진행해"
@@ -224,6 +225,30 @@ def test_read_only_turn_cannot_spawn_a_write_worker():
         # 쓰기 도구가 없으므로 write 임대 자체를 잡지 않는다.
         assert orch.write_ownership.snapshot() == {}
         assert wait_worker(orch, created["worker"])["finished"] is True
+
+
+def test_prior_spawn_counts_still_bind_after_a_reconnect():
+    """새 연결마다 카운터가 0이면 role_limit이 새로고침으로 우회된다."""
+    fake = FakeClient([{"text": "done"}])
+    with tempfile.TemporaryDirectory() as tmp:
+        orch = make_orchestration(
+            fake, Path(tmp),
+            prior={"total": 3, "by_role": {"implementer": 3}},
+        )
+        orch.budget["workers"]["role_limit"] = 3
+
+        refused = spawn(orch, name="writer", task="do more",
+                        role="implementer", tools=[], max_steps=2)
+        assert refused.get("reason") == "worker_role_budget", refused
+        assert refused["counts"]["spawned"] == 3
+
+        # 다른 역할은 자기 몫이 남아 있다.
+        allowed = spawn(orch, name="looker", task="investigate",
+                        role="researcher", tools=["read_file"], max_steps=2)
+        assert allowed.get("created") is True
+        # 워커 id가 이전 실행의 순번을 이어받아 충돌하지 않는다.
+        assert allowed["worker"].startswith("w4-")
+        assert wait_worker(orch, allowed["worker"])["finished"] is True
 
 
 # ── 부모도 소유권 테이블을 지난다 ──

@@ -2343,6 +2343,21 @@ class DomainStore:
             )]
         return rows
 
+    def worker_spawn_counts(self, dispatch_id: str) -> dict[str, int]:
+        """이 Dispatch가 이미 소비한 워커 스폰 수 (전체·역할별).
+
+        스폰 상한은 세션 수명 기준인데, 재접속·재시작마다 카운터가 0에서 다시
+        시작하면 role_limit이 막으려던 재스폰이 그때마다 새로 열린다. 예산 usage와
+        같은 스코프이므로 여기서 복원한다.
+        """
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT role, COUNT(*) AS n FROM worker_outcomes "
+                "WHERE dispatch_id=? GROUP BY role", (dispatch_id,),
+            ).fetchall()
+        by_role = {str(row["role"]): int(row["n"]) for row in rows if row["role"]}
+        return {"total": sum(int(row["n"]) for row in rows), "by_role": by_role}
+
     def mark_worker_outcomes_delivered(self, outcome_ids: list[str]) -> int:
         """회수 노트로 모델에게 전달된 성과를 소비 처리한다."""
         ids = [str(item) for item in outcome_ids if str(item or "").strip()]

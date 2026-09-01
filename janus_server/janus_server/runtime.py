@@ -358,7 +358,8 @@ class Orchestration:
                  on_skill_loaded: Callable[[str, str, int], None] | None = None,
                  on_worker_outcome: Callable[[dict], None] | None = None,
                  on_outcomes_delivered: Callable[[list[str]], None] | None = None,
-                 persisted_worker_outcomes: list[dict] | None = None):
+                 persisted_worker_outcomes: list[dict] | None = None,
+                 prior_spawn_counts: dict | None = None):
         self.spec = spec
         self.send = send
         self.client = make_client()
@@ -407,10 +408,17 @@ class Orchestration:
         self.node_events: dict[str, list] = {}
         self.node_usage: dict[str, dict] = {}
         self.spans: list[dict] = []          # [0]=오케스트레이터, 이후 워커 스폰 순
-        self.worker_seq = 0
+        # 재접속·재시작이 스폰 상한을 되돌리지 않도록 영속 기록에서 복원한다.
+        # 예산 usage와 같은 스코프다 — 여기가 0으로 시작하면 role_limit이 막으려던
+        # 재스폰이 브라우저를 새로고침할 때마다 새로 열린다.
+        prior = prior_spawn_counts or {}
+        self.worker_seq = int(prior.get("total") or 0)
         # 같은 역할 재스폰 상한 강제용 카운터 — 세션 수명 기준(total_limit과 동일 스코프).
         # send_worker 후속은 재스폰이 아니므로 가산하지 않는다.
-        self.role_spawn_counts: dict[str, int] = {}
+        self.role_spawn_counts: dict[str, int] = {
+            str(role): int(count)
+            for role, count in (prior.get("by_role") or {}).items()
+        }
         self.active_workers = 0
         self.worker_requests: dict[str, dict] = {}
         self.worker_records: dict[str, dict] = {}

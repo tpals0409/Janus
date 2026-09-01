@@ -527,6 +527,9 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
         persisted_worker_outcomes = store.list_worker_outcomes(
             task_id, limit=8, undelivered_only=True,
         )
+        # 스폰 상한은 예산 usage와 같은 스코프다 — 새 연결마다 0으로 되돌리면
+        # role_limit이 막으려던 재스폰이 그때마다 다시 열린다.
+        prior_spawn_counts = store.worker_spawn_counts(dispatch["id"])
     except D.DomainError:
         await ws.close(code=1008)
         return
@@ -700,6 +703,7 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
                     on_worker_outcome=persist_worker_outcome,
                     on_outcomes_delivered=mark_outcomes_delivered,
                     persisted_worker_outcomes=persisted_worker_outcomes,
+                    prior_spawn_counts=prior_spawn_counts,
                 )
                 orch.session.events = [dict(item) for item in transcript_events]
             with shared._TASK_RUNTIMES_LOCK:

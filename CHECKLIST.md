@@ -119,12 +119,16 @@
 - [x] self-improvement 오염 경로: `PREFERENCE_CUES`의 "먼저" 제거, 동일 증거 재스캔의
       confidence 인플레(+0.04/턴) 차단, `avoidance` kind 생산 경로 추가
       (`self_improvement.py:13-16`, `domain.py:2216-2219`)
-- [ ] evaluation: `regression` 판정 comparison의 promote 거부, 계산된 stdev를 비교에 사용,
-      comparability 키의 OS 빌드 번호를 coarse 키로 (`evaluation.py:19-24`, `routers/projects.py:117-123`)
+- [x] evaluation: 계산된 stdev를 회귀 판정의 노이즈 게이트로 사용(`within_noise`로 별도
+      보고), comparability의 platform을 OS 패치 레벨 제거한 coarse 키로, stdev·worker·
+      memory 평균을 CSV로 내보낸다. promote의 regression 거부는 이미 있었다
+      (`domain.py:955` — 감사 당시 오판)
 - [x] `worker_outcomes` 소비 플래그(`delivered_at`) 추가 — 재접속마다 "결과를 통합하라"
       다이제스트가 무한 재주입된다 (`routers/sessions.py:468`, `runtime.py:1517-1519`)
-- [ ] 크래시 시 실행 중 워커의 `changed_paths` 소실·스폰 카운터 리셋 — 스폰 시점에
-      `running` outcome row를 영속하고 재개 시 카운터를 시드한다 (`runtime.py:1183-1198`, `domain.py:2594`)
+- [x] 스폰 카운터 리셋 — `worker_spawn_counts(dispatch_id)`로 재접속·재시작 시 seq와
+      역할별 카운터를 복원한다. 실행 중 워커의 `changed_paths` 영속화는 보류: status
+      CHECK에 'running'을 넣는 테이블 재생성과 스폰 핫패스 SQLite 쓰기가 필요한데,
+      워크스페이스가 곧 저장소 체크아웃이라 `git diff`로 확인 가능하다
 - [x] verification 실패의 최신성 판정: (kind, command)별 최신 run만 비교 — 나중에 통과한
       재실행이 있어도 옛 실패가 재시도 토폴로지를 영구 고정한다 (`adaptive.py:134-141`)
 
