@@ -18,6 +18,13 @@ def call_chunk(index: int, call_id: str, name: str, arguments: str):
             function=SimpleNamespace(name=name, arguments=arguments))]))])
 
 
+def finish_chunk(reason: str = "length"):
+    """finish_reason만 실린 청크 — max_tokens 절단을 흉내낸다."""
+    return SimpleNamespace(usage=None, choices=[SimpleNamespace(
+        delta=SimpleNamespace(content=None, tool_calls=None),
+        finish_reason=reason)])
+
+
 def usage_chunk(cached_tokens: int | None = None):
     """cached_tokens=None이면 APC 미지원 서버(details 없음)를 흉내낸다."""
     usage = SimpleNamespace(

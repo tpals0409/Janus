@@ -47,6 +47,36 @@ class AdaptiveDecisionTests(unittest.TestCase):
                 self.assertEqual(policy, decision["effective"]["worker_policy"])
                 self.assertEqual(roles, decision["effective"]["worker_roles"])
 
+    def test_classification_uses_word_boundaries_not_substrings(self):
+        """intent 모듈이 존재하는 이유 그대로 — 부분 문자열 매칭은 오검이다.
+
+        "test"가 latest·contest에, "fix"가 prefix·fixture에 걸리면 무관한 Task가
+        test_heavy 토폴로지(implementer+verifier, step_limit 24)로 라우팅된다.
+        """
+        cases = (
+            ("Migrate to the latest schema", "test_heavy"),
+            ("Rename the prefix helper", "test_heavy"),
+            ("Shorten the suffix handling", "test_heavy"),
+        )
+        for objective, must_not_be in cases:
+            with self.subTest(objective=objective):
+                task_class, _ = adaptive.classify_task(
+                    {"title": objective, "objective": objective,
+                     "acceptance_command": "true"}
+                )
+                self.assertNotEqual(must_not_be, task_class)
+        # 진짜 신호는 그대로 잡혀야 한다 — 경계 매칭이 과잉 차단이면 안 된다.
+        for objective, expected in (
+            ("Add tests for the parser", "test_heavy"),
+            ("Run cargo test on the crate", "test_heavy"),
+        ):
+            with self.subTest(objective=objective):
+                task_class, _ = adaptive.classify_task(
+                    {"title": objective, "objective": objective,
+                     "acceptance_command": "true"}
+                )
+                self.assertEqual(expected, task_class)
+
     def test_mockup_workflow_routes_to_one_prototyper_without_keyword_guessing(self):
         decision = adaptive.decide(
             task={

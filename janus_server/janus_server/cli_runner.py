@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import signal
 import subprocess
 import threading
 import time
@@ -50,6 +51,14 @@ CLAUDE_TOOLS = {
 # 프로필이 도구를 선언하지 않았을 때의 바닥값. 읽기만 준다 — 쓰기를 기본으로 주면
 # 선언을 잊은 프로필이 조용히 최대 권한을 받는다.
 CLAUDE_READ_ONLY = ("Read", "Glob", "Grep")
+# terminate() 뒤 이만큼 기다렸다가 SIGKILL로 승격한다. CLI가 SIGTERM을 무시하거나
+# 자식(에이전트 루프)이 살아 있으면 stop 버튼이 영영 안 먹는다.
+CANCEL_KILL_GRACE_SECONDS = 5.0
+# CLI 턴 하나의 벽시계 상한. 로컬 경로의 MODEL_REQUEST_TIMEOUT_SECONDS(1,200초)와
+# 같은 자리 — 이게 없으면 멈춘 CLI가 세션을 영구히 붙잡는다.
+TURN_TIMEOUT_SECONDS = float(
+    os.environ.get("JANUS_CLI_TURN_TIMEOUT_SECONDS", "1200")
+)
 
 
 def claude_tools(janus_tools: object, *, bridged: list[str] | None = None) -> list[str]:
@@ -280,12 +289,44 @@ class CliOrchestration:
 
     def cancel_all(self) -> None:
         self.cancel.set()
+        self._terminate_process()
+
+    def _signal_tree(self, signum: int) -> None:
+        """CLI가 만든 프로세스 그룹 전체에 신호를 보낸다.
+
+        CLI는 셸·에이전트 루프·도구를 자식으로 띄운다. 부모 하나만 죽이면
+        손자가 stdout 파이프를 계속 붙잡아 턴이 EOF를 못 받고 매달린다.
+        """
         process = self._process
-        if process is not None and process.poll() is None:
+        if process is None:
+            return
+        try:
+            os.killpg(os.getpgid(process.pid), signum)
+        except (ProcessLookupError, PermissionError, OSError):
             try:
-                process.terminate()
-            except ProcessLookupError:
+                process.send_signal(signum)
+            except (ProcessLookupError, OSError, ValueError):
                 pass
+
+    def _terminate_process(self) -> None:
+        """SIGTERM 후 유예를 두고 SIGKILL로 승격한다.
+
+        terminate()만 보내면 SIGTERM을 무시하는 CLI에서 stop 버튼이 아무것도 하지
+        않는다 — 프로세스가 계속 돌며 워크스페이스에 쓰고 세션을 붙잡는다.
+        """
+        process = self._process
+        if process is None or process.poll() is not None:
+            return
+        self._signal_tree(signal.SIGTERM)
+        # wait(timeout=)이 아니라 poll()로 기다린다. 턴 스레드가 이미 블로킹
+        # wait()으로 waitpid 락을 쥐고 있어서, 여기서 또 wait하면 락을 얻으려다
+        # 유예 시간이 지나도 kill로 승격하지 못한다 (poll은 락을 안 기다린다).
+        deadline = time.monotonic() + CANCEL_KILL_GRACE_SECONDS
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                return
+            time.sleep(0.05)
+        self._signal_tree(signal.SIGKILL)
 
     def stop_worker(self, _node_id: str) -> dict:
         return {"error": "CLI 실행기에는 Janus 워커가 없습니다"}
@@ -340,6 +381,8 @@ class CliOrchestration:
                 stderr=subprocess.PIPE,
                 text=True,
                 env=self._env(),
+                # 자체 프로세스 그룹으로 띄워야 취소·상한이 CLI의 자식까지 닿는다.
+                start_new_session=True,
             )
         except FileNotFoundError as error:
             self.turn_failed = True
@@ -355,6 +398,42 @@ class CliOrchestration:
             ) from error
 
         assert self._process.stdout is not None
+        # stderr를 stdout EOF 뒤에 읽으면, 자식이 stderr 파이프 버퍼(보통 64KB)를
+        # 채웠을 때 서로를 기다리며 턴이 영영 안 끝난다. 별도 스레드로 계속 비운다.
+        stderr_parts: list[str] = []
+        stderr_reader: threading.Thread | None = None
+        if self._process.stderr is not None:
+            stderr_stream = self._process.stderr
+
+            def drain_stderr() -> None:
+                try:
+                    for chunk in stderr_stream:
+                        stderr_parts.append(chunk)
+                        if len(stderr_parts) > 200:  # 끝부분만 보관하면 충분하다
+                            del stderr_parts[:100]
+                except Exception:
+                    pass
+
+            stderr_reader = threading.Thread(
+                target=drain_stderr, name="janus-cli-stderr", daemon=True)
+            stderr_reader.start()
+
+        # 멈춘 CLI가 세션을 영구히 붙잡지 않도록 벽시계 상한을 건다. 여기서
+        # process.wait()을 쓰면 아래 턴 스레드의 wait()과 waitpid 락을 다투므로
+        # 완료 신호는 Event로 받는다.
+        settled = threading.Event()
+        timed_out = False
+
+        def watchdog() -> None:
+            nonlocal timed_out
+            if not settled.wait(TURN_TIMEOUT_SECONDS):
+                timed_out = True
+                self._terminate_process()
+
+        watch = threading.Thread(target=watchdog, name="janus-cli-watchdog",
+                                 daemon=True)
+        watch.start()
+
         for line in self._process.stdout:
             line = line.strip()
             if not line:
@@ -367,10 +446,12 @@ class CliOrchestration:
                 self._map_claude(event)
             else:
                 self._map_codex(event)
-        stderr = ""
-        if self._process.stderr is not None:
-            stderr = self._process.stderr.read()[-2000:]
         code = self._process.wait()
+        settled.set()
+        if stderr_reader is not None:
+            stderr_reader.join(timeout=1.0)
+        stderr = "".join(stderr_parts)[-2000:]
+        watch.join(timeout=1.0)
         self._process = None
         self.usage["active_time_ms"] += round(
             (time.monotonic() - self._turn_started) * 1000, 3
@@ -379,6 +460,19 @@ class CliOrchestration:
         if self.cancel.is_set():
             self.cancelled_turn = True
             self._emit("done", reason="cancelled")
+            return
+        if timed_out:
+            # 상한에 걸려 우리가 죽인 것이다 — 모델이 실패를 선언한 것과 구분한다.
+            self.turn_failed = True
+            self.turn_outcome = {
+                "outcome": "failed",
+                "summary": (
+                    f"{self.provider} CLI가 {TURN_TIMEOUT_SECONDS:g}초 상한을 넘겨 "
+                    "중단했습니다."
+                ),
+                "evidence": [],
+            }
+            self._emit("done", reason="cli_timeout")
             return
         if self.turn_outcome is None:
             self.turn_failed = code != 0

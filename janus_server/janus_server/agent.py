@@ -279,15 +279,63 @@ def build_system_prompt(base: str, tool_names: list[str],
     )
 
 
-def _assemble(stream, emit, cancel=None) -> tuple[str, list[dict], dict | None]:
-    """스트리밍 청크를 (텍스트, tool_calls, usage)로 조립.
+class GenerationCancelled(RuntimeError):
+    """첫 청크가 오기 전에 취소된 생성."""
+
+
+def _open_stream(create, cancel, poll_seconds: float = 0.25):
+    """생성 요청을 별도 스레드에서 연다 — 첫 바이트 전에도 취소가 먹게.
+
+    `create()`는 서버가 prefill을 끝낼 때까지 블로킹한다. 그동안 취소를 확인할
+    길이 없으면 stop 버튼이 요청 타임아웃(기본 1,200초)까지 아무 효과가 없고,
+    그 사이 model generation 슬롯도 계속 잡혀 있다.
+    """
+    if cancel is None:
+        return create()
+    box: dict = {}
+
+    def open_it() -> None:
+        try:
+            stream = create()
+        except BaseException as error:  # 호출부에서 그대로 다시 던진다
+            box["error"] = error
+            return
+        if cancel.is_set():
+            # 이미 포기한 요청이다 — 서버 쪽 생성을 붙잡아두지 않는다.
+            try:
+                stream.close()
+            except Exception:
+                pass
+            box["error"] = GenerationCancelled("취소 후 도착한 스트림")
+            return
+        box["stream"] = stream
+
+    worker = threading.Thread(target=open_it, name="janus-generation", daemon=True)
+    worker.start()
+    while worker.is_alive():
+        worker.join(poll_seconds)
+        if cancel.is_set():
+            # 스레드는 데몬이라 남아도 프로세스를 붙잡지 않고, 스트림이 뒤늦게
+            # 도착하면 위 open_it이 닫는다.
+            raise GenerationCancelled("생성 시작 전에 취소됨")
+    if error := box.get("error"):
+        raise error
+    return box["stream"]
+
+
+def _assemble(
+    stream, emit, cancel=None,
+) -> tuple[str, list[dict], dict | None, str | None]:
+    """스트리밍 청크를 (텍스트, tool_calls, usage, finish_reason)로 조립.
 
     cancel이 켜지면 스트림을 닫고 즉시 나온다 — 생성 도중에도 멈출 수 있어야 한다.
     usage는 로컬에선 비용이 아니라 지연시간의 원인이다(prefill = prompt_tokens에 비례).
+    finish_reason은 "length"(max_tokens 절단)를 파싱 실패와 구분하기 위해 필요하다.
     """
     parts: list[str] = []
     calls: dict[int, dict] = {}
     usage: dict | None = None
+    finish_reason: str | None = None
     emitted_speculative_metrics = False
 
     for chunk in stream:
@@ -337,6 +385,8 @@ def _assemble(stream, emit, cancel=None) -> tuple[str, list[dict], dict | None]:
                      )}
         if not chunk.choices:
             continue
+        if reason := getattr(chunk.choices[0], "finish_reason", None):
+            finish_reason = str(reason)
         delta = chunk.choices[0].delta
         # 사고 과정은 답이 아니다 — 화면에만 흘리고 대화 기록(parts)에는 넣지 않는다.
         if reasoning := getattr(delta, "reasoning_content", None):
@@ -355,7 +405,7 @@ def _assemble(stream, emit, cancel=None) -> tuple[str, list[dict], dict | None]:
             if tc.function and tc.function.arguments:
                 slot["function"]["arguments"] += tc.function.arguments
 
-    return "".join(parts), [calls[i] for i in sorted(calls)], usage
+    return "".join(parts), [calls[i] for i in sorted(calls)], usage, finish_reason
 
 
 def run(
@@ -507,9 +557,21 @@ def run(
                  step=step + 1)
             emit("model_generation_start", operation_id=generation_id, step=step + 1)
             try:
-                text, calls, usage = _assemble(
-                    client.chat.completions.create(**kwargs), emit, effective_cancel
+                stream = _open_stream(
+                    # 별도 스레드로 넘기므로 이번 반복의 kwargs를 즉시 묶는다.
+                    lambda kw=kwargs: client.chat.completions.create(**kw),
+                    effective_cancel,
                 )
+                text, calls, usage, finish_reason = _assemble(
+                    stream, emit, effective_cancel
+                )
+            except GenerationCancelled:
+                emit("model_generation_end", operation_id=generation_id,
+                     step=step + 1, status="cancelled")
+                budget_exhausted = emit_budget_exhaustion()
+                emit("done",
+                     reason="budget_exhausted" if budget_exhausted else "cancelled")
+                return last_text, session.events
             except Exception as error:
                 emit("model_generation_end", operation_id=generation_id,
                      step=step + 1, status="error",
@@ -542,6 +604,14 @@ def run(
         if cancel is not None and cancel.is_set():
             emit("done", reason="cancelled")
             return last_text, session.events
+
+        # thinking 모드에선 reasoning·답변·도구 인자가 max_tokens 하나를 나눠 쓴다.
+        # 여기서 잘린 걸 알려주지 않으면 모델은 "JSON 파싱 실패"만 보고 같은 길이로
+        # 다시 시도한다.
+        truncated = finish_reason == "length"
+        if truncated:
+            emit("generation_truncated", step=step + 1,
+                 max_tokens=generation_max_tokens, had_tool_calls=bool(calls))
 
         if not text.strip() and not calls:
             empty_response_streak += 1
@@ -592,6 +662,15 @@ def run(
             try:
                 args = json.loads(call["function"]["arguments"] or "{}")
             except json.JSONDecodeError as e:
+                if truncated:  # noqa: B023 — exec_call은 이 반복 안에서만 산다
+                    return name, {
+                        "error": (
+                            f"도구 인자가 max_tokens({generation_max_tokens})에서 "  # noqa: B023
+                            "잘렸습니다. 같은 호출을 반복하지 말고, 인자를 더 짧게 "
+                            "나눠 여러 번 호출하세요."
+                        ),
+                        "reason": "output_truncated",
+                    }
                 return name, {"error": f"인자 JSON 파싱 실패: {e}"}
             if name not in allowed_tool_names:
                 emit(
@@ -735,6 +814,9 @@ def run(
             emit("circuit_break", tool=name, failures=fail_streak.get(name, 0))
             schemas = [s for s in schemas
                        if s.get("function", {}).get("name") != name]
+            # 스키마에서 빼는 것만으로는 못 막는다 — 로컬 모델은 광고되지 않은
+            # 도구명도 그냥 뱉고, 그러면 실행 게이트를 그대로 통과한다.
+            allowed_tool_names.discard(name)
             session.append(
                 "user",
                 content=(
