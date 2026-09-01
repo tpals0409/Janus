@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import threading
 from types import SimpleNamespace
 
@@ -16,6 +17,13 @@ def call_chunk(index: int, call_id: str, name: str, arguments: str):
         delta=SimpleNamespace(content=None, tool_calls=[SimpleNamespace(
             index=index, id=call_id,
             function=SimpleNamespace(name=name, arguments=arguments))]))])
+
+
+def finish_chunk(reason: str = "length"):
+    """finish_reason만 실린 청크 — max_tokens 절단을 흉내낸다."""
+    return SimpleNamespace(usage=None, choices=[SimpleNamespace(
+        delta=SimpleNamespace(content=None, tool_calls=None),
+        finish_reason=reason)])
 
 
 def usage_chunk(cached_tokens: int | None = None):
@@ -46,6 +54,10 @@ class FakeClient:
       {"text": "..."}                                   — 도구 없이 답
       {"calls": [(name, args_json), ...], "text": ...}  — 도구 호출
       callable() -> turn dict 또는 chunks 이터러블       — 동기화 훅 (Barrier·무한 스트림)
+
+    콜러블이 인자를 하나 받으면 그 호출의 kwargs(messages·tools…)를 넘긴다.
+    부모와 워커가 진짜로 동시에 생성을 시작하므로, 스크립트 위치가 아니라 요청
+    내용으로 누구의 호출인지 판별해야 결정적인 테스트를 쓸 수 있다.
     """
 
     def __init__(self, turns: list):
@@ -60,7 +72,14 @@ class FakeClient:
             n = len(self.captured)
             turn = self._turns.pop(0) if self._turns else {"text": "(script exhausted)"}
         if callable(turn):
-            turn = turn()
+            takes_request = any(
+                parameter.kind
+                in (inspect.Parameter.POSITIONAL_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                    inspect.Parameter.VAR_POSITIONAL)
+                for parameter in inspect.signature(turn).parameters.values()
+            )
+            turn = turn(kw) if takes_request else turn()
         if not isinstance(turn, dict):  # chunks 이터러블을 그대로 스트림으로
             return FakeStream(turn)
         chunks = []

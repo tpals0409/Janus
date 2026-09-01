@@ -53,15 +53,12 @@ structurally forbids workers, and the tool result says so explicitly when that h
 - Use `input_required` only for a concrete user decision that blocks progress.
 - Use `mockup_review` only when a reviewable frontend mockup is ready.
 
-## Available personas
+## Available worker roles
 
-- Scout: `personas/scout.md`
-- Planner: `personas/planner.md`
-- Prototyper: `personas/prototyper.md`
-- Implementer: `personas/implementer.md`
-- Verifier: `personas/verifier.md`
-- Operator: `personas/operator.md`
+Pass one of these as `create_worker(role=...)`. Each worker receives its own persona automatically; you never load it yourself.
+
+- `scout`, `planner`, `prototyper`, `implementer`, `verifier`, `operator`
 
 ## Default skill
 
-- `builtin_skills/task-contract/SKILL.md` when a request needs classification or a reviewable contract
+- Task contract, when a request needs classification or a reviewable contract. Its full text is already included below.

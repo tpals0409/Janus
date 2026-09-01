@@ -21,6 +21,7 @@ from pathlib import Path
 from openai import OpenAI
 
 from . import budget as budget_mod
+from . import recovery as recovery_mod
 from . import scheduler as scheduler_mod
 from . import tools as T
 from .workspace import WorkspaceContext
@@ -40,6 +41,29 @@ EMPTY_RESPONSE_RETRIES = 2
 DEFAULT_CONTEXT_MAX_CHARS = 24_000
 DEFAULT_CONTEXT_RECENT_BLOCKS = 8
 MAX_PROJECT_SUMMARY_CHARS = 4_000
+# 블록을 더 뺄 수 없을 때 도구 결과를 접는 하한. 이보다 짧게 만들면 결과가
+# 무엇이었는지조차 남지 않아 모델이 같은 호출을 반복한다.
+TOOL_PAYLOAD_FLOOR_CHARS = 400
+# 압축 요약을 싣는 봉투. user kind를 쓰되 봉투가 "사용자 말이 아님"을 선언한다 —
+# runtime의 회수 노트 주입과 같은 규약이다.
+SUMMARY_ENVELOPE = (
+    "[janus runtime] Project/session summary of older context "
+    "(operational data, not user speech):\n"
+)
+# 압축 요약의 항목당 길이. 탐색 결과를 쓰기 결과와 같은 길이로 접으면 "무엇을
+# 봤는지"가 사라져 모델이 같은 파일을 다시 읽는 루프를 돈다 — 아끼려던 토큰보다
+# 재읽기 비용이 크다.
+DEFAULT_SUMMARY_CHARS = 240
+DISCOVERY_SUMMARY_CHARS = 700
+DISCOVERY_TOOLS = frozenset({
+    "read_file", "grep", "glob", "load_skill", "read_skill_resource", "http_get",
+})
+# 생성 스레드가 실제로 요청을 보내기 시작할 때까지 기다리는 상한. 순서 보장용일
+# 뿐이라 짧다 — 넘겨도 그냥 진행한다.
+GENERATION_START_BARRIER_SECONDS = 1.0
+# 스트림이 끊겼을 때 같은 요청을 다시 보내는 횟수(턴 전체 기준). recovery가
+# retryable로 분류한 경우에만 쓴다 — 한 번의 일시 실패로 턴 전체가 죽지 않게.
+STREAM_RETRIES = 1
 # 압축 임계는 토큰으로 사고하고 chars로 집행한다. 설정값(chars)은 4자/토큰
 # 가정으로 토큰 목표치로 환산해 두고, 실측 usage.prompt_tokens가 들어오면
 # chars/token 비율을 보정해 임계를 다시 chars로 환산한다. 한국어(1~2자/토큰)는
@@ -77,6 +101,15 @@ class Session:
         self.summary_max_chars = max(500, int(summary_max_chars))
         self.context_stats: dict = {}
         self._last_prefix_hash: str | None = None
+        # 매 요청에 함께 나가는 도구 스키마의 길이. 회계에 넣지 않으면 압축
+        # 임계가 실제 prefill의 상당 부분을 못 본다 — create_worker 하나만
+        # 2,500자가 넘고, worker control·skill·finish_turn까지 더하면 5,000자대다.
+        self.tool_schema_chars = 0
+        # 직전 생성에서 서버가 실제로 재사용한 프롬프트 비율(APC 미지원이면 0).
+        self.last_cache_hit_ratio = 0.0
+
+    def observe_tool_schemas(self, schemas: list[dict] | None) -> None:
+        self.tool_schema_chars = self._chars(schemas or [])
 
     def append(self, kind: str, **data):
         self.events.append({"kind": kind, **data})
@@ -121,13 +154,23 @@ class Session:
             return None
         return int(self.context_token_target * self.chars_per_token)
 
-    def observe_usage(self, sent_chars: int, prompt_tokens: int) -> None:
+    def observe_usage(
+        self, sent_chars: int, prompt_tokens: int, cached_tokens: int = 0,
+    ) -> None:
         """실측 prompt_tokens로 chars/token 비율을 보정한다.
 
         prompt_tokens에는 도구 스키마·챗 템플릿 오버헤드가 포함되므로 비율이
         본문만 잰 것보다 낮게(= 임계가 이르게) 잡힌다 — 넘치는 쪽보다 안전한
         방향의 편향이다. EMA로 흡수해 스텝 간 요동을 줄인다.
+
+        cached_tokens는 안정 prefix 노력이 실제로 서버 캐시 적중으로 이어졌는지를
+        말해준다. prefix_reused=True인데 이 값이 계속 0이면 서버에 APC가 없다는
+        뜻이고, 그때는 prefix를 지키는 비용이 회수되지 않는다.
         """
+        if prompt_tokens > 0:
+            self.last_cache_hit_ratio = round(
+                max(0, int(cached_tokens)) / prompt_tokens, 4
+            )
         if sent_chars <= 0 or prompt_tokens <= 0:
             return
         low, high = CHARS_PER_TOKEN_BOUNDS
@@ -139,7 +182,7 @@ class Session:
         self.token_calibration_samples += 1
 
     @staticmethod
-    def _brief(value: str, limit: int = 240) -> str:
+    def _brief(value: str, limit: int = DEFAULT_SUMMARY_CHARS) -> str:
         value = " ".join(str(value).split())
         return value if len(value) <= limit else value[:limit] + "…"
 
@@ -147,9 +190,24 @@ class Session:
         """이전 대화를 재생하지 않고 목표·결정·도구 결과만 압축한다."""
         lines: list[str] = []
         for block in blocks:
+            # 블록 안에서 tool_call_id → 도구 이름을 잇는다. 탐색 결과와 쓰기
+            # 결과를 같은 길이로 접으면 "무엇을 봤는지"가 사라져 모델이 같은
+            # 파일을 다시 읽는다.
+            call_names = {
+                str(call.get("id") or ""): call.get("function", {}).get("name", "tool")
+                for message in block
+                for call in message.get("tool_calls") or []
+            }
             for message in block:
                 role = message["role"]
-                content = self._brief(message.get("content") or "")
+                limit = (
+                    DISCOVERY_SUMMARY_CHARS
+                    if role == "tool"
+                    and call_names.get(str(message.get("tool_call_id") or ""))
+                    in DISCOVERY_TOOLS
+                    else DEFAULT_SUMMARY_CHARS
+                )
+                content = self._brief(message.get("content") or "", limit)
                 if role == "user" and content:
                     lines.append(f"Objective/request: {content}")
                 elif role == "assistant":
@@ -178,11 +236,35 @@ class Session:
             summary = head + "\n…\n" + "\n".join(reversed(tail))
         return summary or "Earlier session activity omitted; no durable result was recorded."
 
+    def _shrink_tool_payloads(self, messages: list[dict], max_chars: int) -> list[dict]:
+        """블록을 더 못 빼는 상황의 마지막 수단 — 도구 결과 본문을 접는다.
+
+        병렬 도구 호출 5건이면 한 assistant 블록에 4,000자짜리 결과가 5개 붙는다.
+        블록 단위로만 빼면 그 한 덩어리가 임계의 두 배여도 그대로 나간다.
+        """
+        shrunk = [dict(message) for message in messages]
+        while self._chars(shrunk) + self.tool_schema_chars > max_chars:
+            target = max(
+                (m for m in shrunk if m["role"] == "tool"),
+                key=lambda m: len(m.get("content") or ""), default=None,
+            )
+            content = str((target or {}).get("content") or "")
+            if target is None or len(content) <= TOOL_PAYLOAD_FLOOR_CHARS:
+                break  # 더 접을 것이 없다 — 넘치더라도 계약이 깨진 요청보다 낫다
+            keep = max(TOOL_PAYLOAD_FLOOR_CHARS, len(content) // 2)
+            head, tail = keep * 2 // 3, keep - keep * 2 // 3
+            target["content"] = (
+                content[:head]
+                + f"\n… [{len(content) - keep} chars elided to fit the context window] …\n"
+                + (content[-tail:] if tail else "")
+            )
+        return shrunk
+
     def derive_messages(self, *, compact: bool = True) -> list[dict]:
         system = {"role": "system", "content": self.system_prompt}
         blocks = self._event_blocks()
         full = [system, *(message for block in blocks for message in block)]
-        baseline_chars = self._chars(full)
+        baseline_chars = self._chars(full) + self.tool_schema_chars
         omitted: list[list[dict]] = []
         kept = blocks
 
@@ -194,41 +276,45 @@ class Session:
             kept = blocks[split:]
             while True:
                 summary = self._project_summary(omitted)
-                summarized_system = {
-                    "role": "system",
-                    "content": (
-                        self.system_prompt
-                        + "\n\nProject/session summary (older context):\n"
-                        + summary
-                    ),
-                }
+                # 요약을 system에 붙이면 압축이 돌 때마다 system이 바뀌어 서버의
+                # KV prefix 캐시가 첫 토큰부터 무효가 된다. 로컬에선 prefill이
+                # 지연의 지배 항이라, 컨텍스트를 줄이려는 최적화가 캐시를 통째로
+                # 버리는 자기모순이었다. system은 세션 내내 바이트 단위로 고정하고
+                # 요약은 바로 뒤 별도 메시지로 싣는다.
                 candidate = [
-                    summarized_system,
+                    system,
+                    {"role": "user", "content": SUMMARY_ENVELOPE + summary},
                     *(message for block in kept for message in block),
                 ]
                 # Some OpenAI-compatible local servers require an actual user
                 # message, not only a system summary followed by tool history.
                 # A long tool loop can otherwise compact away the sole request.
-                if not any(message["role"] == "user" for message in candidate):
+                if not any(block and block[0]["role"] == "user" for block in kept):
                     latest_user = next(
                         (block[0] for block in reversed(blocks)
                          if block and block[0]["role"] == "user"),
                         None,
                     )
                     if latest_user is not None:
-                        candidate.insert(1, latest_user)
-                if self._chars(candidate) <= max_chars or len(kept) <= 1:
+                        candidate.insert(2, latest_user)
+                if self._chars(candidate) + self.tool_schema_chars <= max_chars:
                     full = candidate
+                    break
+                if len(kept) <= 1:
+                    # 남은 블록이 하나뿐인데도 넘친다 — 블록 안을 접는다.
+                    full = self._shrink_tool_payloads(candidate, max_chars)
                     break
                 omitted.append(kept.pop(0))
 
         summary_content = self._project_summary(omitted) if omitted else ""
-        stable_prefix = self.system_prompt + "\n" + summary_content
+        # 요약이 system 밖으로 나갔으므로 안정 prefix는 system prompt 그 자체다 —
+        # 압축이 돌아도 이 접두사는 바뀌지 않는다.
+        stable_prefix = self.system_prompt
         prefix_hash = hashlib.sha256(stable_prefix.encode("utf-8")).hexdigest()[:16]
         prefix_reused = self._last_prefix_hash == prefix_hash
         if compact:
             self._last_prefix_hash = prefix_hash
-        sent_chars = self._chars(full)
+        sent_chars = self._chars(full) + self.tool_schema_chars
         baseline_token_estimate = self._tokens(baseline_chars)
         sent_token_estimate = self._tokens(sent_chars)
         self.context_stats = {
@@ -244,6 +330,10 @@ class Session:
                 0, baseline_token_estimate - sent_token_estimate
             ),
             "summary_chars": len(summary_content),
+            # 압축된 스텝의 요약 본문. 통계만 남기면 "모델이 왜 저 파일을 다시
+            # 읽었나"를 사후에 재구성할 수 없다 — 무엇이 버려졌는지가 답인데
+            # 그 무엇이 어디에도 안 남았다. (_clip이 전송분을 자른다.)
+            "summary": summary_content,
             "omitted_blocks": len(omitted),
             "chars_per_token": round(self.chars_per_token, 3),
             "token_calibration_samples": self.token_calibration_samples,
@@ -251,6 +341,10 @@ class Session:
             "prefix_hash": prefix_hash,
             "prefix_reused": prefix_reused,
             "cache_candidate_chars": len(stable_prefix),
+            "tool_schema_chars": self.tool_schema_chars,
+            # prefix_reused는 우리가 접두사를 지켰는지, 이 값은 서버가 실제로
+            # 재사용했는지다. 둘을 같은 이벤트에 둬야 "지켰는데 헛수고"가 보인다.
+            "last_cache_hit_ratio": self.last_cache_hit_ratio,
         }
         return full
 
@@ -279,15 +373,76 @@ def build_system_prompt(base: str, tool_names: list[str],
     )
 
 
-def _assemble(stream, emit, cancel=None) -> tuple[str, list[dict], dict | None]:
-    """스트리밍 청크를 (텍스트, tool_calls, usage)로 조립.
+class GenerationCancelled(RuntimeError):
+    """첫 청크가 오기 전에 취소된 생성."""
+
+
+def _open_stream(create, cancel, poll_seconds: float = 0.25, on_start=None):
+    """생성 요청을 별도 스레드에서 연다 — 첫 바이트 전에도 취소가 먹게.
+
+    `create()`는 서버가 prefill을 끝낼 때까지 블로킹한다. 그동안 취소를 확인할
+    길이 없으면 stop 버튼이 요청 타임아웃(기본 1,200초)까지 아무 효과가 없고,
+    그 사이 model generation 슬롯도 계속 잡혀 있다.
+
+    `on_start`는 요청이 실제로 나가기 직전, 생성 스레드 안에서 불린다. "생성이
+    시작됐다"는 신호를 요청 전송과 같은 지점에 묶어야 create_worker의 launched
+    배리어가 뜻대로 동작한다 — 아니면 워커를 띄운 직후 부모가 모델을 먼저 잡는
+    역전이 스레드 스케줄링에 따라 생긴다.
+    """
+    if cancel is None:
+        if on_start is not None:
+            on_start()
+        return create()
+    box: dict = {}
+    entered = threading.Event()
+
+    def open_it() -> None:
+        try:
+            if on_start is not None:
+                on_start()
+            entered.set()
+            stream = create()
+        except BaseException as error:  # 호출부에서 그대로 다시 던진다
+            entered.set()
+            box["error"] = error
+            return
+        if cancel.is_set():
+            # 이미 포기한 요청이다 — 서버 쪽 생성을 붙잡아두지 않는다.
+            try:
+                stream.close()
+            except Exception:
+                pass
+            box["error"] = GenerationCancelled("취소 후 도착한 스트림")
+            return
+        box["stream"] = stream
+
+    worker = threading.Thread(target=open_it, name="janus-generation", daemon=True)
+    worker.start()
+    entered.wait(GENERATION_START_BARRIER_SECONDS)
+    while worker.is_alive():
+        worker.join(poll_seconds)
+        if cancel.is_set():
+            # 스레드는 데몬이라 남아도 프로세스를 붙잡지 않고, 스트림이 뒤늦게
+            # 도착하면 위 open_it이 닫는다.
+            raise GenerationCancelled("생성 시작 전에 취소됨")
+    if error := box.get("error"):
+        raise error
+    return box["stream"]
+
+
+def _assemble(
+    stream, emit, cancel=None,
+) -> tuple[str, list[dict], dict | None, str | None]:
+    """스트리밍 청크를 (텍스트, tool_calls, usage, finish_reason)로 조립.
 
     cancel이 켜지면 스트림을 닫고 즉시 나온다 — 생성 도중에도 멈출 수 있어야 한다.
     usage는 로컬에선 비용이 아니라 지연시간의 원인이다(prefill = prompt_tokens에 비례).
+    finish_reason은 "length"(max_tokens 절단)를 파싱 실패와 구분하기 위해 필요하다.
     """
     parts: list[str] = []
     calls: dict[int, dict] = {}
     usage: dict | None = None
+    finish_reason: str | None = None
     emitted_speculative_metrics = False
 
     for chunk in stream:
@@ -337,6 +492,8 @@ def _assemble(stream, emit, cancel=None) -> tuple[str, list[dict], dict | None]:
                      )}
         if not chunk.choices:
             continue
+        if reason := getattr(chunk.choices[0], "finish_reason", None):
+            finish_reason = str(reason)
         delta = chunk.choices[0].delta
         # 사고 과정은 답이 아니다 — 화면에만 흘리고 대화 기록(parts)에는 넣지 않는다.
         if reasoning := getattr(delta, "reasoning_content", None):
@@ -355,7 +512,7 @@ def _assemble(stream, emit, cancel=None) -> tuple[str, list[dict], dict | None]:
             if tc.function and tc.function.arguments:
                 slot["function"]["arguments"] += tc.function.arguments
 
-    return "".join(parts), [calls[i] for i in sorted(calls)], usage
+    return "".join(parts), [calls[i] for i in sorted(calls)], usage, finish_reason
 
 
 def run(
@@ -402,6 +559,7 @@ def run(
     schemas = T.schemas_for(tool_names, registry=reg)
     fail_streak: dict[str, int] = {}
     empty_response_streak = 0
+    stream_retries = 0
     force_direct_next = False
     last_text = ""
     tok_prompt = tok_completion = 0
@@ -434,6 +592,9 @@ def run(
             return last_text, session.events
 
         emit("step", n=step + 1)
+        # 스키마는 매 요청에 함께 나가고 서킷 브레이크로 줄어들기도 한다 —
+        # 압축 판정 전에 현재 크기를 알려준다.
+        session.observe_tool_schemas(schemas)
         msgs = session.derive_messages()
         context_stats = dict(session.context_stats)
         emit("context_window", **context_stats)
@@ -468,6 +629,7 @@ def run(
         if schemas:
             kwargs["tools"] = schemas
         generation_id = uuid.uuid4().hex[:16]
+        retry_step = False
         emit("resource_queue_enter", resource="model_generation",
              operation_id=generation_id, step=step + 1)
         try:
@@ -505,28 +667,60 @@ def run(
             emit("resource_lease_acquired", resource="model_generation",
                  operation_id=generation_id, lease_id=generation_lease.id,
                  step=step + 1)
-            emit("model_generation_start", operation_id=generation_id, step=step + 1)
             try:
-                text, calls, usage = _assemble(
-                    client.chat.completions.create(**kwargs), emit, effective_cancel
+                stream = _open_stream(
+                    # 별도 스레드로 넘기므로 이번 반복의 kwargs를 즉시 묶는다.
+                    lambda kw=kwargs: client.chat.completions.create(**kw),
+                    effective_cancel,
+                    # 시작 신호는 요청이 실제로 나가는 지점에서 낸다 — 이 이벤트가
+                    # 워커의 launched 배리어를 푼다.
+                    on_start=lambda: emit(  # noqa: B023 — 같은 반복 안에서만 산다
+                        "model_generation_start",
+                        operation_id=generation_id, step=step + 1,  # noqa: B023
+                    ),
                 )
+                text, calls, usage, finish_reason = _assemble(
+                    stream, emit, effective_cancel
+                )
+            except GenerationCancelled:
+                emit("model_generation_end", operation_id=generation_id,
+                     step=step + 1, status="cancelled")
+                budget_exhausted = emit_budget_exhaustion()
+                emit("done",
+                     reason="budget_exhausted" if budget_exhausted else "cancelled")
+                return last_text, session.events
             except Exception as error:
                 emit("model_generation_end", operation_id=generation_id,
                      step=step + 1, status="error",
                      error=f"{type(error).__name__}: {error}")
-                raise
+                # recovery는 model_oom·timeout 같은 일시 실패를 이미 분류할 줄
+                # 안다. 그 판정을 쓰지 않아, 스트림이 한 번 끊기면 턴 전체가
+                # 죽고 그때까지의 작업이 사용자에게 실패로 보였다.
+                classified = recovery_mod.classify_failure(error)
+                if classified["retryable"] and stream_retries < STREAM_RETRIES:
+                    stream_retries += 1
+                    # emit의 첫 인자가 이벤트 kind다 — 분류명은 다른 키로 싣는다.
+                    emit("model_generation_retry", step=step + 1,
+                         failure_kind=classified["kind"], attempt=stream_retries,
+                         error=classified["detail"])
+                    retry_step = True
+                else:
+                    raise
             else:
                 emit("model_generation_end", operation_id=generation_id,
                      step=step + 1,
                      status=("cancelled" if cancel is not None and cancel.is_set()
                              else "budget_exhausted" if emit_budget_exhaustion()
                              else "success"))
+        if retry_step:
+            continue  # 같은 요청을 한 번 더 — lease는 with 블록이 이미 반납했다
         if usage:
             tok_prompt += usage["prompt_tokens"]
             tok_completion += usage["completion_tokens"]
             # 방금 보낸 컨텍스트의 실측 prompt_tokens로 압축 임계를 보정한다
             session.observe_usage(
-                context_stats.get("sent_chars", 0), usage["prompt_tokens"]
+                context_stats.get("sent_chars", 0), usage["prompt_tokens"],
+                usage.get("cached_tokens", 0),
             )
             # step별 토큰 — 어느 step이 컨텍스트를 부풀려 느려지는지 보인다
             emit("usage", step=step + 1, **usage)
@@ -542,6 +736,14 @@ def run(
         if cancel is not None and cancel.is_set():
             emit("done", reason="cancelled")
             return last_text, session.events
+
+        # thinking 모드에선 reasoning·답변·도구 인자가 max_tokens 하나를 나눠 쓴다.
+        # 여기서 잘린 걸 알려주지 않으면 모델은 "JSON 파싱 실패"만 보고 같은 길이로
+        # 다시 시도한다.
+        truncated = finish_reason == "length"
+        if truncated:
+            emit("generation_truncated", step=step + 1,
+                 max_tokens=generation_max_tokens, had_tool_calls=bool(calls))
 
         if not text.strip() and not calls:
             empty_response_streak += 1
@@ -592,6 +794,15 @@ def run(
             try:
                 args = json.loads(call["function"]["arguments"] or "{}")
             except json.JSONDecodeError as e:
+                if truncated:  # noqa: B023 — exec_call은 이 반복 안에서만 산다
+                    return name, {
+                        "error": (
+                            f"도구 인자가 max_tokens({generation_max_tokens})에서 "  # noqa: B023
+                            "잘렸습니다. 같은 호출을 반복하지 말고, 인자를 더 짧게 "
+                            "나눠 여러 번 호출하세요."
+                        ),
+                        "reason": "output_truncated",
+                    }
                 return name, {"error": f"인자 JSON 파싱 실패: {e}"}
             if name not in allowed_tool_names:
                 emit(
@@ -735,6 +946,9 @@ def run(
             emit("circuit_break", tool=name, failures=fail_streak.get(name, 0))
             schemas = [s for s in schemas
                        if s.get("function", {}).get("name") != name]
+            # 스키마에서 빼는 것만으로는 못 막는다 — 로컬 모델은 광고되지 않은
+            # 도구명도 그냥 뱉고, 그러면 실행 게이트를 그대로 통과한다.
+            allowed_tool_names.discard(name)
             session.append(
                 "user",
                 content=(

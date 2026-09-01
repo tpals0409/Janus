@@ -29,7 +29,9 @@ def mcp_endpoint(session_id: str, body: dict) -> Response | dict:
         body,
         names=orch.mcp_tool_names(),
         invoke=mcp_bridge.invoker(
-            approve=orch.mcp_approve, context=orch.workspace_context
+            approve=orch.mcp_approve, context=orch.workspace_context,
+            # CLI 세션이 MCP로 실행한 쓰기·셸도 로컬 경로와 같은 이벤트를 남긴다.
+            emit=getattr(orch, "_emit", None),
         ),
     )
     if payload is None:

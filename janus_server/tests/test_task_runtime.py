@@ -122,6 +122,65 @@ class TaskRuntimeTests(unittest.TestCase):
             subprotocols=["janus", "test-token"],
         )
 
+    # ── 토큰 델타 영속화 ──
+    # 화면에는 즉시, 저장소에는 합쳐서 간다. 하나씩 영속하면 매 토큰이 새
+    # connection + BEGIN IMMEDIATE + MAX(seq) + INSERT + COMMIT이 되고, 그
+    # 전역 쓰기 락에 모든 워커의 생성이 직렬화된다.
+
+    def test_streamed_deltas_are_coalesced_into_one_stored_event(self):
+        task = self.create_ready_task("delta batching")
+        started = self.start(task["id"])
+        session_id = started["id"]
+        pieces = ["안녕", "하세", "요 ", "결과", "입니다"]
+        fake = FakeClient([[*(text_chunk(piece) for piece in pieces)]])
+
+        with (
+            patch.object(runtime, "resolve_local_model", lambda name: name),
+            patch.object(runtime, "make_client", lambda: fake),
+            self.connect(task["id"], session_id) as ws,
+        ):
+            self.assertEqual("session_ready", ws.receive_json()["type"])
+            ws.send_json({"type": "message", "text": "stream it"})
+            streamed = [
+                event for event in self.drain_turn(ws)
+                if event.get("kind") == "text_delta"
+            ]
+
+        # 화면에는 토큰 단위 그대로 흘렀다.
+        self.assertEqual(pieces, [event["text"] for event in streamed])
+
+        # 저장소에는 하나로 합쳐졌다.
+        stored = [
+            item["payload"] for item in self.store.list_session_events(session_id)
+            if item["payload"].get("kind") == "text_delta"
+        ]
+        self.assertEqual(1, len(stored), stored)
+        self.assertEqual("".join(pieces), stored[0]["text"])
+
+    def test_a_non_delta_event_flushes_the_buffer_in_order(self):
+        task = self.create_ready_task("delta ordering")
+        started = self.start(task["id"])
+        session_id = started["id"]
+        fake = FakeClient([{"text": "먼저 답하고"}, {"text": "끝"}])
+
+        with (
+            patch.object(runtime, "resolve_local_model", lambda name: name),
+            patch.object(runtime, "make_client", lambda: fake),
+            self.connect(task["id"], session_id) as ws,
+        ):
+            self.assertEqual("session_ready", ws.receive_json()["type"])
+            ws.send_json({"type": "message", "text": "go"})
+            self.drain_turn(ws)
+
+        kinds = [
+            item["payload"].get("kind")
+            for item in self.store.list_session_events(session_id)
+            if item["payload"].get("type") == "agent_event"
+        ]
+        # 델타가 그 뒤의 assistant 이벤트보다 앞선 seq를 받는다 — 재접속 복원이
+        # 순서를 그대로 다시 그릴 수 있어야 한다.
+        self.assertLess(kinds.index("text_delta"), kinds.index("assistant"))
+
     def test_finish_turn_completed_moves_task_to_review(self):
         task = self.create_ready_task("structured completion")
         started = self.start(task["id"])
@@ -730,3 +789,4 @@ class TaskRuntimeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

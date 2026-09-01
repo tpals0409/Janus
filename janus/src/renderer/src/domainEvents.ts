@@ -16,6 +16,12 @@ let reconnectTimer: number | null = null
 let reconnectAttempt = 0
 
 function dispatch(event: DomainEvent): void {
+  // 서버 큐가 넘쳐 무효화를 놓쳤다는 신호. 어떤 topic을 놓쳤는지 알 수 없으므로
+  // 모든 구독자를 깨워 각자 다시 읽게 한다 — 아니면 낡은 화면이 그대로 남는다.
+  if (event.topic === 'system' && event.event === 'resync') {
+    for (const group of listeners.values()) for (const listener of group) listener(event)
+    return
+  }
   for (const listener of listeners.get(event.topic) ?? []) listener(event)
   for (const listener of listeners.get('*') ?? []) listener(event)
 }

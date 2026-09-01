@@ -47,6 +47,36 @@ class AdaptiveDecisionTests(unittest.TestCase):
                 self.assertEqual(policy, decision["effective"]["worker_policy"])
                 self.assertEqual(roles, decision["effective"]["worker_roles"])
 
+    def test_classification_uses_word_boundaries_not_substrings(self):
+        """intent 모듈이 존재하는 이유 그대로 — 부분 문자열 매칭은 오검이다.
+
+        "test"가 latest·contest에, "fix"가 prefix·fixture에 걸리면 무관한 Task가
+        test_heavy 토폴로지(implementer+verifier, step_limit 24)로 라우팅된다.
+        """
+        cases = (
+            ("Migrate to the latest schema", "test_heavy"),
+            ("Rename the prefix helper", "test_heavy"),
+            ("Shorten the suffix handling", "test_heavy"),
+        )
+        for objective, must_not_be in cases:
+            with self.subTest(objective=objective):
+                task_class, _ = adaptive.classify_task(
+                    {"title": objective, "objective": objective,
+                     "acceptance_command": "true"}
+                )
+                self.assertNotEqual(must_not_be, task_class)
+        # 진짜 신호는 그대로 잡혀야 한다 — 경계 매칭이 과잉 차단이면 안 된다.
+        for objective, expected in (
+            ("Add tests for the parser", "test_heavy"),
+            ("Run cargo test on the crate", "test_heavy"),
+        ):
+            with self.subTest(objective=objective):
+                task_class, _ = adaptive.classify_task(
+                    {"title": objective, "objective": objective,
+                     "acceptance_command": "true"}
+                )
+                self.assertEqual(expected, task_class)
+
     def test_mockup_workflow_routes_to_one_prototyper_without_keyword_guessing(self):
         decision = adaptive.decide(
             task={
@@ -128,6 +158,45 @@ class AdaptiveDecisionTests(unittest.TestCase):
         self.assertEqual("diagnose_then_repair", decision["retry"]["strategy"])
         self.assertEqual(["verifier", "implementer"], decision["effective"]["worker_role_sequence"])
         self.assertEqual(1, decision["effective"]["budget"]["workers"]["concurrent_limit"])
+
+    def test_a_later_passing_rerun_clears_the_verification_failure(self):
+        """옛 실패가 남아 이후 모든 dispatch를 재시도 토폴로지에 묶으면 안 된다."""
+        previous = {"id": "dispatch_1", "status": "completed", "error": None}
+        decision = adaptive.decide(
+            task={"title": "Fix behavior", "objective": "Fix behavior",
+                  "acceptance_command": "true"},
+            base_profile=profile(), scheduler_snapshot=scheduler(),
+            previous_dispatch=previous,
+            verification_runs=[
+                # 같은 명령을 다시 돌려 통과했다 (목록은 최신순).
+                {"id": "verification_2", "dispatch_id": "dispatch_1",
+                 "kind": "acceptance", "command": "pytest", "status": "passed",
+                 "created_at": "2026-09-01T10:00:00Z"},
+                {"id": "verification_1", "dispatch_id": "dispatch_1",
+                 "kind": "acceptance", "command": "pytest", "status": "failed",
+                 "created_at": "2026-09-01T09:00:00Z"},
+            ],
+        )
+        self.assertIsNone(decision["retry"]["failure_type"])
+
+    def test_a_still_failing_command_is_reported_even_if_another_passed(self):
+        previous = {"id": "dispatch_1", "status": "completed", "error": None}
+        decision = adaptive.decide(
+            task={"title": "Fix behavior", "objective": "Fix behavior",
+                  "acceptance_command": "true"},
+            base_profile=profile(), scheduler_snapshot=scheduler(),
+            previous_dispatch=previous,
+            verification_runs=[
+                {"id": "verification_2", "dispatch_id": "dispatch_1",
+                 "kind": "acceptance", "command": "pytest", "status": "passed",
+                 "created_at": "2026-09-01T10:00:00Z"},
+                {"id": "verification_3", "dispatch_id": "dispatch_1",
+                 "kind": "project", "command": "ruff check .", "status": "failed",
+                 "created_at": "2026-09-01T10:00:00Z"},
+            ],
+        )
+        self.assertEqual("verification_failure", decision["retry"]["failure_type"])
+        self.assertEqual("verification_3", decision["retry"]["evidence"])
 
     def test_budget_failure_expands_parent_budget_and_removes_worker_overhead(self):
         previous = {

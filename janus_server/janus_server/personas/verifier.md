@@ -12,7 +12,7 @@ Determine whether the implementation satisfies the approved contract.
 
 ## Skill
 
-- `builtin_skills/verification-before-completion/SKILL.md`
+- Verification before completion — its full text is already included below.
 
 ## Rules
 

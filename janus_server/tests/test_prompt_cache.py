@@ -18,13 +18,13 @@ from tests.fakes import FakeClient, FakeStream, text_chunk, usage_chunk
 class PromptCacheTests(unittest.TestCase):
     def test_assemble_extracts_measured_cache_hits(self):
         stream = FakeStream([text_chunk("ok"), usage_chunk(cached_tokens=7)])
-        _, _, usage = agent._assemble(stream, lambda _kind, **_data: None)
+        _, _, usage, _ = agent._assemble(stream, lambda _kind, **_data: None)
         self.assertEqual(7, usage["cached_tokens"])
         self.assertEqual(1, usage["prompt_tokens"])  # 전체 프롬프트 수는 그대로
 
     def test_assemble_defaults_to_zero_without_apc_report(self):
         stream = FakeStream([text_chunk("ok"), usage_chunk()])
-        _, _, usage = agent._assemble(stream, lambda _kind, **_data: None)
+        _, _, usage, _ = agent._assemble(stream, lambda _kind, **_data: None)
         self.assertEqual(0, usage["cached_tokens"])
 
     def test_run_propagates_cached_tokens_on_usage_event(self):

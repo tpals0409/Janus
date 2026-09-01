@@ -87,6 +87,33 @@ class CircuitBreakerTests(unittest.TestCase):
         texts = [e.get("text") for e in events if e["kind"] == "text_delta"]
         self.assertIn("3회 시도가 모두 실패해 중단했습니다.", "".join(t or "" for t in texts))
 
+    def test_withdrawn_tool_cannot_still_be_executed(self):
+        """스키마에서 빼는 것만으로는 못 막는다.
+
+        로컬 모델은 광고되지 않은 도구명도 그냥 뱉는다. 실행 게이트까지 닫지
+        않으면 3연속 실패한 도구가 4번째로 다시 실행된다 — 승인 3회 거부 뒤에도
+        네 번째 승인 대화상자가 뜨는 경로다.
+        """
+        invocations = []
+
+        def handler():
+            invocations.append(1)
+            return {"error": "boom"}
+
+        calls = [("probe", "{}")]
+        events, _ = run_with_tool(
+            handler,
+            [{"calls": calls}, {"calls": calls}, {"calls": calls},
+             {"calls": calls},  # 회수 뒤에도 모델이 같은 도구를 부른다
+             {"text": "중단했습니다."}],
+        )
+        self.assertEqual(3, len(invocations), "회수 후에도 핸들러가 실행됐다")
+        rejected = [e for e in events if e["kind"] == "tool_rejected"]
+        self.assertEqual(["probe"], [e.get("name") for e in rejected])
+        self.assertEqual(
+            ["tool_not_in_node_subset"], [e.get("reason") for e in rejected]
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

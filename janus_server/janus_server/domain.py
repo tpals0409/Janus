@@ -17,7 +17,7 @@ from typing import Any
 
 from .budget import empty_usage, merge_budget, normalize_budget
 
-CURRENT_SCHEMA_VERSION = 28
+CURRENT_SCHEMA_VERSION = 29
 
 #: 새 AgentProfile이 받는 기본 도구. 스킬 저작 도구가 여기 있어야 채팅에서
 #: 스킬을 만들 수 있다 (기존 프로필은 MIGRATION_28이 채운다).
@@ -727,6 +727,13 @@ WHERE json_valid(tools_json)
   );
 """
 
+# 워커 성과 회수 노트의 소비 표시. 없을 때는 WS에 새로 접속할 때마다 같은
+# 다이제스트가 다시 주입돼, 브라우저를 새로고침할 때마다 모델이 이미 통합한
+# 작업을 "통합하거나 버린 이유를 대라"는 지시와 함께 다시 받았다.
+MIGRATION_29 = """
+ALTER TABLE worker_outcomes ADD COLUMN delivered_at TEXT;
+"""
+
 MIGRATIONS = {
     1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3, 4: MIGRATION_4,
     5: MIGRATION_5, 6: MIGRATION_6, 7: MIGRATION_7, 8: MIGRATION_8,
@@ -735,6 +742,7 @@ MIGRATIONS = {
     17: MIGRATION_17, 18: MIGRATION_18, 19: MIGRATION_19, 20: MIGRATION_20,
     21: MIGRATION_21, 22: MIGRATION_22, 23: MIGRATION_23, 24: MIGRATION_24,
     25: MIGRATION_25, 26: MIGRATION_26, 27: MIGRATION_27, 28: MIGRATION_28,
+    29: MIGRATION_29,
 }
 
 
@@ -754,6 +762,11 @@ class DomainStore:
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA busy_timeout = 30000")
         connection.execute("PRAGMA journal_mode = WAL")
+        # WAL에서 NORMAL은 커밋마다의 fsync를 없앤다. 앱 크래시에는 안전하고
+        # (WAL이 원자성을 보장한다) OS/전원 장애에서만 마지막 커밋 몇 개를 잃을
+        # 수 있다. 이벤트 스트림이 커밋 하나당 fsync 하나를 내던 것이 로컬
+        # 처리량의 바닥이었다 — 그 대가로 감수할 만한 위험이다.
+        connection.execute("PRAGMA synchronous = NORMAL")
         return connection
 
     @contextmanager
@@ -1045,9 +1058,12 @@ class DomainStore:
     def finish_verification_run(self, run_id: str, result: dict) -> dict:
         exit_code = result.get("exit_code")
         error = result.get("error")
-        status = "passed" if exit_code == 0 and not error else (
+        # error가 있으면 결과를 신뢰할 수 없다 — exit 0이어도 통과가 아니고,
+        # 명령이 틀렸다는 뜻도 아니다(실행 중 워크스페이스 변경·타임아웃 등).
+        # "failed"로 접으면 고칠 것이 없는데 고치라고 재시도 토폴로지가 붙는다.
+        status = "error" if error else ("passed" if exit_code == 0 else (
             "failed" if exit_code is not None else "error"
-        )
+        ))
         with self.transaction(immediate=True) as connection:
             run = self._one(
                 connection, "SELECT * FROM verification_runs WHERE id=?",
@@ -1995,6 +2011,13 @@ class DomainStore:
         self, *, task_id: str, workspace_id: str, agent_profile_id: str,
         dispatch_id: str | None = None,
     ) -> dict:
+        """Dispatch 한 건만 만드는 하위 프리미티브 — **테스트 픽스처 전용**.
+
+        실행 경로는 `create_execution`을 쓴다. 그쪽만 같은 저장소를 쓰는 경쟁
+        Task 거부, 이전 시도 supersede, 세션·스킬 스냅샷·예산·adaptive 스냅샷을
+        한 transaction으로 묶는다. 여기에는 그 보증이 하나도 없으므로, 새 실행
+        경로를 이 함수로 만들면 소유권 펜스 밖에서 도는 Dispatch가 생긴다.
+        """
         dispatch_id = dispatch_id or _id("dispatch")
         now = _now()
         try:
@@ -2213,10 +2236,15 @@ class DomainStore:
             else:
                 learning_id = str(existing["id"])
                 evidence_items = json.loads(existing["evidence_json"] or "[]")
+                # 같은 근거를 다시 봐도 관측이 하나 더 생긴 것은 아니다. 완료된 턴마다
+                # 전체 이벤트를 재스캔하므로, 무조건 올리면 한 번 스친 문장이 관측
+                # 없이 0.72 → 0.99까지 부풀어 영구 규칙으로 굳었다.
+                count = int(existing["evidence_count"])
+                boosted = max(float(existing["confidence"]), float(confidence))
                 if evidence not in evidence_items:
                     evidence_items.append(evidence)
-                count = int(existing["evidence_count"]) + 1
-                boosted = min(0.99, max(float(existing["confidence"]), float(confidence)) + 0.04)
+                    count += 1
+                    boosted = min(0.99, boosted + 0.04)
                 connection.execute(
                     "UPDATE project_learnings SET evidence_count=?,confidence=?,evidence_json=?,"
                     "status='active',updated_at=? WHERE id=?",
@@ -2309,16 +2337,53 @@ class DomainStore:
                             (outcome_id,), "WorkerOutcome")
         return self._worker_outcome_dict(row)
 
-    def list_worker_outcomes(self, task_id: str, *, limit: int = 20) -> list[dict]:
-        """Newest terminal outcomes for one Task, newest first."""
+    def list_worker_outcomes(
+        self, task_id: str, *, limit: int = 20, undelivered_only: bool = False,
+    ) -> list[dict]:
+        """Newest terminal outcomes for one Task, newest first.
+
+        `undelivered_only`는 회수 노트 주입 경로가 쓴다 — 이미 부모에게 전달된
+        성과를 새 접속마다 다시 주입하지 않기 위해서다.
+        """
         with self._connect() as connection:
             self._one(connection, "SELECT id FROM tasks WHERE id=?", (task_id,), "Task")
+            where = " AND delivered_at IS NULL" if undelivered_only else ""
             rows = [self._worker_outcome_dict(row) for row in connection.execute(
-                "SELECT * FROM worker_outcomes WHERE task_id=? "
+                f"SELECT * FROM worker_outcomes WHERE task_id=?{where} "
                 "ORDER BY created_at DESC,id DESC LIMIT ?",
                 (task_id, max(1, min(200, int(limit)))),
             )]
         return rows
+
+    def worker_spawn_counts(self, dispatch_id: str) -> dict[str, int]:
+        """이 Dispatch가 이미 소비한 워커 스폰 수 (전체·역할별).
+
+        스폰 상한은 세션 수명 기준인데, 재접속·재시작마다 카운터가 0에서 다시
+        시작하면 role_limit이 막으려던 재스폰이 그때마다 새로 열린다. 예산 usage와
+        같은 스코프이므로 여기서 복원한다.
+        """
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT role, COUNT(*) AS n FROM worker_outcomes "
+                "WHERE dispatch_id=? GROUP BY role", (dispatch_id,),
+            ).fetchall()
+        by_role = {str(row["role"]): int(row["n"]) for row in rows if row["role"]}
+        return {"total": sum(int(row["n"]) for row in rows), "by_role": by_role}
+
+    def mark_worker_outcomes_delivered(self, outcome_ids: list[str]) -> int:
+        """회수 노트로 모델에게 전달된 성과를 소비 처리한다."""
+        ids = [str(item) for item in outcome_ids if str(item or "").strip()]
+        if not ids:
+            return 0
+        now = _now()
+        placeholders = ",".join("?" for _ in ids)
+        with self.transaction(immediate=True) as connection:
+            cursor = connection.execute(
+                f"UPDATE worker_outcomes SET delivered_at=? "  # noqa: S608 — 자리표시자만 보간
+                f"WHERE delivered_at IS NULL AND id IN ({placeholders})",
+                (now, *ids),
+            )
+            return int(cursor.rowcount or 0)
 
     def transition_dispatch(
         self, dispatch_id: str, target: str, *, error: str | None = None,

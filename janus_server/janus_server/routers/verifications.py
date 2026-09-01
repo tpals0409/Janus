@@ -55,6 +55,24 @@ def _run_verification_job(run_id: str) -> None:
         result = verification.run(
             item["command"], context, scheduler=scheduler_mod.default_scheduler()
         )
+        # 실행 중에 워크스페이스가 바뀌었으면 이 결과가 어느 리비전의 것인지
+        # 말할 수 없다. 통과로 기록하면 "검증된 변경"이라는 계약이 깨진다 —
+        # 에이전트가 검증을 걸어놓고 그 사이 파일을 고치는 경로가 여기다.
+        try:
+            _, _, after = _verification_workspace(item["task_id"])
+            drifted = after["revision"] != item["revision"]
+        except Exception:
+            drifted = False
+            after = None
+        if drifted and not result.get("error"):
+            result = {
+                **result,
+                "error": (
+                    "검증 실행 중 작업 공간이 바뀌어 결과를 이 리비전에 귀속할 수 "
+                    f"없습니다 (시작 {item['revision'][:12]} → 종료 "
+                    f"{after['revision'][:12]}). 변경을 멈추고 다시 검증하세요."
+                ),
+            }
         finished = store.finish_verification_run(run_id, result)
         _publish_change(
             "verification", "finished", run_id=run_id,

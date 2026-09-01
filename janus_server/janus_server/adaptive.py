@@ -93,30 +93,33 @@ def classify_task(task: dict) -> tuple[str, list[str]]:
         "런타임 프로세스", "서비스 프로세스", "모델 서버", "헬스 체크",
     )
 
-    if any(word in text for word in planning_words):
+    # intent.has_any로 판정한다. 부분 문자열 매칭은 intent 모듈이 존재하는 이유인
+    # 바로 그 오검을 되살린다 — "test"가 latest·contest에, "fix"가 prefix·fixture에
+    # 걸려 "latest 스키마 마이그레이션"이 test_heavy 토폴로지로 라우팅됐다.
+    if intent_mod.has_any(text, planning_words):
         signals.append("explicit_planning_language")
         return "planning", signals
-    if any(word in text for word in prototype_words):
+    if intent_mod.has_any(text, prototype_words):
         signals.append("visual_prototype_language")
         return "visual_prototype", signals
-    if any(word in text for word in operations_words):
+    if intent_mod.has_any(text, operations_words):
         signals.append("runtime_operations_language")
         return "operations", signals
-    if any(word in text for word in investigation_words):
+    if intent_mod.has_any(text, investigation_words):
         signals.append("investigation_language")
         return "investigation", signals
-    if any(word in text for word in refactor_words):
+    if intent_mod.has_any(text, refactor_words):
         signals.append("cross_cutting_language")
         return "multi_file_refactor", signals
     # A product build commonly mentions its acceptance tests, but that must not
     # collapse independent backend/UI/data work into the narrower test topology.
-    if sum(word in text for word in multi_component_words) >= 2:
+    if sum(intent_mod.has_any(text, (word,)) for word in multi_component_words) >= 2:
         signals.append("multi_component_product_language")
         return "multi_component_build", signals
-    if any(word in text for word in test_words):
+    if intent_mod.has_any(text, test_words):
         signals.append("verification_heavy_language")
         return "test_heavy", signals
-    if any(word in text for word in bug_words) and any(word in text for word in single_words):
+    if intent_mod.has_any(text, bug_words) and intent_mod.has_any(text, single_words):
         signals.extend(("bug_fix_language", "single_file_scope"))
         return "single_file_bug", signals
     return "general", ["no_specialized_signal"]
@@ -131,9 +134,21 @@ def classify_failure(
     if previous_dispatch is None:
         return None, None
     previous_id = previous_dispatch.get("id")
+    # 명령별로 **최신** 실행만 본다. 전체 목록에서 실패를 찾으면, 나중에 통과한
+    # 재실행이 있어도 옛 실패가 남아 이후 모든 dispatch를 verification_failure
+    # 토폴로지에 영구히 묶는다.
+    newest: dict[tuple[str, str], dict] = {}
+    for item in sorted(
+        verification_runs,
+        key=lambda run: (str(run.get("created_at") or ""), str(run.get("id") or "")),
+        reverse=True,
+    ):
+        newest.setdefault(
+            (str(item.get("kind") or ""), str(item.get("command") or "")), item
+        )
     failed_verification = next(
         (
-            item for item in verification_runs
+            item for item in newest.values()
             if item.get("status") in {"failed", "error"}
             and (item.get("dispatch_id") in {None, previous_id})
         ),

@@ -95,11 +95,26 @@ def handle(body: dict, *, names: list[str], invoke) -> dict | None:
     return _fail(rpc_id, -32601, f"지원하지 않는 메서드: {method}")
 
 
-def invoker(*, approve, context):
-    """dispatch를 MCP 응답용 텍스트로 감싼다. 승인 거부도 텍스트 오류로 나간다."""
+def invoker(*, approve, context, emit=None):
+    """dispatch를 MCP 응답용 텍스트로 감싼다. 승인 거부도 텍스트 오류로 나간다.
+
+    `emit(kind, **data)`를 주면 로컬 경로와 같은 tool_start/tool_result 이벤트를
+    낸다. 없으면 CLI 세션이 실행한 쓰기·셸이 승인만 받고 이벤트 로그 어디에도
+    남지 않아, 무엇이 워크스페이스를 바꿨는지 사후에 알 수 없다.
+    """
     def invoke(name: str, args: dict) -> str:
+        if emit is not None:
+            emit("tool_start", name=name, args=args)
         value = T.dispatch(name, args, approve=approve, context=context)
-        return T.render(name, value)
+        rendered = T.render(name, value)
+        if emit is not None:
+            emit(
+                "tool_result", name=name,
+                value={"content": rendered[:4000]},
+                status=("error" if isinstance(value, dict) and value.get("error")
+                        else "success"),
+            )
+        return rendered
     return invoke
 
 

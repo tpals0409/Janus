@@ -16,7 +16,6 @@ import json
 import os
 import re
 import threading
-import time
 import uuid
 from collections.abc import Callable
 from pathlib import Path
@@ -32,6 +31,7 @@ from . import scheduler as scheduler_mod
 from . import spec as spec_mod
 from . import telemetry as telemetry_mod
 from . import tools as T
+from . import verification as verification_mod
 from .workspace import WorkspaceContext
 
 # UI의 짧은 이름 -> 로컬에 실제로 존재하는 스냅샷 경로.
@@ -50,6 +50,18 @@ LOCAL_MODELS = {
 
 MLX_BASE_URL = "http://localhost:8080/v1"
 WORKER_SYSTEM_MAX_CHARS = 8_000
+# 오케스트레이터 프롬프트의 상한. 워커보다 넉넉하지만 무제한은 아니다 —
+# 이 프롬프트는 스킬 카탈로그·학습·리뷰 피드백까지 얹혀 나가고, agent.py의
+# 압축 루프는 prefix를 절대 못 줄이므로 여기가 커지면 대화가 밀려난다.
+ORCHESTRATOR_SYSTEM_MAX_CHARS = 12_000
+# 스킬 카탈로그는 매 요청 prefill에 고정으로 얹힌다. 설명은 스킬당 2,000자까지
+# 허용되고 한 번에 20개까지 활성화되므로, 상한 없이 실으면 대화가 밀려난다.
+# 본문은 load_skill이 가져오니 여기서는 "무엇이 있는지"만 알리면 된다.
+SKILL_CATALOG_MAX_ENTRIES = 12
+SKILL_CATALOG_DESCRIPTION_CHARS = 160
+# 노드별 in-memory 이벤트 버퍼 상한. 스팬 종료·스냅샷마다 전체가 복사되므로
+# 무제한이면 긴 세션에서 메모리가 이벤트 수의 제곱으로 늘어난다.
+MAX_NODE_EVENTS = 2_000
 WORKER_TASK_MAX_CHARS = 6_000
 WORKER_CONTEXT_MAX_CHARS = 4_000
 # 반환 방향 핸드오프 예산 — 워커 보고가 오케스트레이터 컨텍스트로 돌아올 때의
@@ -94,7 +106,6 @@ _ROLE_SKILLS = {
 MAX_MODEL_QUEUE_FOR_SPAWN = 1
 SINGLE_SLOT_PARENT_RESERVE_NUMERATOR = 6
 SINGLE_SLOT_PARENT_RESERVE_DENOMINATOR = 10
-TIGHT_DISPATCH_STEP_LIMIT = 16
 # 도구 호출 몇 번 + 결과를 읽고 답하는 1 step. 2로 두면 두 번째 도구 호출에서 소진돼
 # 답을 못 쓴 채 끝난다(실측: read_file×2 → glob → step_limit 소진).
 MIN_WORKER_STEPS = 4
@@ -133,9 +144,16 @@ def persona_prompt(role: str, *, custom_prompt: str = "") -> str:
     if custom_prompt.strip():
         sections.append("## Delegated emphasis\n\n" + custom_prompt.strip())
     prompt = "\n\n---\n\n".join(sections)
-    if len(prompt) > WORKER_SYSTEM_MAX_CHARS and normalized != "janus":
+    # 오케스트레이터는 스킬 카탈로그·학습·리뷰 피드백까지 더 받으므로 여유가
+    # 필요하지만, 상한 자체가 없으면 프롬프트가 조용히 커져도 아무도 모른다.
+    # 가드의 목적은 번들 프롬프트의 무성장 감시다 — janus도 자기 상한을 갖는다.
+    ceiling = (
+        ORCHESTRATOR_SYSTEM_MAX_CHARS if normalized == "janus"
+        else WORKER_SYSTEM_MAX_CHARS
+    )
+    if len(prompt) > ceiling:
         raise RuntimeError(
-            f"bundled worker prompt exceeds {WORKER_SYSTEM_MAX_CHARS} chars: {normalized}"
+            f"bundled prompt exceeds {ceiling} chars: {normalized} ({len(prompt)})"
         )
     return prompt
 
@@ -259,31 +277,6 @@ def effective_worker_step_limit(
     return min(limit, worker_room)
 
 
-def effective_worker_role(
-    policy: str,
-    requested_role: str,
-    dispatch_step_limit: int,
-    scheduler_snapshot: dict,
-) -> tuple[str, str | None]:
-    """Turn a forced sequential implementer into a scout on tight local runs.
-
-    ``fixed_one`` is useful as a policy/control experiment, but on one generation
-    slot a second implementer duplicates the parent's full edit loop. A read-only
-    scout still satisfies the one-worker topology while leaving one owner for edits.
-    The adaptation is explicit in telemetry and tool results.
-    """
-    model = scheduler_snapshot["resources"][
-        scheduler_mod.ResourceClass.MODEL_GENERATION.value
-    ]
-    if (
-        policy == "fixed_one"
-        and requested_role == "implementer"
-        and int(model.get("cap", 1)) == 1
-        and int(dispatch_step_limit) <= TIGHT_DISPATCH_STEP_LIMIT
-    ):
-        return "scout", "single_slot_tight_dispatch_scout"
-    return requested_role, None
-
 
 def resolve_local_model(name: str) -> str:
     # Electron이 이미 해석한 경로가 있으면 그게 이긴다 — 캐시 루트를 양쪽이 따로 계산하면
@@ -357,17 +350,24 @@ class Orchestration:
                  budget_usage: dict | None = None,
                  on_skill_loaded: Callable[[str, str, int], None] | None = None,
                  on_worker_outcome: Callable[[dict], None] | None = None,
-                 persisted_worker_outcomes: list[dict] | None = None):
+                 on_outcomes_delivered: Callable[[list[str]], None] | None = None,
+                 persisted_worker_outcomes: list[dict] | None = None,
+                 prior_spawn_counts: dict | None = None):
         self.spec = spec
         self.send = send
         self.client = make_client()
         self.model = resolve_local_model(spec["model"])
         self.tools = list(spec.get("tools") or [])
+        # 이번 턴에 실제로 허용된 도구. read-only 축소가 걸린 턴에만 채워지고,
+        # create_worker가 워커 도구를 여기에 가둔다 (턴 종료 시 None으로 복귀).
+        self.turn_tools: list[str] | None = None
+        # finish_turn(completed)의 완료 게이트. 비어 있으면 게이트 없이 모델의
+        # 자기 신고를 그대로 인정한다 (Task 밖 세션·명령 미설정 프로젝트).
+        self.acceptance_command = str(spec.get("acceptance_command") or "").strip()
         self.max_steps = spec.get("max_steps", 15)
         self.worker_policy = spec.get("worker_policy", "autonomous")
         self.allow_autonomous_workers = bool(spec.get("allow_autonomous_workers", False))
         self.worker_roles = set(spec.get("worker_roles") or WORKER_ROLES)
-        self.worker_role_sequence = list(spec.get("worker_role_sequence") or [])
         self.worker_enabled = self.worker_policy != "none"
         if task_id is not None and task_id != workspace_context.task_id:
             raise ValueError("task_id와 WorkspaceContext.task_id가 다릅니다")
@@ -400,10 +400,17 @@ class Orchestration:
         self.node_events: dict[str, list] = {}
         self.node_usage: dict[str, dict] = {}
         self.spans: list[dict] = []          # [0]=오케스트레이터, 이후 워커 스폰 순
-        self.worker_seq = 0
+        # 재접속·재시작이 스폰 상한을 되돌리지 않도록 영속 기록에서 복원한다.
+        # 예산 usage와 같은 스코프다 — 여기가 0으로 시작하면 role_limit이 막으려던
+        # 재스폰이 브라우저를 새로고침할 때마다 새로 열린다.
+        prior = prior_spawn_counts or {}
+        self.worker_seq = int(prior.get("total") or 0)
         # 같은 역할 재스폰 상한 강제용 카운터 — 세션 수명 기준(total_limit과 동일 스코프).
         # send_worker 후속은 재스폰이 아니므로 가산하지 않는다.
-        self.role_spawn_counts: dict[str, int] = {}
+        self.role_spawn_counts: dict[str, int] = {
+            str(role): int(count)
+            for role, count in (prior.get("by_role") or {}).items()
+        }
         self.active_workers = 0
         self.worker_requests: dict[str, dict] = {}
         self.worker_records: dict[str, dict] = {}
@@ -413,6 +420,9 @@ class Orchestration:
         # 워커 성과의 턴 경계 영속화 시임. 서버가 도메인 스토어 연결을 꽂으면
         # 크래시 이후에도 결과 복원이 가능해진다 — 런타임은 저장소를 모른다.
         self.on_worker_outcome = on_worker_outcome
+        # 회수 노트로 실제 주입한 성과를 저장소에서 소비 처리하는 시임. 없으면
+        # 메모리에서만 지워져 다음 접속이 같은 행을 다시 읽는다.
+        self.on_outcomes_delivered = on_outcomes_delivered
         # 이전 실행에서 SQLite로 남긴 워커 성과 — 첫 턴 시작에서 한 번만 회수 노트로
         # 소비되고 메모리에서 비워진다 (같은 기록의 이중 주입 방지).
         self.persisted_worker_outcomes = list(persisted_worker_outcomes or [])
@@ -460,6 +470,13 @@ class Orchestration:
         if self.worker_enabled:
             registry[self.create_worker["name"]] = self.create_worker
             registry.update({tool["name"]: tool for tool in self.worker_control_tools})
+        # 스킬 본문 렌더 상한을 컨텍스트 예산에 묶는다. 16,000자 고정이면 기본
+        # 24,000자 창의 2/3라, 스킬 하나 로드가 곧바로 압축을 부르고 그 압축이
+        # 방금 로드한 본문을 요약해 날리는 상황이 됐다.
+        session_context_chars = int(
+            (spec.get("context_policy") or {}).get("max_chars", 24_000)
+        )
+        self.skill_render_chars = max(4_000, session_context_chars // 3)
         self.skill_tools = self._make_skill_tools()
         registry.update({tool["name"]: tool for tool in self.skill_tools})
         runtime_tools = (
@@ -491,16 +508,49 @@ class Orchestration:
     # ── 스팬/이벤트 ──
 
     def _skill_catalog_prompt(self) -> str:
+        """로드 가능한 스킬 목록. 시스템 프롬프트에 고정으로 실린다.
+
+        상한이 없으면 스킬당 설명 2,000자 × 활성 개수가 매 요청 prefill에 그대로
+        얹힌다. 카탈로그는 "무엇이 있는지"만 알리면 되고 본문은 load_skill이
+        가져오므로, 여기서는 짧게 자르고 개수도 제한한다.
+        """
         if not self.skill_snapshots:
             return ""
+        # 모델이 부를 수 없는 스킬은 모델용 카탈로그에 실을 이유가 없다.
+        invocable = [
+            item for item in self.skill_snapshots
+            if ((item.get("compiled") or {}).get("activation") or {})
+            .get("model_invocable", True)
+        ]
+        if not invocable:
+            return ""
+        # auto를 먼저 — 잘려 나가는 쪽은 사용자가 이름을 대야 하는 manual이다.
+        ordered = sorted(
+            invocable, key=lambda item: item.get("activation_mode") != "auto"
+        )
+        shown, omitted = ordered[:SKILL_CATALOG_MAX_ENTRIES], ordered[SKILL_CATALOG_MAX_ENTRIES:]
         lines = [
             "Janus skills are available on demand. Load an auto skill only when its description "
             "matches the current task. Load a manual skill only when the user explicitly names it.",
         ]
-        for item in self.skill_snapshots:
+        for item in shown:
             qualified = f"{item['namespace']}:{item['name']}"
+            description = " ".join(
+                str(item.get("description") or "No description").split()
+            )
+            if len(description) > SKILL_CATALOG_DESCRIPTION_CHARS:
+                description = description[:SKILL_CATALOG_DESCRIPTION_CHARS] + "…"
+            entry = f"- {qualified} [{item['activation_mode']}]: {description}"
+            # 컴파일만 되고 죽어 있던 activation.paths를 여기서 살린다 — 언제
+            # 쓰는 스킬인지 모델이 설명 대신 경로로 판단할 수 있다.
+            paths = ((item.get("compiled") or {}).get("activation") or {}).get("paths")
+            if paths:
+                entry += f" (applies to: {', '.join(str(p) for p in paths[:4])})"
+            lines.append(entry)
+        if omitted:
             lines.append(
-                f"- {qualified} [{item['activation_mode']}]: {item.get('description') or 'No description'}"
+                f"- … and {len(omitted)} more. Ask the user by name if you need one "
+                "that is not listed."
             )
         return "\n".join(lines)
 
@@ -626,7 +676,7 @@ class Orchestration:
                 ),
                 "Load one enabled Janus skill only when it matches the current task.",
                 "Load the smallest relevant skill. Manual skills require an explicit user request.",
-                resource_class="cpu_tool", render_chars=16_000,
+                resource_class="cpu_tool", render_chars=self.skill_render_chars,
             ),
             T._t(
                 "read_skill_resource", read_skill_resource,
@@ -638,7 +688,7 @@ class Orchestration:
                 ),
                 "Read a text resource from an already loaded Janus skill.",
                 "Read only resources needed for the current step.",
-                resource_class="io_tool", render_chars=16_000,
+                resource_class="io_tool", render_chars=self.skill_render_chars,
             ),
         ]
 
@@ -668,7 +718,13 @@ class Orchestration:
         )
         ev = {"type": "agent_event", **measured}
         with self.lock:
-            self.node_events.setdefault(node_id, []).append(ev)
+            events = self.node_events.setdefault(node_id, [])
+            events.append(ev)
+            # 노드별 이벤트는 스팬을 닫을 때마다 통째로 복사되고 스냅샷에서 또
+            # 복사된다. 상한이 없으면 긴 세션에서 이벤트 수에 대해 O(n²) 메모리다.
+            # 영속 기록은 send() 쪽이 따로 남기므로 여기서는 최근 것만 있으면 된다.
+            if len(events) > MAX_NODE_EVENTS:
+                del events[:len(events) - MAX_NODE_EVENTS]
             if kind == "usage":
                 u = self.node_usage.setdefault(
                     node_id, {"prompt_tokens": 0, "completion_tokens": 0,
@@ -709,6 +765,32 @@ class Orchestration:
 
     # ── create_worker 스킬 ──
 
+    def _run_acceptance_gate(self) -> dict | None:
+        """완료 신고를 Task의 acceptance command로 검증한다.
+
+        모델이 스스로 "completed"라고 선언하는 것만으로 턴이 완료로 굳으면
+        verification은 UI 버튼에만 존재하고 에이전트 계약에는 없는 것과 같다.
+        여기서 실제 exit code를 받아온다. 명령이 없으면 None을 돌려 게이트를
+        건너뛴다 — 없는 근거를 있는 척하지 않는다.
+        """
+        if not self.acceptance_command:
+            return None
+        context = self.active_workspace_context or self.workspace_context
+        try:
+            return verification_mod.run(
+                self.acceptance_command, context,
+                scheduler=self.scheduler, priority=self.priority,
+                cancel=self.cancel, queue_timeout=self.queue_timeout,
+                emit=lambda kind, **data: self._sink(ORCH_ID, kind, data),
+            )
+        except Exception as error:
+            # 게이트가 못 돌았다는 사실 자체가 결과다 — 통과로 처리하지 않는다.
+            return {
+                "command": self.acceptance_command, "exit_code": None,
+                "stdout": "", "stderr": "",
+                "error": f"{type(error).__name__}: {error}",
+            }
+
     def _make_finish_turn_tool(self) -> dict:
         def handler(
             outcome: str, summary: str, evidence: list[str] | None = None, **_,
@@ -722,10 +804,61 @@ class Orchestration:
                 "summary": str(summary).strip()[:1000],
                 "evidence": [str(item)[:500] for item in (evidence or [])[:10]],
             }
+            gate: dict | None = None
+            if normalized == "completed":
+                gate = self._run_acceptance_gate()
+            if gate is not None and gate.get("exit_code") != 0:
+                # 자기 신고를 뒤집는다. summary는 모델이 쓴 그대로 두고 근거만
+                # 사실로 바꾼다 — 사용자가 무엇이 주장이고 무엇이 측정인지 본다.
+                detail = str(
+                    gate.get("error") or gate.get("stderr") or gate.get("stdout") or ""
+                ).strip()[:300]
+                record["outcome"] = "partial"
+                record["evidence"] = ([
+                    f"acceptance 실패: {self.acceptance_command} "
+                    f"(exit={gate.get('exit_code')})",
+                    *([detail] if detail else []),
+                ] + record["evidence"])[:10]
+                # summary가 그대로 사용자에게 보이는 최종 답변이 된다(agent.run의
+                # terminal 처리). 완료 주장만 남으면 화면은 성공, 기록은 partial인
+                # 거짓 상태가 된다.
+                record["summary"] = (
+                    f"[검증 실패] acceptance command `{self.acceptance_command}`가 "
+                    f"exit {gate.get('exit_code')}로 끝나 완료로 인정되지 않았습니다.\n\n"
+                    f"에이전트 보고: {record['summary']}"
+                )[:1000]
+                self.turn_outcome = record
+                self._sink(ORCH_ID, "acceptance_gate", {
+                    "command": self.acceptance_command,
+                    "exit_code": gate.get("exit_code"), "passed": False,
+                    "claimed": normalized,
+                })
+                return {
+                    **record,
+                    "recorded": True,
+                    "acceptance": {
+                        "command": self.acceptance_command,
+                        "exit_code": gate.get("exit_code"), "passed": False,
+                        "detail": detail,
+                    },
+                    "instruction": (
+                        "acceptance command가 실패해 completed 신고가 partial로 "
+                        "내려갔습니다. 사용자에게 무엇이 남았는지 사실대로 보고하세요."
+                    ),
+                }
             self.turn_outcome = record
+            if gate is not None:
+                self._sink(ORCH_ID, "acceptance_gate", {
+                    "command": self.acceptance_command,
+                    "exit_code": gate.get("exit_code"), "passed": True,
+                    "claimed": normalized,
+                })
             return {
                 **record,
                 "recorded": True,
+                **({"acceptance": {
+                    "command": self.acceptance_command, "exit_code": 0, "passed": True,
+                }} if gate is not None else {}),
                 "instruction": "이제 사용자에게 간결한 최종 답변을 하고 도구 호출을 멈추세요.",
             }
 
@@ -752,8 +885,12 @@ class Orchestration:
             "Record the Task outcome immediately before the final user-facing answer.",
             "Call exactly once at the completion boundary. Use completed only with fresh "
             "evidence, input_required only for a concrete user decision, and mockup_review "
-            "only after producing a reviewable mockup.",
-            resource_class="cpu_tool", render_chars=4000, terminal=True,
+            "only after producing a reviewable mockup. When the Task declares an "
+            "acceptance command, completed runs it and is downgraded to partial if it "
+            "fails — claiming completion you cannot back up only wastes a turn.",
+            # 턴 종결자는 절대 굶으면 안 된다 — cpu_tool(cap 2)에서는 블로킹
+            # 워커 대기 두 건 뒤에 큐 타임아웃까지 밀린다.
+            resource_class="io_tool", render_chars=4000, terminal=True,
         )
 
     def snapshot_turn_outcome(self) -> dict:
@@ -805,16 +942,17 @@ class Orchestration:
             ]
             # 역할은 권한 프로필이다. 명시한 implementer를 최적화 명목으로
             # read-only researcher로 바꾸면 필요한 편집/셸 도구가 사라진다.
-            role, role_adaptation = requested_role, None
-            # The role sequence describes useful topology to the orchestrator;
-            # it must not silently replace an explicit, policy-allowed role.
-            # Doing so turned implementation workers into one-step read-only
-            # scouts after the parent had already completed discovery.
+            # adaptive의 role_sequence는 오케스트레이터에게 권하는 토폴로지일
+            # 뿐, 명시된 정책 허용 역할을 조용히 대체하지 않는다.
+            role = requested_role
             # 부분집합 규칙: 워커 도구 ⊆ 오케스트레이터의 spec.tools.
             # 조사·계획·검증 역할은 결과를 수정하지 못하도록 읽기 전용 교집합만 받는다.
             requested_tools = list(dict.fromkeys(str(t) for t in (tools or [])))
-            candidates = requested_tools or list(self.tools)
-            allowed = [tool for tool in candidates if tool in self.tools]
+            # 부분집합의 상한은 self.tools가 아니라 **이번 턴에 허용된** 도구다.
+            # 아니면 read-only 턴에서 쓰기 워커를 스폰해 턴 가드를 우회한다.
+            parent_tools = self.tools if self.turn_tools is None else self.turn_tools
+            candidates = requested_tools or list(parent_tools)
+            allowed = [tool for tool in candidates if tool in parent_tools]
             if role in READ_ONLY_WORKER_ROLES:
                 allowed = [tool for tool in allowed if tool in T.READ_ONLY]
 
@@ -828,19 +966,6 @@ class Orchestration:
                     "orchestrator. Do not broaden the original contract."
                 )
             raw_task = str(task) or "(no task)"
-            if role_adaptation is not None:
-                raw_system = (
-                    "You are a read-only scout for a single-slot local coding agent. "
-                    "Inspect only the files needed for the delegated task. Return concise, "
-                    "specific evidence: current definitions, required edits, invariants, and "
-                    "paths that must not change. Never attempt a write or edit tool, never "
-                    "broaden the contract, and finish immediately after the investigation."
-                )
-                raw_task = (
-                    "Investigate the delegated task without changing the workspace. Return a "
-                    "concise implementation handoff for the parent.\n\nOriginal delegated task:\n"
-                    + raw_task
-                )
             raw_context = str(context or "")
             prepared_system = raw_system[:WORKER_SYSTEM_MAX_CHARS]
             prepared_task = raw_task[:WORKER_TASK_MAX_CHARS]
@@ -1014,11 +1139,6 @@ class Orchestration:
                 dispatch_snapshot,
                 scheduler_state,
             )
-            if role_adaptation is not None:
-                # One local generation can issue several parallel read calls. Waiting for a
-                # second/third scout generation is sequential overhead; the parent owns edits.
-                steps = 1
-
             cancel = threading.Event()
             worker_limits = dict(self.budget["worker"])
             worker_limits["step_limit"] = steps
@@ -1031,16 +1151,7 @@ class Orchestration:
                                        parent_id=self.spans[0]["id"] if self.spans else None,
                                        input={"task": prepared_task, "tools": allowed,
                                               "role": role, "requested_role": requested_role,
-                                              "role_adaptation": role_adaptation,
                                               "context_chars": len(prepared_context)})
-                if role_adaptation is not None:
-                    self._sink(wid, "worker_role_adapted", {
-                        "requested_role": requested_role,
-                        "effective_role": role,
-                        "reason": role_adaptation,
-                        "model_generation_cap": model_state.get("cap", 1),
-                        "dispatch_step_limit": self.budget["dispatch"]["step_limit"],
-                    })
                 self._sink(wid, "worker_step_budget_reserved", {
                     "requested_steps": max_steps,
                     "effective_steps": steps,
@@ -1064,7 +1175,7 @@ class Orchestration:
                 record = {
                     "worker": wid, "name": str(name) or wid,
                     "role": role, "requested_role": requested_role,
-                    "role_adaptation": role_adaptation, "status": "queued",
+                    "status": "queued",
                     "result": "", "error": None, "tools": list(allowed),
                     "task": prepared_task, "system_prompt": prepared_system,
                     "workspace_context": workspace_context, "max_steps": steps,
@@ -1091,6 +1202,25 @@ class Orchestration:
                 # 스레드 기동 전 실패 시 임대를 즉시 반납해 다음 writer가 막히지 않게 한다.
                 if spawn_lease is not None:
                     spawn_lease.release()
+                # 스폰 회계도 함께 되돌린다. 임대만 반납하면 active_workers가 영영
+                # 줄지 않아(감소는 _run_worker_record의 finally에만 있다) 동시성
+                # 슬롯이 소실되고, 남은 fingerprint가 이후 같은 스폰을 전부
+                # duplicate_worker_running으로 막는다.
+                with self.lock:
+                    self.worker_seq = max(0, self.worker_seq - 1)
+                    self.role_spawn_counts[role] = max(
+                        0, int(self.role_spawn_counts.get(role, 0)) - 1
+                    )
+                    self.active_workers = max(0, self.active_workers - 1)
+                    self.worker_requests.pop(fingerprint, None)
+                    self.worker_records.pop(wid, None)
+                self.worker_cancels.pop(wid, None)
+                try:
+                    self._sink(ORCH_ID, "worker_spawn_rolled_back", {
+                        "worker": wid, "role": role, "fingerprint": fingerprint,
+                    })
+                except Exception:
+                    pass  # 여기서 죽으면 원래 실패 원인이 가려진다
                 raise
             if spawn_lease is not None:
                 self._sink(wid, "worker_write_lease_acquired", {
@@ -1102,7 +1232,7 @@ class Orchestration:
             record["launched"].wait(1.0)
             return {
                 "worker": wid, "role": role, "requested_role": requested_role,
-                "role_adaptation": role_adaptation, "status": record["status"],
+                "status": record["status"],
                 "created": True, "tools": allowed,
                 "message": (
                     f"Worker {wid} was spawned in the background. Use wait_worker or "
@@ -1206,8 +1336,7 @@ class Orchestration:
         with self.lock:
             record["delivered"] = True
 
-    @staticmethod
-    def _worker_view(record: dict) -> dict:
+    def _worker_view(self, record: dict) -> dict:
         status = record["status"]
         terminal = status in TERMINAL_WORKER_STATUSES
         recovery_action = (
@@ -1235,7 +1364,9 @@ class Orchestration:
             "result_truncated": len(raw_result) > WORKER_RESULT_MAX_CHARS,
             "error": record.get("error"), "tools": list(record.get("tools") or []),
             "queued_followups": len(record.get("followups") or []),
-            "changed_paths": sorted(record.get("changed_paths") or []),
+            # 워커 스레드가 emit에서 add하는 set이다. 락 없이 정렬하면 부모의
+            # worker_status 호출이 "Set changed size during iteration"으로 죽는다.
+            "changed_paths": self._changed_paths_snapshot(record),
             "owned_partitions": sorted(record.get("owned_partitions") or []),
             "recovery_limits": (
                 {"file_reads": 1, "validation_commands": 1}
@@ -1248,6 +1379,64 @@ class Orchestration:
                 if status == "completed_partial" else None
             ),
         }
+
+    def _parent_write_guards(self) -> list[dict]:
+        """부모의 경로 지정 쓰기를 워커와 같은 소유권 테이블에 걸리게 한다.
+
+        소유권 테이블은 create_worker에서만 참조돼, 정작 가장 활발한 writer인
+        오케스트레이터는 면제였다. 워커가 src/를 임대한 채 도는 동안 부모가
+        src/foo.py를 그냥 고칠 수 있으면 "같은 파일 동시 쓰기 불가"는 불변식이
+        아니다. run_bash는 경로를 선언하지 않아 여기서 판정할 수 없다.
+        """
+        guarded = []
+        for name in ("write_file", "edit_file"):
+            base = T.REGISTRY.get(name)
+            if base is None or name not in self.tools:
+                continue
+
+            def handler(_base=base, _name=name, **kwargs):
+                path = str(kwargs.get("path") or "").strip()
+                if path and (holder := self._write_conflict(path)) is not None:
+                    return {
+                        "error": (
+                            f"{path}는 워커 {holder}가 쓰기 임대 중입니다. "
+                            "wait_worker로 결과를 받아 통합한 뒤 수정하세요."
+                        ),
+                        "reason": "write_partition_conflict",
+                    }
+                return _base["handler"](**kwargs)
+
+            guarded.append({**base, "handler": handler})
+        return guarded
+
+    def _write_conflict(self, path: str) -> str | None:
+        """이 경로를 소유한 다른 워커의 id. 없으면 None."""
+        try:
+            held = self.write_ownership.snapshot()
+        except Exception:
+            return None
+        def holds(partitions: list[str]) -> bool:
+            try:
+                return ownership_mod.owns_path(partitions, path)
+            except ownership_mod.InvalidPartition:
+                return False
+
+        owner = next(
+            (name for name, partitions in held.items() if holds(partitions)), None
+        )
+        if owner is None:
+            return None
+        with self.lock:
+            for record in self.worker_records.values():
+                lease = record.get("write_lease")
+                if lease is not None and lease.owner == owner:
+                    return str(record.get("worker") or owner)
+        return owner
+
+    def _changed_paths_snapshot(self, record: dict) -> list[str]:
+        """워커가 쓰는 changed_paths를 락 안에서 안전하게 복사한다."""
+        with self.lock:
+            return sorted(record.get("changed_paths") or [])
 
     def _run_worker_record(self, record: dict) -> None:
         wid = record["worker"]
@@ -1272,7 +1461,10 @@ class Orchestration:
                     write_calls[call_id] = path
             elif kind == "tool_run_end" and data.get("status") == "success":
                 if path := write_calls.get(call_id):
-                    record["changed_paths"].add(path)
+                    # 부모가 worker_status/회수 노트에서 이 set을 정렬한다 —
+                    # 같은 락 안에서 갱신해야 순회 중 변경으로 죽지 않는다.
+                    with self.lock:
+                        record["changed_paths"].add(path)
             self._sink(wid, kind, data, dispatch_id=record.get("dispatch_id"))
 
         def approve(name: str, args: dict) -> bool:
@@ -1280,7 +1472,11 @@ class Orchestration:
             try:
                 return self._approve_for(wid, record["workspace_context"])(name, args)
             finally:
-                if not record["cancel"].is_set():
+                # 승인 대기는 최대 300초다. 그 사이 다른 병렬 승인이 걸렸거나
+                # 예산이 소진돼 상태가 바뀌었을 수 있다 — 무조건 running으로
+                # 되돌리면 그 사실을 덮어써 UI와 기록이 거짓이 된다.
+                if (not record["cancel"].is_set()
+                        and record["status"] == "waiting_approval"):
                     self._set_worker_status(record, "running")
 
         try:
@@ -1303,7 +1499,10 @@ class Orchestration:
                     break
 
             if budget.exhausted_reason:
-                touched = ", ".join(sorted(record["changed_paths"])) or "none recorded"
+                touched = (
+                    ", ".join(self._changed_paths_snapshot(record))
+                    or "none recorded"
+                )
                 note = (
                     f"Worker reached its focused local budget at {budget.exhausted_reason}. "
                     f"Successful write targets: {touched}. Do not spawn another worker; "
@@ -1396,6 +1595,48 @@ class Orchestration:
                     return {"worker": worker, "status": record["status"], "queued": True}
                 if record["status"] not in {"completed", "completed_partial"}:
                     return {"error": f"worker가 후속 작업을 받을 수 없습니다: {record['status']}"}
+                # 후속도 살아있는 워커 한 명이다 — 스폰과 같은 동시성 상한을 받는다.
+                if self.active_workers >= self._concurrent_worker_limit():
+                    return {
+                        "error": "동시 실행 중인 워커가 상한입니다. 기존 워커를 정리한 뒤 다시 보내세요.",
+                        "reason": "worker_concurrent_budget",
+                    }
+                # 예산은 워커 단위로 누적한다. 매 후속마다 새 트래커를 풀 한도로
+                # 만들면 role_limit이 막으려던 무한 재디스패치가 send_worker로
+                # 그대로 열린다.
+                carried = dict(record["worker_budget"].snapshot()["usage"])
+                followup_budget = budget_mod.BudgetTracker(
+                    f"worker:{worker}:followup", dict(self.budget["worker"]),
+                    initial_usage=carried,
+                )
+                if not followup_budget.available() or not (
+                    followup_budget.exhaust_if_step_limit_reached()
+                ):
+                    return {
+                        "error": (
+                            f"worker {worker}의 예산이 소진됐습니다"
+                            f"({followup_budget.exhausted_reason}). 후속 대신 새 워커를 "
+                            "만들거나 부모가 직접 마무리하세요."
+                        ),
+                        "reason": "worker_budget_exhausted",
+                    }
+                # write 워커는 임대를 첫 실행의 finally에서 이미 반납했다. 다시 잡지
+                # 않으면 "같은 파일 동시 쓰기 불가" 불변식 밖에서 재실행된다.
+                followup_lease = None
+                if record.get("owned_partitions"):
+                    try:
+                        followup_lease = self.write_ownership.acquire(
+                            f"wlease-{uuid.uuid4().hex[:8]}",
+                            tuple(record["owned_partitions"]),
+                        )
+                    except ownership_mod.OwnershipConflict:
+                        return {
+                            "error": (
+                                "다른 워커가 같은 경로를 쓰고 있어 후속을 시작할 수 "
+                                "없습니다."
+                            ),
+                            "reason": "write_partition_conflict",
+                        }
                 # 후속 작업은 새 종료 경계다 — 이전 성과는 전달 완료로 정리하고
                 # 훅·회수 상태를 초기화해 다음 종료에서 다시 기록되게 한다.
                 record.pop("delivered", None)
@@ -1404,23 +1645,32 @@ class Orchestration:
                     task=followup, cancel=threading.Event(), error=None,
                     outcome_recorded=False,
                     dispatch_id=self.current_dispatch_id, idle=threading.Event(),
-                    launched=threading.Event(), worker_budget=budget_mod.BudgetTracker(
-                        f"worker:{worker}:followup", dict(self.budget["worker"]),
-                    ),
+                    launched=threading.Event(), worker_budget=followup_budget,
+                    write_lease=followup_lease,
                 )
                 self.worker_cancels[worker] = record["cancel"]
                 self.active_workers += 1
                 parent_id = self.spans[0]["id"] if self.spans else None
-            record["span"] = self._open_span(
-                worker, label=record["name"], parent_id=parent_id,
-                input={"task": followup, "tools": record["tools"],
-                       "role": record["role"], "followup": True},
-            )
-            self._set_worker_status(record, "queued")
-            threading.Thread(
-                target=lambda: self._run_worker_record(record),
-                name=f"janus-{worker}-followup", daemon=True,
-            ).start()
+            try:
+                record["span"] = self._open_span(
+                    worker, label=record["name"], parent_id=parent_id,
+                    input={"task": followup, "tools": record["tools"],
+                           "role": record["role"], "followup": True},
+                )
+                self._set_worker_status(record, "queued")
+                threading.Thread(
+                    target=lambda: self._run_worker_record(record),
+                    name=f"janus-{worker}-followup", daemon=True,
+                ).start()
+            except BaseException:
+                # 스폰 경로와 같은 이유로 회계·임대를 되돌린다 — 스레드가 안 떴으면
+                # _run_worker_record의 finally가 영영 돌지 않는다.
+                if followup_lease is not None:
+                    followup_lease.release()
+                    record["write_lease"] = None
+                with self.lock:
+                    self.active_workers = max(0, self.active_workers - 1)
+                raise
             record["launched"].wait(1.0)
             return {"worker": worker, "status": record["status"], "queued": True}
 
@@ -1440,25 +1690,28 @@ class Orchestration:
         def render(value: object) -> str:
             return json.dumps(value, ensure_ascii=False)
 
+        # 제어 도구는 로컬 자원을 쓰지 않는다. cpu_tool(cap 2)에 두면 wait_worker가
+        # 최대 60초·승인 대기가 최대 300초 동안 슬롯을 쥔 채 자고, 그동안 탈출구인
+        # stop_worker와 턴 종결자 finish_turn까지 큐 타임아웃(300초)에 걸린다.
         return [
             T._t("worker_status", status, render,
                  T._obj([], worker={"type": "string", "description": "Worker id; omit for all."}),
                  "Get background worker state and result without blocking.",
-                 "Use for a quick progress check.", resource_class="cpu_tool"),
+                 "Use for a quick progress check.", resource_class="io_tool"),
             T._t("wait_worker", wait, render,
                  T._obj(["worker"], worker={"type": "string"},
                         timeout_seconds={"type": "number", "description": "0-60 seconds."}),
                  "Wait briefly for a background worker and return its state or result.",
-                 "Wait for spawned workers before integrating results.", resource_class="cpu_tool"),
+                 "Wait for spawned workers before integrating results.", resource_class="io_tool"),
             T._t("send_worker", send, render,
                  T._obj(["worker", "message"], worker={"type": "string"},
                         message={"type": "string", "maxLength": 1000}),
                  "Send a focused follow-up to an existing worker session.",
-                 "Use for correction or clarification, not unrelated work.", resource_class="cpu_tool"),
+                 "Use for correction or clarification, not unrelated work.", resource_class="io_tool"),
             T._t("stop_worker", stop, render,
                  T._obj(["worker"], worker={"type": "string"}),
                  "Stop a queued or running background worker.",
-                 "Stop only when its work is no longer needed.", resource_class="cpu_tool"),
+                 "Stop only when its work is no longer needed.", resource_class="io_tool"),
         ]
 
     def _undelivered_terminal_workers(self) -> list[dict]:
@@ -1476,8 +1729,7 @@ class Orchestration:
                      or record.get("quiesce"))
             ]
 
-    @staticmethod
-    def _format_recovery_digest(pending: list[dict]) -> str:
+    def _format_recovery_digest(self, pending: list[dict]) -> str:
         if not pending:
             return ""
         lines = [
@@ -1497,8 +1749,8 @@ class Orchestration:
             parts = [f"- {record['worker']} [{record['role']} · {shown_status}]"]
             if task := " ".join(str(record.get("task") or "").split())[:80]:
                 parts.append(f'task="{task}"')
-            changed = snap.get("changed_paths") or sorted(
-                record.get("changed_paths") or [])
+            # quiesce 스냅샷이 없는 기록은 아직 워커 스레드가 살아 있을 수 있다.
+            changed = snap.get("changed_paths") or self._changed_paths_snapshot(record)
             if changed:
                 parts.append(f"changed=[{', '.join(changed)}]")
             if result := " ".join(str(record.get("result") or "").split())[:200]:
@@ -1555,11 +1807,19 @@ class Orchestration:
                 }
             record["cancel"].set()
             self._set_worker_status(record, "stopping", recovery="parent_turn_ended")
-        deadline = time.monotonic() + max(0.0, wait_seconds)
+        # 워커마다 같은 예산을 준다. 공유 deadline은 첫 워커가 다 쓰면 나머지가
+        # 0초를 받아 사실상 대기 없이 버려졌다.
         for record in active:
-            record["idle"].wait(max(0.0, deadline - time.monotonic()))
+            record["idle"].wait(max(0.0, wait_seconds))
+        # cancel은 스텝 경계에서만 확인된다 — run_bash(최대 120초) 안의 워커는
+        # 여기서 안 멈춘다. 버려진 사실을 이벤트에 남겨야 사후 추적이 된다.
+        abandoned = [
+            self._worker_view(record)["worker"] for record in active
+            if not record["idle"].is_set()
+        ]
         self._sink(ORCH_ID, "worker_turn_quiesced", {
             "workers": [item["worker"] for item in snapshots],
+            "abandoned": abandoned,
             "reason": "parent_turn_ended_before_workers_settled",
         }, dispatch_id=dispatch_id)
         if self.turn_outcome is None or self.turn_outcome.get("outcome") == "completed":
@@ -1585,7 +1845,19 @@ class Orchestration:
         if self.persisted_worker_outcomes:
             persisted_note = self._format_persisted_digest(
                 self.persisted_worker_outcomes)
+            delivered_ids = [
+                str(item.get("id")) for item in self.persisted_worker_outcomes
+                if item.get("id")
+            ]
             self.persisted_worker_outcomes = []  # 첫 턴에 한 번만 소비한다
+            # 메모리에서만 비우면 다음 WS 접속이 같은 행을 다시 읽어 온다 —
+            # 새로고침할 때마다 이미 통합한 작업을 다시 통합하라고 받았다.
+            if delivered_ids and self.on_outcomes_delivered is not None:
+                try:
+                    self.on_outcomes_delivered(delivered_ids)
+                except Exception as error:
+                    self._sink(ORCH_ID, "worker_outcome_delivery_mark_failed",
+                               {"error": f"{type(error).__name__}: {error}"})
         pending_recovery = self._undelivered_terminal_workers()
         recovered_parts = [
             part for part in (
@@ -1617,6 +1889,9 @@ class Orchestration:
         task_text = text
         if is_read_only_request(text):
             turn_tools = [tool for tool in turn_tools if tool in T.READ_ONLY]
+            # create_worker가 self.tools(축소 전)로 워커 도구를 계산하므로, 여기서
+            # 남기지 않으면 read-only 턴에서 쓰기 워커를 스폰해 가드를 우회한다.
+            self.turn_tools = list(turn_tools)
             removed = sorted(set(self.tools) - set(turn_tools))
             if removed:
                 self._sink(ORCH_ID, "parent_tools_restricted", {
@@ -1655,7 +1930,11 @@ class Orchestration:
                 cancel=self.cancel,
                 extra_tools=(
                     ([self.create_worker] + self.worker_control_tools
-                     if self.worker_enabled else []) + self.skill_tools + [self.finish_turn]
+                     if self.worker_enabled else []) + self.skill_tools
+                    + [self.finish_turn]
+                    # 이름이 같으면 레지스트리를 덮어쓴다 — 부모의 write_file/
+                    # edit_file도 워커와 같은 소유권 테이블을 지나게 한다.
+                    + (self._parent_write_guards() if self.worker_enabled else [])
                 ),
                 session=self.session,
                 scheduler=self.scheduler,
@@ -1665,13 +1944,21 @@ class Orchestration:
             )
             if last:
                 self.last_text = last
-            self._quiesce_turn_workers(dispatch_id)
             if self.cancel.is_set():
                 self.cancelled_turn = True
         except Exception:
             self.turn_failed = True
             raise
         finally:
+            # 성공 경로에만 두면 모델 서버 크래시로 턴이 죽었을 때 워커가 살아남아
+            # 사용자가 diff를 보는 동안에도 workspace에 쓴다.
+            try:
+                self._quiesce_turn_workers(dispatch_id)
+            except Exception as error:  # 원래 예외를 가리지 않는다
+                self._sink(ORCH_ID, "worker_quiesce_failed",
+                           {"error": f"{type(error).__name__}: {error}"},
+                           dispatch_id=dispatch_id)
+            self.turn_tools = None
             self.dispatch_budget.end_active()
             self.budget_exhausted_reason = self.dispatch_budget.exhausted_reason
             status = ("error" if self.turn_failed else

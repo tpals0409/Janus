@@ -17,7 +17,7 @@ os.environ.setdefault("JANUS_AUTH_TOKEN", "test-token")
 from fastapi.testclient import TestClient
 
 from janus_server import github_service, scheduler, server, shared
-from janus_server.routers import shipping
+from janus_server.routers import shipping, verifications
 
 
 def git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -189,6 +189,48 @@ class VerificationApiTests(unittest.TestCase):
         repeated = next(item for item in latest if item["id"] == rerun_id)
         self.assertEqual("failed", repeated["status"])
         self.assertIsNone(repeated["agent_claim"])
+
+    def test_workspace_drift_during_a_run_is_not_recorded_as_passed(self):
+        """검증 도중 파일이 바뀌면 그 통과는 어느 리비전 것인지 말할 수 없다.
+
+        에이전트가 검증을 걸어놓고 그 사이 워크스페이스를 고치면, exit 0이
+        "검증된 변경"으로 굳는다. 실행 중 리비전 이동은 결과를 무효로 만든다.
+        """
+        workspace = self.client.get(
+            f"/tasks/{self.task_id}/workspace", headers=self.headers
+        ).json()
+        root = Path(workspace["root_path"])
+
+        original = verifications._verification_workspace
+
+        def drift_after_snapshot(task_id: str):
+            # 리비전을 뜬 직후에 워크스페이스를 바꾼다 — 검증이 도는 동안
+            # 에이전트가 파일을 고치는 상황과 같다.
+            result = original(task_id)
+            (root / "drifted.txt").write_text("changed mid-run\n", encoding="utf-8")
+            return result
+
+        with patch.object(
+            verifications, "_verification_workspace", side_effect=drift_after_snapshot
+        ):
+            started = self.client.post(
+                f"/tasks/{self.task_id}/verifications", headers=self.headers,
+                json={"trigger": "agent", "agent_claim": "passed",
+                      "commands": [{"kind": "acceptance",
+                                    "command": self.acceptance}]},
+            )
+            self.assertEqual(202, started.status_code, started.text)
+            run_id = started.json()[0]["id"]
+            self._wait_runs(1)
+
+        run = next(
+            item for item in self.client.get(
+                f"/tasks/{self.task_id}/verifications", headers=self.headers
+            ).json() if item["id"] == run_id
+        )
+        self.assertEqual("error", run["status"], run)
+        self.assertEqual(0, run["exit_code"], "명령 자체는 통과했다")
+        self.assertIn("작업 공간이 바뀌어", run["error"])
 
     def test_review_comments_batch_decisions_stale_guard_accept_and_discard(self):
         workspace = self.client.get(

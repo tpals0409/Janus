@@ -30,9 +30,16 @@ from ..workspace import WorkspaceContext
 
 router = APIRouter()
 
+# 스트리밍 델타. 화면에는 토큰 단위로 흘리되 영속화는 합쳐서 한 번만 한다.
+DELTA_EVENT_KINDS = frozenset({"text_delta", "reasoning_delta"})
+# 이 길이를 넘으면 중간에 한 번 비운다 — 긴 생성이 통째로 메모리에만 남아
+# 크래시 시 사라지는 것을 막는 절충점이다.
+DELTA_FLUSH_CHARS = 2_000
+
 def _task_runtime_spec(
     store: D.DomainStore, agent_profile_id: str, *, budget: dict | None = None,
     adaptive_decision: dict | None = None, profile_snapshot: dict | None = None,
+    task: dict | None = None,
 ) -> dict:
     profile = profile_snapshot or _agent_profile_json(store.get_agent_profile(agent_profile_id))
     if not profile:
@@ -57,6 +64,9 @@ def _task_runtime_spec(
         "max_steps": profile["max_steps"],
         "budget": budget or profile["budget"],
         "context_policy": profile["context_policy"],
+        # finish_turn(completed)의 완료 게이트. 모델의 자기 신고를 이 명령의
+        # exit code로 검증한다 — 비어 있으면 게이트 없이 신고를 그대로 믿는다.
+        "acceptance_command": str((task or {}).get("acceptance_command") or ""),
     }
 
 
@@ -109,6 +119,36 @@ def _pending_review_feedback(store: D.DomainStore, task_id: str) -> list[dict]:
         item for item in store.list_review_comments(task_id)
         if item["resolved_at"] is None
     ]
+
+
+# adaptive가 고른 재시도 전략을 모델이 실행할 수 있는 지시로 옮긴다. 전략 이름만
+# 넘기면 로컬 소형 모델에게는 의미 없는 토큰이다.
+RETRY_STRATEGY_PROMPTS = {
+    "diagnose_then_repair": (
+        "먼저 검증이 왜 실패했는지 확인해 원인을 특정한 뒤 고치세요. "
+        "원인을 모른 채 같은 수정을 다시 시도하지 마세요."
+    ),
+    "expanded_parent_budget": (
+        "직전 시도는 예산이 소진돼 끝났습니다. 워커를 만들지 말고 가장 짧은 "
+        "경로로 직접 처리한 뒤 결과를 보고하세요."
+    ),
+    "defer_fanout_and_extend_timeout": (
+        "직전 시도는 시간 초과로 끝났습니다. 작업을 좁히고 워커 fan-out 없이 "
+        "핵심 변경 하나만 끝내세요."
+    ),
+    "inspect_tool_boundary_once": (
+        "직전 시도는 도구 오류로 끝났습니다. 실패한 도구 호출의 경계(경로·인자·"
+        "권한)를 한 번만 점검하고, 같은 호출을 반복하지 마세요."
+    ),
+    "reconnaissance_then_parent": (
+        "직전 시도는 런타임 실패로 끝났습니다. 먼저 현재 상태를 짧게 파악한 뒤 "
+        "직접 진행하세요."
+    ),
+    "manual_only": (
+        "직전 시도는 사용자가 취소했습니다. 취소 전 작업을 임의로 재개하지 말고 "
+        "무엇을 할지 먼저 확인하세요."
+    ),
+}
 
 
 def _task_context_snapshot(
@@ -171,6 +211,27 @@ def _task_context_snapshot(
             detail={"stage": workflow_stage},
         ))
         preamble.append(workflow_prompt)
+
+    # 이전 시도가 왜 실패했는지. adaptive는 이 판정으로 워커 토폴로지와 예산을
+    # 이미 바꿔 놓았지만, 정작 모델은 백지에서 다시 시작해 같은 실패를 반복했다.
+    retry = (dispatch.get("adaptive_decision") or {}).get("retry") or {}
+    failure_type = str(retry.get("failure_type") or "")
+    if failure_type:
+        retry_prompt = "\n".join(filter(None, (
+            "PREVIOUS ATTEMPT FAILED: 이 Task의 직전 시도는 "
+            f"{failure_type}로 끝났습니다. 같은 경로를 그대로 반복하지 마세요.",
+            f"근거: {retry['evidence']}" if retry.get("evidence") else "",
+            RETRY_STRATEGY_PROMPTS.get(str(retry.get("strategy") or ""), ""),
+        )))
+        items.append(_context_item(
+            "retry_context", "직전 시도 실패", "AdaptiveDecision", retry_prompt,
+            detail={
+                "failure_type": failure_type,
+                "strategy": retry.get("strategy"),
+                "previous_dispatch_id": retry.get("previous_dispatch_id"),
+            },
+        ))
+        preamble.append(retry_prompt)
 
     feedback = list(review_feedback or [])
     if feedback:
@@ -445,27 +506,36 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
         workspace = store.get_workspace(dispatch["workspace_id"])
         if workspace["state"] != "ready" or not workspace["root_path"]:
             raise D.Conflict("ready Workspace가 있어야 Session을 실행할 수 있습니다")
+        run_task = store.get_task(task_id)
         spec = _task_runtime_spec(
             store, session["agent_profile_id"], budget=dispatch["budget"],
             adaptive_decision=dispatch["adaptive_decision"],
             profile_snapshot=dispatch["agent_profile_snapshot"],
+            task=run_task,
         )
         spec["skills"] = [
             _skill_json(item) for item in store.snapshot_session_skills(session_id)
         ]
         active_learnings = store.list_project_learnings(
-            store.get_task(task_id)["project_id"], active_only=True, limit=20,
+            run_task["project_id"], active_only=True, limit=20,
         )
         context_snapshot = _task_context_snapshot(
             spec, dispatch, workspace, spec["skills"], store.list_session_events(session_id),
-            store.get_task(task_id),
+            run_task,
             active_learnings,
             review_feedback=_pending_review_feedback(store, task_id),
         )
         spec["context_preamble"] = context_snapshot["preamble"]
         store.mark_project_learnings_applied([item["id"] for item in active_learnings])
         # 이전 실행(크래시 포함)에서 남긴 워커 성과 — 새 세션의 첫 턴에 회수 노트로 주입된다.
-        persisted_worker_outcomes = store.list_worker_outcomes(task_id, limit=8)
+        # 아직 부모에게 전달되지 않은 것만. 전체를 읽으면 새로고침할 때마다 이미
+        # 통합한 작업의 회수 노트가 컨텍스트 맨 앞에 다시 실린다.
+        persisted_worker_outcomes = store.list_worker_outcomes(
+            task_id, limit=8, undelivered_only=True,
+        )
+        # 스폰 상한은 예산 usage와 같은 스코프다 — 새 연결마다 0으로 되돌리면
+        # role_limit이 막으려던 재스폰이 그때마다 다시 열린다.
+        prior_spawn_counts = store.worker_spawn_counts(dispatch["id"])
     except D.DomainError:
         await ws.close(code=1008)
         return
@@ -515,9 +585,14 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
             "session_id": session_id,
         }
 
-    def send(event: dict) -> None:
-        """Persist before delivery and reject any event that lost Dispatch ownership."""
-        payload = _payload_with_ids(event)
+    # 토큰 델타는 스트리밍이라 건당 수천 개가 나온다. 하나씩 영속하면 매 토큰이
+    # 새 connection + BEGIN IMMEDIATE + MAX(seq) + INSERT + COMMIT이 되고, 그
+    # 전역 쓰기 락에 모든 워커의 생성이 직렬화된다. 화면 전달은 즉시 하고
+    # 저장만 모은다 — 재접속 복원은 합쳐진 텍스트로도 동일하다.
+    delta_buffers: dict[tuple[str, str], dict] = {}
+
+    def _persist(payload: dict) -> bool:
+        """Returns False once this Dispatch has lost ownership."""
         try:
             store.append_session_event(
                 session_id,
@@ -537,11 +612,40 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
                     "type": "stale_dispatch",
                     "error": "더 최신 Dispatch가 이 Task의 실행 권한을 소유합니다",
                 }))
+            return False
+        return True
+
+    def _flush_deltas(key: tuple[str, str] | None = None) -> None:
+        keys = [key] if key is not None else list(delta_buffers)
+        for item in keys:
+            buffered = delta_buffers.pop(item, None)
+            if buffered is not None and buffered["text"]:
+                _persist({**buffered["payload"], "text": buffered["text"]})
+
+    def send(event: dict) -> None:
+        """Persist before delivery and reject any event that lost Dispatch ownership."""
+        payload = _payload_with_ids(event)
+        kind = str(payload.get("kind") or "")
+        if kind in DELTA_EVENT_KINDS:
+            _direct_send(payload)  # 화면은 기다리지 않는다
+            key = (str(payload.get("worker_id") or ""), kind)
+            buffered = delta_buffers.get(key)
+            if buffered is None:
+                delta_buffers[key] = {"payload": payload, "text": str(payload.get("text") or "")}
+            else:
+                buffered["text"] += str(payload.get("text") or "")
+            if len(delta_buffers[key]["text"]) >= DELTA_FLUSH_CHARS:
+                _flush_deltas(key)
             return
-        _direct_send(payload)
+        # 델타가 아닌 이벤트가 나오면 순서를 지키기 위해 먼저 비운다.
+        _flush_deltas()
+        if _persist(payload):
+            _direct_send(payload)
 
     def persist_final(event: dict) -> dict | None:
         """Persist a terminal event only if this is still the latest Dispatch."""
+        # 남은 델타를 먼저 비워 종료 이벤트보다 앞선 seq를 받게 한다.
+        _flush_deltas()
         payload = _payload_with_ids(event)
         try:
             store.append_session_event(
@@ -609,6 +713,9 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
     def persist_worker_outcome(view: dict) -> None:
         store.record_worker_outcome(view)
 
+    def mark_outcomes_delivered(outcome_ids: list[str]) -> None:
+        store.mark_worker_outcomes_delivered(outcome_ids)
+
     def ensure_orchestration() -> runtime.Orchestration:
         nonlocal orch
         if orch is None:
@@ -634,7 +741,9 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
                     budget_usage=dispatch["usage"],
                     on_skill_loaded=skill_loaded,
                     on_worker_outcome=persist_worker_outcome,
+                    on_outcomes_delivered=mark_outcomes_delivered,
                     persisted_worker_outcomes=persisted_worker_outcomes,
+                    prior_spawn_counts=prior_spawn_counts,
                 )
                 orch.session.events = [dict(item) for item in transcript_events]
             with shared._TASK_RUNTIMES_LOCK:
@@ -895,6 +1004,10 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
         if turn_task and not turn_task.done():
             with suppress(asyncio.CancelledError):
                 await asyncio.shield(turn_task)
+        # 버퍼에 남은 델타를 영속화한다 — 아니면 재접속 시 마지막 생성의 꼬리가
+        # 사라진 채로 복원된다.
+        with suppress(Exception):
+            _flush_deltas()
         with shared._TASK_RUNTIMES_LOCK:
             if orch is not None and shared._TASK_RUNTIMES.get(session_id) is orch:
                 shared._TASK_RUNTIMES.pop(session_id, None)
