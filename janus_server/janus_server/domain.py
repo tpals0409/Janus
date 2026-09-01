@@ -17,7 +17,7 @@ from typing import Any
 
 from .budget import empty_usage, merge_budget, normalize_budget
 
-CURRENT_SCHEMA_VERSION = 28
+CURRENT_SCHEMA_VERSION = 29
 
 #: 새 AgentProfile이 받는 기본 도구. 스킬 저작 도구가 여기 있어야 채팅에서
 #: 스킬을 만들 수 있다 (기존 프로필은 MIGRATION_28이 채운다).
@@ -727,6 +727,13 @@ WHERE json_valid(tools_json)
   );
 """
 
+# 워커 성과 회수 노트의 소비 표시. 없을 때는 WS에 새로 접속할 때마다 같은
+# 다이제스트가 다시 주입돼, 브라우저를 새로고침할 때마다 모델이 이미 통합한
+# 작업을 "통합하거나 버린 이유를 대라"는 지시와 함께 다시 받았다.
+MIGRATION_29 = """
+ALTER TABLE worker_outcomes ADD COLUMN delivered_at TEXT;
+"""
+
 MIGRATIONS = {
     1: MIGRATION_1, 2: MIGRATION_2, 3: MIGRATION_3, 4: MIGRATION_4,
     5: MIGRATION_5, 6: MIGRATION_6, 7: MIGRATION_7, 8: MIGRATION_8,
@@ -735,6 +742,7 @@ MIGRATIONS = {
     17: MIGRATION_17, 18: MIGRATION_18, 19: MIGRATION_19, 20: MIGRATION_20,
     21: MIGRATION_21, 22: MIGRATION_22, 23: MIGRATION_23, 24: MIGRATION_24,
     25: MIGRATION_25, 26: MIGRATION_26, 27: MIGRATION_27, 28: MIGRATION_28,
+    29: MIGRATION_29,
 }
 
 
@@ -2213,10 +2221,15 @@ class DomainStore:
             else:
                 learning_id = str(existing["id"])
                 evidence_items = json.loads(existing["evidence_json"] or "[]")
+                # 같은 근거를 다시 봐도 관측이 하나 더 생긴 것은 아니다. 완료된 턴마다
+                # 전체 이벤트를 재스캔하므로, 무조건 올리면 한 번 스친 문장이 관측
+                # 없이 0.72 → 0.99까지 부풀어 영구 규칙으로 굳었다.
+                count = int(existing["evidence_count"])
+                boosted = max(float(existing["confidence"]), float(confidence))
                 if evidence not in evidence_items:
                     evidence_items.append(evidence)
-                count = int(existing["evidence_count"]) + 1
-                boosted = min(0.99, max(float(existing["confidence"]), float(confidence)) + 0.04)
+                    count += 1
+                    boosted = min(0.99, boosted + 0.04)
                 connection.execute(
                     "UPDATE project_learnings SET evidence_count=?,confidence=?,evidence_json=?,"
                     "status='active',updated_at=? WHERE id=?",
@@ -2309,16 +2322,38 @@ class DomainStore:
                             (outcome_id,), "WorkerOutcome")
         return self._worker_outcome_dict(row)
 
-    def list_worker_outcomes(self, task_id: str, *, limit: int = 20) -> list[dict]:
-        """Newest terminal outcomes for one Task, newest first."""
+    def list_worker_outcomes(
+        self, task_id: str, *, limit: int = 20, undelivered_only: bool = False,
+    ) -> list[dict]:
+        """Newest terminal outcomes for one Task, newest first.
+
+        `undelivered_only`는 회수 노트 주입 경로가 쓴다 — 이미 부모에게 전달된
+        성과를 새 접속마다 다시 주입하지 않기 위해서다.
+        """
         with self._connect() as connection:
             self._one(connection, "SELECT id FROM tasks WHERE id=?", (task_id,), "Task")
+            where = " AND delivered_at IS NULL" if undelivered_only else ""
             rows = [self._worker_outcome_dict(row) for row in connection.execute(
-                "SELECT * FROM worker_outcomes WHERE task_id=? "
+                f"SELECT * FROM worker_outcomes WHERE task_id=?{where} "
                 "ORDER BY created_at DESC,id DESC LIMIT ?",
                 (task_id, max(1, min(200, int(limit)))),
             )]
         return rows
+
+    def mark_worker_outcomes_delivered(self, outcome_ids: list[str]) -> int:
+        """회수 노트로 모델에게 전달된 성과를 소비 처리한다."""
+        ids = [str(item) for item in outcome_ids if str(item or "").strip()]
+        if not ids:
+            return 0
+        now = _now()
+        placeholders = ",".join("?" for _ in ids)
+        with self.transaction(immediate=True) as connection:
+            cursor = connection.execute(
+                f"UPDATE worker_outcomes SET delivered_at=? "  # noqa: S608 — 자리표시자만 보간
+                f"WHERE delivered_at IS NULL AND id IN ({placeholders})",
+                (now, *ids),
+            )
+            return int(cursor.rowcount or 0)
 
     def transition_dispatch(
         self, dispatch_id: str, target: str, *, error: str | None = None,

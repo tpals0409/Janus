@@ -159,6 +159,45 @@ class AdaptiveDecisionTests(unittest.TestCase):
         self.assertEqual(["verifier", "implementer"], decision["effective"]["worker_role_sequence"])
         self.assertEqual(1, decision["effective"]["budget"]["workers"]["concurrent_limit"])
 
+    def test_a_later_passing_rerun_clears_the_verification_failure(self):
+        """옛 실패가 남아 이후 모든 dispatch를 재시도 토폴로지에 묶으면 안 된다."""
+        previous = {"id": "dispatch_1", "status": "completed", "error": None}
+        decision = adaptive.decide(
+            task={"title": "Fix behavior", "objective": "Fix behavior",
+                  "acceptance_command": "true"},
+            base_profile=profile(), scheduler_snapshot=scheduler(),
+            previous_dispatch=previous,
+            verification_runs=[
+                # 같은 명령을 다시 돌려 통과했다 (목록은 최신순).
+                {"id": "verification_2", "dispatch_id": "dispatch_1",
+                 "kind": "acceptance", "command": "pytest", "status": "passed",
+                 "created_at": "2026-09-01T10:00:00Z"},
+                {"id": "verification_1", "dispatch_id": "dispatch_1",
+                 "kind": "acceptance", "command": "pytest", "status": "failed",
+                 "created_at": "2026-09-01T09:00:00Z"},
+            ],
+        )
+        self.assertIsNone(decision["retry"]["failure_type"])
+
+    def test_a_still_failing_command_is_reported_even_if_another_passed(self):
+        previous = {"id": "dispatch_1", "status": "completed", "error": None}
+        decision = adaptive.decide(
+            task={"title": "Fix behavior", "objective": "Fix behavior",
+                  "acceptance_command": "true"},
+            base_profile=profile(), scheduler_snapshot=scheduler(),
+            previous_dispatch=previous,
+            verification_runs=[
+                {"id": "verification_2", "dispatch_id": "dispatch_1",
+                 "kind": "acceptance", "command": "pytest", "status": "passed",
+                 "created_at": "2026-09-01T10:00:00Z"},
+                {"id": "verification_3", "dispatch_id": "dispatch_1",
+                 "kind": "project", "command": "ruff check .", "status": "failed",
+                 "created_at": "2026-09-01T10:00:00Z"},
+            ],
+        )
+        self.assertEqual("verification_failure", decision["retry"]["failure_type"])
+        self.assertEqual("verification_3", decision["retry"]["evidence"])
+
     def test_budget_failure_expands_parent_budget_and_removes_worker_overhead(self):
         previous = {
             "id": "dispatch_1", "status": "failed", "error": "budget exhausted",

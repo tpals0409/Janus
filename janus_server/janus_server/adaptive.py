@@ -134,9 +134,21 @@ def classify_failure(
     if previous_dispatch is None:
         return None, None
     previous_id = previous_dispatch.get("id")
+    # 명령별로 **최신** 실행만 본다. 전체 목록에서 실패를 찾으면, 나중에 통과한
+    # 재실행이 있어도 옛 실패가 남아 이후 모든 dispatch를 verification_failure
+    # 토폴로지에 영구히 묶는다.
+    newest: dict[tuple[str, str], dict] = {}
+    for item in sorted(
+        verification_runs,
+        key=lambda run: (str(run.get("created_at") or ""), str(run.get("id") or "")),
+        reverse=True,
+    ):
+        newest.setdefault(
+            (str(item.get("kind") or ""), str(item.get("command") or "")), item
+        )
     failed_verification = next(
         (
-            item for item in verification_runs
+            item for item in newest.values()
             if item.get("status") in {"failed", "error"}
             and (item.get("dispatch_id") in {None, previous_id})
         ),

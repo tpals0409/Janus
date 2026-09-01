@@ -522,7 +522,11 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
         spec["context_preamble"] = context_snapshot["preamble"]
         store.mark_project_learnings_applied([item["id"] for item in active_learnings])
         # 이전 실행(크래시 포함)에서 남긴 워커 성과 — 새 세션의 첫 턴에 회수 노트로 주입된다.
-        persisted_worker_outcomes = store.list_worker_outcomes(task_id, limit=8)
+        # 아직 부모에게 전달되지 않은 것만. 전체를 읽으면 새로고침할 때마다 이미
+        # 통합한 작업의 회수 노트가 컨텍스트 맨 앞에 다시 실린다.
+        persisted_worker_outcomes = store.list_worker_outcomes(
+            task_id, limit=8, undelivered_only=True,
+        )
     except D.DomainError:
         await ws.close(code=1008)
         return
@@ -666,6 +670,9 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
     def persist_worker_outcome(view: dict) -> None:
         store.record_worker_outcome(view)
 
+    def mark_outcomes_delivered(outcome_ids: list[str]) -> None:
+        store.mark_worker_outcomes_delivered(outcome_ids)
+
     def ensure_orchestration() -> runtime.Orchestration:
         nonlocal orch
         if orch is None:
@@ -691,6 +698,7 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
                     budget_usage=dispatch["usage"],
                     on_skill_loaded=skill_loaded,
                     on_worker_outcome=persist_worker_outcome,
+                    on_outcomes_delivered=mark_outcomes_delivered,
                     persisted_worker_outcomes=persisted_worker_outcomes,
                 )
                 orch.session.events = [dict(item) for item in transcript_events]

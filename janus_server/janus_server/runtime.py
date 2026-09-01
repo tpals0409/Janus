@@ -357,6 +357,7 @@ class Orchestration:
                  budget_usage: dict | None = None,
                  on_skill_loaded: Callable[[str, str, int], None] | None = None,
                  on_worker_outcome: Callable[[dict], None] | None = None,
+                 on_outcomes_delivered: Callable[[list[str]], None] | None = None,
                  persisted_worker_outcomes: list[dict] | None = None):
         self.spec = spec
         self.send = send
@@ -419,6 +420,9 @@ class Orchestration:
         # 워커 성과의 턴 경계 영속화 시임. 서버가 도메인 스토어 연결을 꽂으면
         # 크래시 이후에도 결과 복원이 가능해진다 — 런타임은 저장소를 모른다.
         self.on_worker_outcome = on_worker_outcome
+        # 회수 노트로 실제 주입한 성과를 저장소에서 소비 처리하는 시임. 없으면
+        # 메모리에서만 지워져 다음 접속이 같은 행을 다시 읽는다.
+        self.on_outcomes_delivered = on_outcomes_delivered
         # 이전 실행에서 SQLite로 남긴 워커 성과 — 첫 턴 시작에서 한 번만 회수 노트로
         # 소비되고 메모리에서 비워진다 (같은 기록의 이중 주입 방지).
         self.persisted_worker_outcomes = list(persisted_worker_outcomes or [])
@@ -1771,7 +1775,19 @@ class Orchestration:
         if self.persisted_worker_outcomes:
             persisted_note = self._format_persisted_digest(
                 self.persisted_worker_outcomes)
+            delivered_ids = [
+                str(item.get("id")) for item in self.persisted_worker_outcomes
+                if item.get("id")
+            ]
             self.persisted_worker_outcomes = []  # 첫 턴에 한 번만 소비한다
+            # 메모리에서만 비우면 다음 WS 접속이 같은 행을 다시 읽어 온다 —
+            # 새로고침할 때마다 이미 통합한 작업을 다시 통합하라고 받았다.
+            if delivered_ids and self.on_outcomes_delivered is not None:
+                try:
+                    self.on_outcomes_delivered(delivered_ids)
+                except Exception as error:
+                    self._sink(ORCH_ID, "worker_outcome_delivery_mark_failed",
+                               {"error": f"{type(error).__name__}: {error}"})
         pending_recovery = self._undelivered_terminal_workers()
         recovered_parts = [
             part for part in (
