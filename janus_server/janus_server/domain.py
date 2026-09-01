@@ -1053,9 +1053,12 @@ class DomainStore:
     def finish_verification_run(self, run_id: str, result: dict) -> dict:
         exit_code = result.get("exit_code")
         error = result.get("error")
-        status = "passed" if exit_code == 0 and not error else (
+        # error가 있으면 결과를 신뢰할 수 없다 — exit 0이어도 통과가 아니고,
+        # 명령이 틀렸다는 뜻도 아니다(실행 중 워크스페이스 변경·타임아웃 등).
+        # "failed"로 접으면 고칠 것이 없는데 고치라고 재시도 토폴로지가 붙는다.
+        status = "error" if error else ("passed" if exit_code == 0 else (
             "failed" if exit_code is not None else "error"
-        )
+        ))
         with self.transaction(immediate=True) as connection:
             run = self._one(
                 connection, "SELECT * FROM verification_runs WHERE id=?",

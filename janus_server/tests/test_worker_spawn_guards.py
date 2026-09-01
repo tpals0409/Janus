@@ -17,6 +17,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from janus_server import runtime
+from janus_server import tools as T
 from janus_server.scheduler import ResourceScheduler
 from janus_server.workspace import WorkspaceContext
 from tests.fakes import FakeClient
@@ -223,6 +224,56 @@ def test_read_only_turn_cannot_spawn_a_write_worker():
         # 쓰기 도구가 없으므로 write 임대 자체를 잡지 않는다.
         assert orch.write_ownership.snapshot() == {}
         assert wait_worker(orch, created["worker"])["finished"] is True
+
+
+# ── 부모도 소유권 테이블을 지난다 ──
+
+def test_parent_cannot_write_a_path_a_worker_holds():
+    """가장 활발한 writer인 오케스트레이터가 면제면 불변식이 아니다."""
+    release = threading.Event()
+    running = threading.Event()
+
+    def hold():
+        running.set()
+        release.wait(3)
+        return {"text": "worker done"}
+
+    fake = FakeClient([hold])
+    with tempfile.TemporaryDirectory() as tmp:
+        orch = make_orchestration(fake, Path(tmp))
+        worker = spawn(orch, name="writer", task="edit src",
+                       role="implementer", tools=[], max_steps=2,
+                       owned_paths=["src/"])
+        assert worker.get("created") is True
+        assert running.wait(3)
+
+        # 부모가 실제로 쓰는 경로 그대로 — dispatch가 _context를 주입한다.
+        registry = {**T.REGISTRY}
+        registry.update({t["name"]: t for t in orch._parent_write_guards()})
+        context = orch.active_workspace_context
+
+        def parent_write(path: str) -> dict:
+            return T.dispatch(
+                "write_file", {"path": path, "content": "parent edit"},
+                approve=lambda *_a: True, registry=registry, context=context,
+            )
+
+        blocked = parent_write("src/deep/module.py")
+        assert blocked["reason"] == "write_partition_conflict", blocked
+        assert worker["worker"] in blocked["error"]
+
+        # 임대 밖 경로는 그대로 통과한다.
+        allowed = parent_write("docs/notes.md")
+        assert "reason" not in allowed, allowed
+        assert (Path(tmp) / "docs" / "notes.md").exists()
+
+        release.set()
+        assert wait_worker(orch, worker["worker"])["finished"] is True
+
+        # 임대가 풀리면 부모가 다시 쓸 수 있다.
+        after = parent_write("src/deep/module.py")
+        assert "reason" not in after, after
+        assert (Path(tmp) / "src" / "deep" / "module.py").exists()
 
 
 def test_full_turn_tools_are_restored_for_a_normal_turn():

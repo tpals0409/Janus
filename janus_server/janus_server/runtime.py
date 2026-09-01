@@ -1363,6 +1363,59 @@ class Orchestration:
             ),
         }
 
+    def _parent_write_guards(self) -> list[dict]:
+        """부모의 경로 지정 쓰기를 워커와 같은 소유권 테이블에 걸리게 한다.
+
+        소유권 테이블은 create_worker에서만 참조돼, 정작 가장 활발한 writer인
+        오케스트레이터는 면제였다. 워커가 src/를 임대한 채 도는 동안 부모가
+        src/foo.py를 그냥 고칠 수 있으면 "같은 파일 동시 쓰기 불가"는 불변식이
+        아니다. run_bash는 경로를 선언하지 않아 여기서 판정할 수 없다.
+        """
+        guarded = []
+        for name in ("write_file", "edit_file"):
+            base = T.REGISTRY.get(name)
+            if base is None or name not in self.tools:
+                continue
+
+            def handler(_base=base, _name=name, **kwargs):
+                path = str(kwargs.get("path") or "").strip()
+                if path and (holder := self._write_conflict(path)) is not None:
+                    return {
+                        "error": (
+                            f"{path}는 워커 {holder}가 쓰기 임대 중입니다. "
+                            "wait_worker로 결과를 받아 통합한 뒤 수정하세요."
+                        ),
+                        "reason": "write_partition_conflict",
+                    }
+                return _base["handler"](**kwargs)
+
+            guarded.append({**base, "handler": handler})
+        return guarded
+
+    def _write_conflict(self, path: str) -> str | None:
+        """이 경로를 소유한 다른 워커의 id. 없으면 None."""
+        try:
+            held = self.write_ownership.snapshot()
+        except Exception:
+            return None
+        def holds(partitions: list[str]) -> bool:
+            try:
+                return ownership_mod.owns_path(partitions, path)
+            except ownership_mod.InvalidPartition:
+                return False
+
+        owner = next(
+            (name for name, partitions in held.items() if holds(partitions)), None
+        )
+        if owner is None:
+            return None
+        with self.lock:
+            for record in self.worker_records.values():
+                lease = record.get("write_lease")
+                if lease is not None and lease.owner == owner:
+                    return str(record.get("worker") or owner)
+        return owner
+
     def _changed_paths_snapshot(self, record: dict) -> list[str]:
         """워커가 쓰는 changed_paths를 락 안에서 안전하게 복사한다."""
         with self.lock:
@@ -1860,7 +1913,11 @@ class Orchestration:
                 cancel=self.cancel,
                 extra_tools=(
                     ([self.create_worker] + self.worker_control_tools
-                     if self.worker_enabled else []) + self.skill_tools + [self.finish_turn]
+                     if self.worker_enabled else []) + self.skill_tools
+                    + [self.finish_turn]
+                    # 이름이 같으면 레지스트리를 덮어쓴다 — 부모의 write_file/
+                    # edit_file도 워커와 같은 소유권 테이블을 지나게 한다.
+                    + (self._parent_write_guards() if self.worker_enabled else [])
                 ),
                 session=self.session,
                 scheduler=self.scheduler,
