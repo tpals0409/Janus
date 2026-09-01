@@ -40,6 +40,9 @@ EMPTY_RESPONSE_RETRIES = 2
 DEFAULT_CONTEXT_MAX_CHARS = 24_000
 DEFAULT_CONTEXT_RECENT_BLOCKS = 8
 MAX_PROJECT_SUMMARY_CHARS = 4_000
+# 블록을 더 뺄 수 없을 때 도구 결과를 접는 하한. 이보다 짧게 만들면 결과가
+# 무엇이었는지조차 남지 않아 모델이 같은 호출을 반복한다.
+TOOL_PAYLOAD_FLOOR_CHARS = 400
 # 압축 임계는 토큰으로 사고하고 chars로 집행한다. 설정값(chars)은 4자/토큰
 # 가정으로 토큰 목표치로 환산해 두고, 실측 usage.prompt_tokens가 들어오면
 # chars/token 비율을 보정해 임계를 다시 chars로 환산한다. 한국어(1~2자/토큰)는
@@ -77,6 +80,13 @@ class Session:
         self.summary_max_chars = max(500, int(summary_max_chars))
         self.context_stats: dict = {}
         self._last_prefix_hash: str | None = None
+        # 매 요청에 함께 나가는 도구 스키마의 길이. 회계에 넣지 않으면 압축
+        # 임계가 실제 prefill의 상당 부분을 못 본다 — create_worker 하나만
+        # 2,500자가 넘고, worker control·skill·finish_turn까지 더하면 5,000자대다.
+        self.tool_schema_chars = 0
+
+    def observe_tool_schemas(self, schemas: list[dict] | None) -> None:
+        self.tool_schema_chars = self._chars(schemas or [])
 
     def append(self, kind: str, **data):
         self.events.append({"kind": kind, **data})
@@ -178,11 +188,35 @@ class Session:
             summary = head + "\n…\n" + "\n".join(reversed(tail))
         return summary or "Earlier session activity omitted; no durable result was recorded."
 
+    def _shrink_tool_payloads(self, messages: list[dict], max_chars: int) -> list[dict]:
+        """블록을 더 못 빼는 상황의 마지막 수단 — 도구 결과 본문을 접는다.
+
+        병렬 도구 호출 5건이면 한 assistant 블록에 4,000자짜리 결과가 5개 붙는다.
+        블록 단위로만 빼면 그 한 덩어리가 임계의 두 배여도 그대로 나간다.
+        """
+        shrunk = [dict(message) for message in messages]
+        while self._chars(shrunk) + self.tool_schema_chars > max_chars:
+            target = max(
+                (m for m in shrunk if m["role"] == "tool"),
+                key=lambda m: len(m.get("content") or ""), default=None,
+            )
+            content = str((target or {}).get("content") or "")
+            if target is None or len(content) <= TOOL_PAYLOAD_FLOOR_CHARS:
+                break  # 더 접을 것이 없다 — 넘치더라도 계약이 깨진 요청보다 낫다
+            keep = max(TOOL_PAYLOAD_FLOOR_CHARS, len(content) // 2)
+            head, tail = keep * 2 // 3, keep - keep * 2 // 3
+            target["content"] = (
+                content[:head]
+                + f"\n… [{len(content) - keep} chars elided to fit the context window] …\n"
+                + (content[-tail:] if tail else "")
+            )
+        return shrunk
+
     def derive_messages(self, *, compact: bool = True) -> list[dict]:
         system = {"role": "system", "content": self.system_prompt}
         blocks = self._event_blocks()
         full = [system, *(message for block in blocks for message in block)]
-        baseline_chars = self._chars(full)
+        baseline_chars = self._chars(full) + self.tool_schema_chars
         omitted: list[list[dict]] = []
         kept = blocks
 
@@ -217,8 +251,12 @@ class Session:
                     )
                     if latest_user is not None:
                         candidate.insert(1, latest_user)
-                if self._chars(candidate) <= max_chars or len(kept) <= 1:
+                if self._chars(candidate) + self.tool_schema_chars <= max_chars:
                     full = candidate
+                    break
+                if len(kept) <= 1:
+                    # 남은 블록이 하나뿐인데도 넘친다 — 블록 안을 접는다.
+                    full = self._shrink_tool_payloads(candidate, max_chars)
                     break
                 omitted.append(kept.pop(0))
 
@@ -228,7 +266,7 @@ class Session:
         prefix_reused = self._last_prefix_hash == prefix_hash
         if compact:
             self._last_prefix_hash = prefix_hash
-        sent_chars = self._chars(full)
+        sent_chars = self._chars(full) + self.tool_schema_chars
         baseline_token_estimate = self._tokens(baseline_chars)
         sent_token_estimate = self._tokens(sent_chars)
         self.context_stats = {
@@ -251,6 +289,7 @@ class Session:
             "prefix_hash": prefix_hash,
             "prefix_reused": prefix_reused,
             "cache_candidate_chars": len(stable_prefix),
+            "tool_schema_chars": self.tool_schema_chars,
         }
         return full
 
@@ -484,6 +523,9 @@ def run(
             return last_text, session.events
 
         emit("step", n=step + 1)
+        # 스키마는 매 요청에 함께 나가고 서킷 브레이크로 줄어들기도 한다 —
+        # 압축 판정 전에 현재 크기를 알려준다.
+        session.observe_tool_schemas(schemas)
         msgs = session.derive_messages()
         context_stats = dict(session.context_stats)
         emit("context_window", **context_stats)

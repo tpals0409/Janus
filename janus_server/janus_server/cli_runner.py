@@ -125,7 +125,7 @@ _OUTCOME_BLOCK = re.compile(r"<janus-outcome>\s*(\{.*?\})\s*</janus-outcome>", r
 CLI_ADAPTER = """## Janus CLI adapter
 
 You are running inside Janus, a local-first agent workbench, as a subscription CLI rather
-than on the Janus local runtime. Three parts of the persona above are adapted here.
+than on the Janus local runtime. Two parts of the persona above are adapted here.
 
 1. **No `create_worker`.** This runner structurally forbids Janus workers — exactly the
    exception the persona names. Delegate with your own CLI subagent tool if you have one;
@@ -143,9 +143,6 @@ than on the Janus local runtime. Three parts of the persona above are adapted he
    concise factual result; `evidence` lists changed files, commands, or other fresh proof.
    Janus strips this line before showing your answer and uses it to move the Task forward.
    Omitting it settles the turn as `partial`.
-
-3. **Ignore the `personas/…` paths listed above** — they are Janus package resources you
-   cannot read.
 
 The current directory is the Task's workspace. Janus tracks your file changes with git and
 shows them to the user for review, so do not commit unless you are asked to. Answer in the

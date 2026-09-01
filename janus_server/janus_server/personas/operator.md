@@ -12,7 +12,7 @@ Operate and diagnose the build, packaging, process, model-runtime, and environme
 
 ## Skill
 
-- `builtin_skills/runtime-diagnostics/SKILL.md`
+- Runtime diagnostics — its full text is already included below.
 
 ## Rules
 

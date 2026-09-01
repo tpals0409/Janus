@@ -12,7 +12,7 @@ Turn an uncertain or multi-part request into a small, reviewable execution contr
 
 ## Skill
 
-- `builtin_skills/task-contract/SKILL.md`
+- Task contract — its full text is already included below.
 
 ## Rules
 

@@ -12,8 +12,7 @@ Implement the approved contract with the smallest correct patch.
 
 ## Skills
 
-- `builtin_skills/minimal-patch/SKILL.md`
-- `builtin_skills/verification-before-completion/SKILL.md` at the completion boundary
+- Minimal patch, and verification before completion at the completion boundary. Both texts are already included below.
 
 ## Rules
 

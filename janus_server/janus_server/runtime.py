@@ -50,6 +50,10 @@ LOCAL_MODELS = {
 
 MLX_BASE_URL = "http://localhost:8080/v1"
 WORKER_SYSTEM_MAX_CHARS = 8_000
+# 오케스트레이터 프롬프트의 상한. 워커보다 넉넉하지만 무제한은 아니다 —
+# 이 프롬프트는 스킬 카탈로그·학습·리뷰 피드백까지 얹혀 나가고, agent.py의
+# 압축 루프는 prefix를 절대 못 줄이므로 여기가 커지면 대화가 밀려난다.
+ORCHESTRATOR_SYSTEM_MAX_CHARS = 12_000
 WORKER_TASK_MAX_CHARS = 6_000
 WORKER_CONTEXT_MAX_CHARS = 4_000
 # 반환 방향 핸드오프 예산 — 워커 보고가 오케스트레이터 컨텍스트로 돌아올 때의
@@ -133,9 +137,16 @@ def persona_prompt(role: str, *, custom_prompt: str = "") -> str:
     if custom_prompt.strip():
         sections.append("## Delegated emphasis\n\n" + custom_prompt.strip())
     prompt = "\n\n---\n\n".join(sections)
-    if len(prompt) > WORKER_SYSTEM_MAX_CHARS and normalized != "janus":
+    # 오케스트레이터는 스킬 카탈로그·학습·리뷰 피드백까지 더 받으므로 여유가
+    # 필요하지만, 상한 자체가 없으면 프롬프트가 조용히 커져도 아무도 모른다.
+    # 가드의 목적은 번들 프롬프트의 무성장 감시다 — janus도 자기 상한을 갖는다.
+    ceiling = (
+        ORCHESTRATOR_SYSTEM_MAX_CHARS if normalized == "janus"
+        else WORKER_SYSTEM_MAX_CHARS
+    )
+    if len(prompt) > ceiling:
         raise RuntimeError(
-            f"bundled worker prompt exceeds {WORKER_SYSTEM_MAX_CHARS} chars: {normalized}"
+            f"bundled prompt exceeds {ceiling} chars: {normalized} ({len(prompt)})"
         )
     return prompt
 

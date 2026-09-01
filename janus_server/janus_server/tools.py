@@ -234,7 +234,23 @@ def _render_skill(value):
 # ─────────────────────────── renderers ───────────────────────────
 
 
-def _r_read(v): return v["content"]
+def _r_read(v):
+    """줄 번호를 붙여 돌려준다.
+
+    번호가 없으면 모델은 자기가 몇 번째 줄을 보는지 모른 채 edit_file의
+    old_string을 만들어야 한다 — 4,000자 클립으로 가운데가 접히면 더 그렇다.
+    edit_file의 "유일해야 함" 제약과 정면으로 충돌하던 실패 원인이다.
+    """
+    start = int(v.get("offset") or 0)
+    lines = str(v.get("content") or "").splitlines()
+    body = "\n".join(f"{start + i + 1:>6}  {line}" for i, line in enumerate(lines))
+    total = v.get("total_lines")
+    if v.get("has_more") and total is not None:
+        body += (
+            f"\n… ({start + len(lines)}/{total}줄까지. 이어서 보려면 "
+            f"offset={start + len(lines)})"
+        )
+    return body
 def _r_glob(v): return "\n".join(v["matches"]) or "(매치 없음)"
 def _r_grep(v): return "\n".join(v["matches"]) or "(매치 없음)"
 def _r_echo(v): return v["text"]
@@ -293,8 +309,10 @@ TOOLS = [
                     "description": "Zero-based starting line. Default 0."},
             limit={"type": "integer",
                    "description": "Number of lines, 1-2000. Default 400."}),
-       "Read the full contents of a file.",
-       "Read a file before editing it. For long files, page with offset and limit.",
+       "Read the full contents of a file. Results are prefixed with line numbers.",
+       "Read a file before editing it. For long files, page with offset and limit. "
+       "The leading line numbers and two spaces are display only — they are NOT in "
+       "the file. Never copy them into edit_file's old_string.",
        requires_workspace=True),
     _t("glob", _glob, _r_glob,
        _obj(["pattern"], pattern={**_S, "description": "Glob pattern, e.g. '**/*.py'."}),
@@ -338,7 +356,8 @@ TOOLS = [
             new_string={**_S, "description": "Replacement text."}),
        "Replace an exact string in a file. old_string must be unique.",
        "Prefer edit_file over write_file for existing files. "
-       "If old_string is not unique, include more surrounding lines.",
+       "If old_string is not unique, include more surrounding lines. "
+       "Strip read_file's leading line numbers before using text as old_string.",
        needs_approval=True, requires_workspace=True),
     _t("run_bash", _run_bash, _r_bash,
        _obj(["command"], command={**_S, "description": "Shell command to run."}),

@@ -12,7 +12,7 @@ Investigate only enough to identify the cause, relevant files, and the smallest 
 
 ## Skill
 
-- `builtin_skills/codebase-recon/SKILL.md`
+- Codebase recon — its full text is already included below.
 
 ## Rules
 
