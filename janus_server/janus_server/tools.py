@@ -14,7 +14,6 @@ run_bash는 cwd를 같은 컨텍스트에서 받는다. cd로 어디든 갈 수 
 
 from __future__ import annotations
 
-import json
 import re
 import shutil
 import subprocess
@@ -173,40 +172,6 @@ def _http_get(url: str, timeout: float = 10.0, **_):
         return {"error": f"{type(e).__name__}: {e}"}
 
 
-# 데모 그래프가 네트워크 없이도 돌게 하려는 고정 데이터.
-# 이름에 mock을 박아 진짜 연동으로 오해하지 않게 한다.
-_MOCK_ORDERS = {
-    "12345": {"status": "confirmed", "eta": "2026-05-24", "carrier": "CJ대한통운"},
-    "99999": {"status": "delayed", "eta": "2026-06-02", "carrier": "우체국"},
-}
-
-
-def _mock_order_lookup(order_id: str, **_):
-    o = _MOCK_ORDERS.get(str(order_id).lstrip("#"))
-    if o is None:
-        return {"error": f"주문 {order_id}을(를) 찾을 수 없습니다."}
-    return {"order_id": order_id, **o}
-
-
-_MOCK_DOCS = {
-    "mlx": "MLX는 애플 실리콘용 배열 프레임워크다. 통합 메모리를 써서 CPU와 GPU가 "
-           "같은 버퍼를 공유하므로 복사 비용이 없다.",
-    "langgraph": "LangGraph는 상태를 가진 그래프로 LLM 워크플로를 짜는 라이브러리다. "
-                 "노드는 상태를 읽고 갱신하며, 엣지는 실행 순서와 분기를 정한다.",
-    "quantization": "양자화는 모델 가중치를 낮은 비트로 줄여 메모리와 대역폭을 아끼는 "
-                    "기법이다. 4bit면 fp16 대비 약 4분의 1 크기가 된다.",
-}
-
-
-def _search_docs(query: str, **_):
-    q = str(query).lower()
-    hits = [{"topic": k, "text": v} for k, v in _MOCK_DOCS.items() if k in q or q in k]
-    if not hits:  # 아주 단순한 부분일치 폴백
-        hits = [{"topic": k, "text": v} for k, v in _MOCK_DOCS.items()
-                if any(w in v.lower() for w in q.split())]
-    return {"query": query, "hits": hits, "count": len(hits)}
-
-
 def _echo(text: str, **_):
     return {"text": text}
 
@@ -255,7 +220,6 @@ def _r_glob(v): return "\n".join(v["matches"]) or "(매치 없음)"
 def _r_grep(v): return "\n".join(v["matches"]) or "(매치 없음)"
 def _r_echo(v): return v["text"]
 def _r_http(v): return f"[status {v['status']}]\n{v['body']}"
-def _r_json(v): return json.dumps(v, ensure_ascii=False, indent=2)
 
 
 def _r_write(v):
@@ -270,12 +234,6 @@ def _r_edit(v):
 def _r_bash(v):
     out = (v["stdout"] + v["stderr"]).strip()
     return f"{out}\n[exit code: {v['exit_code']}]" if out else f"[exit code: {v['exit_code']}]"
-
-
-def _r_docs(v):
-    if not v["hits"]:
-        return "(매치 없음)"
-    return "\n\n".join(f"## {h['topic']}\n{h['text']}" for h in v["hits"])
 
 
 # ─────────────────────────── registry ───────────────────────────
@@ -328,14 +286,6 @@ TOOLS = [
             timeout={**_N, "description": "Seconds. Default 10."}),
        "Fetch a URL and return the response body as text.",
        "Use http_get to read a public web page or API.", needs_approval=True),
-    _t("search_docs", _search_docs, _r_docs,
-       _obj(["query"], query={**_S, "description": "Search terms."}),
-       "Search a small built-in document set. Demo data, not a real index.",
-       "Use search_docs to look up a topic before answering.", resource_class="cpu_tool"),
-    _t("mock_order_lookup", _mock_order_lookup, _r_json,
-       _obj(["order_id"], order_id={**_S, "description": "Order id."}),
-       "Look up an order in a fixed demo dataset. Not a real integration.",
-       "Use mock_order_lookup when the user asks about an order.", resource_class="cpu_tool"),
     _t("echo", _echo, _r_echo,
        _obj(["text"], text={**_S, "description": "Text to return."}),
        "Return the input unchanged. Useful for testing a graph.",
@@ -549,9 +499,6 @@ def demo():
 
     # 범용 도구
     assert dispatch("echo", {"text": "hi"})["text"] == "hi"
-    assert "confirmed" in str(dispatch("mock_order_lookup", {"order_id": "#12345"}))
-    assert "error" in dispatch("mock_order_lookup", {"order_id": "00000"})
-    assert dispatch("search_docs", {"query": "mlx"})["count"] == 1
     assert "error" in dispatch("http_get", {"url": "file:///etc/passwd"})
     assert "error" in dispatch("nope", {})
 

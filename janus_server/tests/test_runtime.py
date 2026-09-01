@@ -395,19 +395,6 @@ class SessionContextTests(unittest.TestCase):
             runtime.effective_worker_step_limit(14, 8, roomy, one_slot),
         )
 
-        self.assertEqual(
-            ("scout", "single_slot_tight_dispatch_scout"),
-            runtime.effective_worker_role("fixed_one", "implementer", 10, one_slot),
-        )
-        self.assertEqual(
-            ("scout", "single_slot_tight_dispatch_scout"),
-            runtime.effective_worker_role("fixed_one", "implementer", 15, one_slot),
-        )
-        self.assertEqual(
-            ("implementer", None),
-            runtime.effective_worker_role("fixed_one", "implementer", 30, one_slot),
-        )
-
 
 
 if __name__ == "__main__":

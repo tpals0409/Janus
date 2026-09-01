@@ -2011,6 +2011,13 @@ class DomainStore:
         self, *, task_id: str, workspace_id: str, agent_profile_id: str,
         dispatch_id: str | None = None,
     ) -> dict:
+        """Dispatch 한 건만 만드는 하위 프리미티브 — **테스트 픽스처 전용**.
+
+        실행 경로는 `create_execution`을 쓴다. 그쪽만 같은 저장소를 쓰는 경쟁
+        Task 거부, 이전 시도 supersede, 세션·스킬 스냅샷·예산·adaptive 스냅샷을
+        한 transaction으로 묶는다. 여기에는 그 보증이 하나도 없으므로, 새 실행
+        경로를 이 함수로 만들면 소유권 펜스 밖에서 도는 Dispatch가 생긴다.
+        """
         dispatch_id = dispatch_id or _id("dispatch")
         now = _now()
         try:

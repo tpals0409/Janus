@@ -106,7 +106,6 @@ _ROLE_SKILLS = {
 MAX_MODEL_QUEUE_FOR_SPAWN = 1
 SINGLE_SLOT_PARENT_RESERVE_NUMERATOR = 6
 SINGLE_SLOT_PARENT_RESERVE_DENOMINATOR = 10
-TIGHT_DISPATCH_STEP_LIMIT = 16
 # 도구 호출 몇 번 + 결과를 읽고 답하는 1 step. 2로 두면 두 번째 도구 호출에서 소진돼
 # 답을 못 쓴 채 끝난다(실측: read_file×2 → glob → step_limit 소진).
 MIN_WORKER_STEPS = 4
@@ -278,31 +277,6 @@ def effective_worker_step_limit(
     return min(limit, worker_room)
 
 
-def effective_worker_role(
-    policy: str,
-    requested_role: str,
-    dispatch_step_limit: int,
-    scheduler_snapshot: dict,
-) -> tuple[str, str | None]:
-    """Turn a forced sequential implementer into a scout on tight local runs.
-
-    ``fixed_one`` is useful as a policy/control experiment, but on one generation
-    slot a second implementer duplicates the parent's full edit loop. A read-only
-    scout still satisfies the one-worker topology while leaving one owner for edits.
-    The adaptation is explicit in telemetry and tool results.
-    """
-    model = scheduler_snapshot["resources"][
-        scheduler_mod.ResourceClass.MODEL_GENERATION.value
-    ]
-    if (
-        policy == "fixed_one"
-        and requested_role == "implementer"
-        and int(model.get("cap", 1)) == 1
-        and int(dispatch_step_limit) <= TIGHT_DISPATCH_STEP_LIMIT
-    ):
-        return "scout", "single_slot_tight_dispatch_scout"
-    return requested_role, None
-
 
 def resolve_local_model(name: str) -> str:
     # Electron이 이미 해석한 경로가 있으면 그게 이긴다 — 캐시 루트를 양쪽이 따로 계산하면
@@ -394,7 +368,6 @@ class Orchestration:
         self.worker_policy = spec.get("worker_policy", "autonomous")
         self.allow_autonomous_workers = bool(spec.get("allow_autonomous_workers", False))
         self.worker_roles = set(spec.get("worker_roles") or WORKER_ROLES)
-        self.worker_role_sequence = list(spec.get("worker_role_sequence") or [])
         self.worker_enabled = self.worker_policy != "none"
         if task_id is not None and task_id != workspace_context.task_id:
             raise ValueError("task_id와 WorkspaceContext.task_id가 다릅니다")
@@ -969,11 +942,9 @@ class Orchestration:
             ]
             # 역할은 권한 프로필이다. 명시한 implementer를 최적화 명목으로
             # read-only researcher로 바꾸면 필요한 편집/셸 도구가 사라진다.
-            role, role_adaptation = requested_role, None
-            # The role sequence describes useful topology to the orchestrator;
-            # it must not silently replace an explicit, policy-allowed role.
-            # Doing so turned implementation workers into one-step read-only
-            # scouts after the parent had already completed discovery.
+            # adaptive의 role_sequence는 오케스트레이터에게 권하는 토폴로지일
+            # 뿐, 명시된 정책 허용 역할을 조용히 대체하지 않는다.
+            role = requested_role
             # 부분집합 규칙: 워커 도구 ⊆ 오케스트레이터의 spec.tools.
             # 조사·계획·검증 역할은 결과를 수정하지 못하도록 읽기 전용 교집합만 받는다.
             requested_tools = list(dict.fromkeys(str(t) for t in (tools or [])))
@@ -995,19 +966,6 @@ class Orchestration:
                     "orchestrator. Do not broaden the original contract."
                 )
             raw_task = str(task) or "(no task)"
-            if role_adaptation is not None:
-                raw_system = (
-                    "You are a read-only scout for a single-slot local coding agent. "
-                    "Inspect only the files needed for the delegated task. Return concise, "
-                    "specific evidence: current definitions, required edits, invariants, and "
-                    "paths that must not change. Never attempt a write or edit tool, never "
-                    "broaden the contract, and finish immediately after the investigation."
-                )
-                raw_task = (
-                    "Investigate the delegated task without changing the workspace. Return a "
-                    "concise implementation handoff for the parent.\n\nOriginal delegated task:\n"
-                    + raw_task
-                )
             raw_context = str(context or "")
             prepared_system = raw_system[:WORKER_SYSTEM_MAX_CHARS]
             prepared_task = raw_task[:WORKER_TASK_MAX_CHARS]
@@ -1181,11 +1139,6 @@ class Orchestration:
                 dispatch_snapshot,
                 scheduler_state,
             )
-            if role_adaptation is not None:
-                # One local generation can issue several parallel read calls. Waiting for a
-                # second/third scout generation is sequential overhead; the parent owns edits.
-                steps = 1
-
             cancel = threading.Event()
             worker_limits = dict(self.budget["worker"])
             worker_limits["step_limit"] = steps
@@ -1198,16 +1151,7 @@ class Orchestration:
                                        parent_id=self.spans[0]["id"] if self.spans else None,
                                        input={"task": prepared_task, "tools": allowed,
                                               "role": role, "requested_role": requested_role,
-                                              "role_adaptation": role_adaptation,
                                               "context_chars": len(prepared_context)})
-                if role_adaptation is not None:
-                    self._sink(wid, "worker_role_adapted", {
-                        "requested_role": requested_role,
-                        "effective_role": role,
-                        "reason": role_adaptation,
-                        "model_generation_cap": model_state.get("cap", 1),
-                        "dispatch_step_limit": self.budget["dispatch"]["step_limit"],
-                    })
                 self._sink(wid, "worker_step_budget_reserved", {
                     "requested_steps": max_steps,
                     "effective_steps": steps,
@@ -1231,7 +1175,7 @@ class Orchestration:
                 record = {
                     "worker": wid, "name": str(name) or wid,
                     "role": role, "requested_role": requested_role,
-                    "role_adaptation": role_adaptation, "status": "queued",
+                    "status": "queued",
                     "result": "", "error": None, "tools": list(allowed),
                     "task": prepared_task, "system_prompt": prepared_system,
                     "workspace_context": workspace_context, "max_steps": steps,
@@ -1288,7 +1232,7 @@ class Orchestration:
             record["launched"].wait(1.0)
             return {
                 "worker": wid, "role": role, "requested_role": requested_role,
-                "role_adaptation": role_adaptation, "status": record["status"],
+                "status": record["status"],
                 "created": True, "tools": allowed,
                 "message": (
                     f"Worker {wid} was spawned in the background. Use wait_worker or "

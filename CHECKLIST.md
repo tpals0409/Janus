@@ -174,17 +174,23 @@
 
 ### 38. 죽은 코드 정리
 
-- [ ] `effective_worker_role` + `role_adaptation` 분기 ~40줄 — 호출처가 테스트뿐
-      (`runtime.py:262-285`, `runtime.py:808,831-843,1017-1020,1036-1043`)
-- [ ] `worker_role_sequence` — 계산·영속·미소비. 스폰 순서로 강제하거나 삭제
-      (`adaptive.py:410`, `runtime.py:370`)
-- [ ] `create_dispatch` — `create_execution`에 대체된 무호출 함수 (`domain.py:1994-2031`)
-- [ ] skills IR 장식 메타데이터: `trust_state` 미강제, `capabilities.approval_required`·
-      `execution.context` 미소비 — 강제하거나 삭제 (`domain.py:466`, `skills.py:255-265`)
-- [ ] `mock_order_lookup`/`search_docs` 데모 도구의 프로덕션 레지스트리 상주
-      (`tools.py:176-207,317-320`)
-- [ ] evaluation stdev·worker/memory mean 5종 — 계산 후 비교·CSV에서 폐기
-      (`evaluation.py:107-118,143-158,237-241`)
+- [x] `effective_worker_role`·`TIGHT_DISPATCH_STEP_LIMIT`·`role_adaptation` 분기 삭제 —
+      호출처가 테스트뿐이라 scout 프롬프트 치환·steps=1·worker_role_adapted 텔레메트리가
+      전부 도달 불가였다
+- [x] `runtime.worker_role_sequence` 미사용 속성 삭제. adaptive의 산출은 유지한다 —
+      렌더러가 권장 토폴로지로 표시하고, 명시된 역할을 조용히 대체하지 않는 것이
+      의도된 설계다
+- [x] `create_dispatch`는 테스트 픽스처가 쓰는 하위 프리미티브였다(무호출이 아님 —
+      감사 당시 오판). 실제 위험인 드리프트를 막도록 "실행 경로는 create_execution"을
+      독스트링으로 못박았다
+- [ ] skills IR: `trust_state`·`approval_required`는 렌더러가 표시하므로 장식이 아니었다
+      (감사 당시 오판). 남은 문제는 **강제되지 않는다**는 것뿐인데, untrusted 차단은
+      GitHub import UX를 바꾸는 제품 결정이라 별도로 연다. `execution.context: fork`는
+      여전히 아무 동작도 없다
+- [x] `mock_order_lookup`·`search_docs`와 고정 데모 데이터 삭제 (도구 12개 → 10개).
+      `echo`는 테스트가 널리 쓰므로 남긴다. `listing()`에 프로덕션 소비자가 없어
+      "UI 드롭다운 노출"은 오판이었다
+- [x] evaluation stdev·worker/memory mean 5종 — §35에서 노이즈 게이트와 CSV로 소비
 
 ## 지금 시작할 작업
 
