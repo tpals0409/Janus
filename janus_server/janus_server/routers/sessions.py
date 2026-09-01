@@ -33,6 +33,7 @@ router = APIRouter()
 def _task_runtime_spec(
     store: D.DomainStore, agent_profile_id: str, *, budget: dict | None = None,
     adaptive_decision: dict | None = None, profile_snapshot: dict | None = None,
+    task: dict | None = None,
 ) -> dict:
     profile = profile_snapshot or _agent_profile_json(store.get_agent_profile(agent_profile_id))
     if not profile:
@@ -57,6 +58,9 @@ def _task_runtime_spec(
         "max_steps": profile["max_steps"],
         "budget": budget or profile["budget"],
         "context_policy": profile["context_policy"],
+        # finish_turn(completed)의 완료 게이트. 모델의 자기 신고를 이 명령의
+        # exit code로 검증한다 — 비어 있으면 게이트 없이 신고를 그대로 믿는다.
+        "acceptance_command": str((task or {}).get("acceptance_command") or ""),
     }
 
 
@@ -109,6 +113,36 @@ def _pending_review_feedback(store: D.DomainStore, task_id: str) -> list[dict]:
         item for item in store.list_review_comments(task_id)
         if item["resolved_at"] is None
     ]
+
+
+# adaptive가 고른 재시도 전략을 모델이 실행할 수 있는 지시로 옮긴다. 전략 이름만
+# 넘기면 로컬 소형 모델에게는 의미 없는 토큰이다.
+RETRY_STRATEGY_PROMPTS = {
+    "diagnose_then_repair": (
+        "먼저 검증이 왜 실패했는지 확인해 원인을 특정한 뒤 고치세요. "
+        "원인을 모른 채 같은 수정을 다시 시도하지 마세요."
+    ),
+    "expanded_parent_budget": (
+        "직전 시도는 예산이 소진돼 끝났습니다. 워커를 만들지 말고 가장 짧은 "
+        "경로로 직접 처리한 뒤 결과를 보고하세요."
+    ),
+    "defer_fanout_and_extend_timeout": (
+        "직전 시도는 시간 초과로 끝났습니다. 작업을 좁히고 워커 fan-out 없이 "
+        "핵심 변경 하나만 끝내세요."
+    ),
+    "inspect_tool_boundary_once": (
+        "직전 시도는 도구 오류로 끝났습니다. 실패한 도구 호출의 경계(경로·인자·"
+        "권한)를 한 번만 점검하고, 같은 호출을 반복하지 마세요."
+    ),
+    "reconnaissance_then_parent": (
+        "직전 시도는 런타임 실패로 끝났습니다. 먼저 현재 상태를 짧게 파악한 뒤 "
+        "직접 진행하세요."
+    ),
+    "manual_only": (
+        "직전 시도는 사용자가 취소했습니다. 취소 전 작업을 임의로 재개하지 말고 "
+        "무엇을 할지 먼저 확인하세요."
+    ),
+}
 
 
 def _task_context_snapshot(
@@ -171,6 +205,27 @@ def _task_context_snapshot(
             detail={"stage": workflow_stage},
         ))
         preamble.append(workflow_prompt)
+
+    # 이전 시도가 왜 실패했는지. adaptive는 이 판정으로 워커 토폴로지와 예산을
+    # 이미 바꿔 놓았지만, 정작 모델은 백지에서 다시 시작해 같은 실패를 반복했다.
+    retry = (dispatch.get("adaptive_decision") or {}).get("retry") or {}
+    failure_type = str(retry.get("failure_type") or "")
+    if failure_type:
+        retry_prompt = "\n".join(filter(None, (
+            "PREVIOUS ATTEMPT FAILED: 이 Task의 직전 시도는 "
+            f"{failure_type}로 끝났습니다. 같은 경로를 그대로 반복하지 마세요.",
+            f"근거: {retry['evidence']}" if retry.get("evidence") else "",
+            RETRY_STRATEGY_PROMPTS.get(str(retry.get("strategy") or ""), ""),
+        )))
+        items.append(_context_item(
+            "retry_context", "직전 시도 실패", "AdaptiveDecision", retry_prompt,
+            detail={
+                "failure_type": failure_type,
+                "strategy": retry.get("strategy"),
+                "previous_dispatch_id": retry.get("previous_dispatch_id"),
+            },
+        ))
+        preamble.append(retry_prompt)
 
     feedback = list(review_feedback or [])
     if feedback:
@@ -445,20 +500,22 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
         workspace = store.get_workspace(dispatch["workspace_id"])
         if workspace["state"] != "ready" or not workspace["root_path"]:
             raise D.Conflict("ready Workspace가 있어야 Session을 실행할 수 있습니다")
+        run_task = store.get_task(task_id)
         spec = _task_runtime_spec(
             store, session["agent_profile_id"], budget=dispatch["budget"],
             adaptive_decision=dispatch["adaptive_decision"],
             profile_snapshot=dispatch["agent_profile_snapshot"],
+            task=run_task,
         )
         spec["skills"] = [
             _skill_json(item) for item in store.snapshot_session_skills(session_id)
         ]
         active_learnings = store.list_project_learnings(
-            store.get_task(task_id)["project_id"], active_only=True, limit=20,
+            run_task["project_id"], active_only=True, limit=20,
         )
         context_snapshot = _task_context_snapshot(
             spec, dispatch, workspace, spec["skills"], store.list_session_events(session_id),
-            store.get_task(task_id),
+            run_task,
             active_learnings,
             review_feedback=_pending_review_feedback(store, task_id),
         )

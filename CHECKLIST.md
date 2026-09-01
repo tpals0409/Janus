@@ -103,13 +103,13 @@
 
 ### 35. 구조적 갭 (설계 수준)
 
-- [ ] **완료 판정을 검증과 연결**: `finish_turn(outcome="completed")`가 Task의
+- [x] **완료 판정을 검증과 연결**: `finish_turn(outcome="completed")`가 Task의
       `acceptance_command`를 동기 실행하고 실패 시 `partial`로 강등한다
       (`runtime.py:716-725`, 현재 `verification.run`은 UI 라우터에서만 호출)
 - [ ] 검증 게이밍 차단: passed 판정 전 verification 대상 파일의 revision 비교 —
       테스트를 지워 green을 만든 통과가 confidence 0.95 영구 규칙으로 승격되는 경로 차단
       (`verification.py:81-86`, `self_improvement.py:30-43`)
-- [ ] adaptive `retry.{strategy,evidence}` 블록을 컨텍스트 preamble에 주입 — 현재 계산·
+- [x] adaptive `retry.{strategy,evidence}` 블록을 컨텍스트 preamble에 주입 — 현재 계산·
       영속만 되고 재시도 모델은 이전 실패를 모른다 (`adaptive.py:414-420`, `routers/sessions.py:41-57`)
 - [ ] write lease 기본 파티션 `"*"` 독점과 부모 면제 해소 — 병렬 write 워커가 실제로는
       불가능하고, 부모는 워커 소유 파일을 자유롭게 편집한다 (`runtime.py:868-869`, `runtime.py:912-917`)

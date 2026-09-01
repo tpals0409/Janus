@@ -31,6 +31,7 @@ from . import scheduler as scheduler_mod
 from . import spec as spec_mod
 from . import telemetry as telemetry_mod
 from . import tools as T
+from . import verification as verification_mod
 from .workspace import WorkspaceContext
 
 # UI의 짧은 이름 -> 로컬에 실제로 존재하는 스냅샷 경로.
@@ -365,6 +366,9 @@ class Orchestration:
         # 이번 턴에 실제로 허용된 도구. read-only 축소가 걸린 턴에만 채워지고,
         # create_worker가 워커 도구를 여기에 가둔다 (턴 종료 시 None으로 복귀).
         self.turn_tools: list[str] | None = None
+        # finish_turn(completed)의 완료 게이트. 비어 있으면 게이트 없이 모델의
+        # 자기 신고를 그대로 인정한다 (Task 밖 세션·명령 미설정 프로젝트).
+        self.acceptance_command = str(spec.get("acceptance_command") or "").strip()
         self.max_steps = spec.get("max_steps", 15)
         self.worker_policy = spec.get("worker_policy", "autonomous")
         self.allow_autonomous_workers = bool(spec.get("allow_autonomous_workers", False))
@@ -711,6 +715,32 @@ class Orchestration:
 
     # ── create_worker 스킬 ──
 
+    def _run_acceptance_gate(self) -> dict | None:
+        """완료 신고를 Task의 acceptance command로 검증한다.
+
+        모델이 스스로 "completed"라고 선언하는 것만으로 턴이 완료로 굳으면
+        verification은 UI 버튼에만 존재하고 에이전트 계약에는 없는 것과 같다.
+        여기서 실제 exit code를 받아온다. 명령이 없으면 None을 돌려 게이트를
+        건너뛴다 — 없는 근거를 있는 척하지 않는다.
+        """
+        if not self.acceptance_command:
+            return None
+        context = self.active_workspace_context or self.workspace_context
+        try:
+            return verification_mod.run(
+                self.acceptance_command, context,
+                scheduler=self.scheduler, priority=self.priority,
+                cancel=self.cancel, queue_timeout=self.queue_timeout,
+                emit=lambda kind, **data: self._sink(ORCH_ID, kind, data),
+            )
+        except Exception as error:
+            # 게이트가 못 돌았다는 사실 자체가 결과다 — 통과로 처리하지 않는다.
+            return {
+                "command": self.acceptance_command, "exit_code": None,
+                "stdout": "", "stderr": "",
+                "error": f"{type(error).__name__}: {error}",
+            }
+
     def _make_finish_turn_tool(self) -> dict:
         def handler(
             outcome: str, summary: str, evidence: list[str] | None = None, **_,
@@ -724,10 +754,61 @@ class Orchestration:
                 "summary": str(summary).strip()[:1000],
                 "evidence": [str(item)[:500] for item in (evidence or [])[:10]],
             }
+            gate: dict | None = None
+            if normalized == "completed":
+                gate = self._run_acceptance_gate()
+            if gate is not None and gate.get("exit_code") != 0:
+                # 자기 신고를 뒤집는다. summary는 모델이 쓴 그대로 두고 근거만
+                # 사실로 바꾼다 — 사용자가 무엇이 주장이고 무엇이 측정인지 본다.
+                detail = str(
+                    gate.get("error") or gate.get("stderr") or gate.get("stdout") or ""
+                ).strip()[:300]
+                record["outcome"] = "partial"
+                record["evidence"] = ([
+                    f"acceptance 실패: {self.acceptance_command} "
+                    f"(exit={gate.get('exit_code')})",
+                    *([detail] if detail else []),
+                ] + record["evidence"])[:10]
+                # summary가 그대로 사용자에게 보이는 최종 답변이 된다(agent.run의
+                # terminal 처리). 완료 주장만 남으면 화면은 성공, 기록은 partial인
+                # 거짓 상태가 된다.
+                record["summary"] = (
+                    f"[검증 실패] acceptance command `{self.acceptance_command}`가 "
+                    f"exit {gate.get('exit_code')}로 끝나 완료로 인정되지 않았습니다.\n\n"
+                    f"에이전트 보고: {record['summary']}"
+                )[:1000]
+                self.turn_outcome = record
+                self._sink(ORCH_ID, "acceptance_gate", {
+                    "command": self.acceptance_command,
+                    "exit_code": gate.get("exit_code"), "passed": False,
+                    "claimed": normalized,
+                })
+                return {
+                    **record,
+                    "recorded": True,
+                    "acceptance": {
+                        "command": self.acceptance_command,
+                        "exit_code": gate.get("exit_code"), "passed": False,
+                        "detail": detail,
+                    },
+                    "instruction": (
+                        "acceptance command가 실패해 completed 신고가 partial로 "
+                        "내려갔습니다. 사용자에게 무엇이 남았는지 사실대로 보고하세요."
+                    ),
+                }
             self.turn_outcome = record
+            if gate is not None:
+                self._sink(ORCH_ID, "acceptance_gate", {
+                    "command": self.acceptance_command,
+                    "exit_code": gate.get("exit_code"), "passed": True,
+                    "claimed": normalized,
+                })
             return {
                 **record,
                 "recorded": True,
+                **({"acceptance": {
+                    "command": self.acceptance_command, "exit_code": 0, "passed": True,
+                }} if gate is not None else {}),
                 "instruction": "이제 사용자에게 간결한 최종 답변을 하고 도구 호출을 멈추세요.",
             }
 
@@ -754,7 +835,9 @@ class Orchestration:
             "Record the Task outcome immediately before the final user-facing answer.",
             "Call exactly once at the completion boundary. Use completed only with fresh "
             "evidence, input_required only for a concrete user decision, and mockup_review "
-            "only after producing a reviewable mockup.",
+            "only after producing a reviewable mockup. When the Task declares an "
+            "acceptance command, completed runs it and is downgraded to partial if it "
+            "fails — claiming completion you cannot back up only wastes a turn.",
             # 턴 종결자는 절대 굶으면 안 된다 — cpu_tool(cap 2)에서는 블로킹
             # 워커 대기 두 건 뒤에 큐 타임아웃까지 밀린다.
             resource_class="io_tool", render_chars=4000, terminal=True,
