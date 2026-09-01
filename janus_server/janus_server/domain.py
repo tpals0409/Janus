@@ -762,6 +762,11 @@ class DomainStore:
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA busy_timeout = 30000")
         connection.execute("PRAGMA journal_mode = WAL")
+        # WAL에서 NORMAL은 커밋마다의 fsync를 없앤다. 앱 크래시에는 안전하고
+        # (WAL이 원자성을 보장한다) OS/전원 장애에서만 마지막 커밋 몇 개를 잃을
+        # 수 있다. 이벤트 스트림이 커밋 하나당 fsync 하나를 내던 것이 로컬
+        # 처리량의 바닥이었다 — 그 대가로 감수할 만한 위험이다.
+        connection.execute("PRAGMA synchronous = NORMAL")
         return connection
 
     @contextmanager

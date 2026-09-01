@@ -75,24 +75,37 @@ def test_quiesced_writer_is_recovered_in_next_turn_context():
     writer_popped = threading.Event()
     release_writer = threading.Event()
 
-    def writer_generation():
-        writer_popped.set()
-        release_writer.wait(5)
-        return {"text": "writer output"}
-
-    def parent_generation():
-        # 부모 마무리 생성은 워커가 블로킹 엔트리를 선점한 뒤에만 진행한다.
-        writer_popped.wait(5)
-        return {"text": "parent wrapping up"}
-
     create_args = json.dumps({
         "name": "ed", "task": "edit src/a.py contents",
         "role": "implementer", "max_steps": 2, "tools": [],
     })
+
+    def by_caller(request):
+        """스크립트 위치가 아니라 요청 내용으로 누구의 생성인지 가른다.
+
+        부모와 워커는 각자의 스레드에서 진짜로 동시에 생성을 시작한다 — 팝
+        순서에 기대면 스케줄링에 따라 역할이 뒤바뀐다. 전체 본문으로 가르면
+        부모의 create_worker 인자에도 같은 task 문자열이 있어 겹치므로,
+        마지막 user 메시지(= 그 노드가 받은 지시)로 판별한다.
+        """
+        instruction = next(
+            (str(message.get("content") or "")
+             for message in reversed(request.get("messages") or [])
+             if message.get("role") == "user"),
+            "",
+        )
+        if instruction.startswith("edit src/a.py contents"):
+            # 워커: 부모 턴이 끝날 때까지 실행 중으로 남는다
+            writer_popped.set()
+            release_writer.wait(5)
+            return {"text": "writer output"}
+        writer_popped.wait(5)  # 부모 마무리: 워커가 실행 중일 때만 끝낸다
+        return {"text": "parent wrapping up"}
+
     fake = FakeClient([
         {"calls": [("create_worker", create_args)]},
-        writer_generation,
-        parent_generation,
+        by_caller,
+        by_caller,
         {"text": "resumed"},
         {"text": "again"},
     ])

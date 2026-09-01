@@ -156,7 +156,7 @@
 
 ### 37. 처리량·관측
 
-- [ ] 토큰 델타마다 SQLite IMMEDIATE 트랜잭션 + fsync — 전 워커 토큰이 단일 writer에
+- [x] 토큰 델타마다 SQLite IMMEDIATE 트랜잭션 + fsync — 전 워커 토큰이 단일 writer에
       직렬화된다. 델타 비영속화 또는 배칭 + WAL/`synchronous=NORMAL`
       (`agent.py:343,346`, `domain.py:2664`, `domain.py:749-757`)
 - [ ] `telemetry.events`·`node_events`·`worker_records`·`session_events` 무상한 성장과

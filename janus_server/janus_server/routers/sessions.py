@@ -30,6 +30,12 @@ from ..workspace import WorkspaceContext
 
 router = APIRouter()
 
+# 스트리밍 델타. 화면에는 토큰 단위로 흘리되 영속화는 합쳐서 한 번만 한다.
+DELTA_EVENT_KINDS = frozenset({"text_delta", "reasoning_delta"})
+# 이 길이를 넘으면 중간에 한 번 비운다 — 긴 생성이 통째로 메모리에만 남아
+# 크래시 시 사라지는 것을 막는 절충점이다.
+DELTA_FLUSH_CHARS = 2_000
+
 def _task_runtime_spec(
     store: D.DomainStore, agent_profile_id: str, *, budget: dict | None = None,
     adaptive_decision: dict | None = None, profile_snapshot: dict | None = None,
@@ -579,9 +585,14 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
             "session_id": session_id,
         }
 
-    def send(event: dict) -> None:
-        """Persist before delivery and reject any event that lost Dispatch ownership."""
-        payload = _payload_with_ids(event)
+    # 토큰 델타는 스트리밍이라 건당 수천 개가 나온다. 하나씩 영속하면 매 토큰이
+    # 새 connection + BEGIN IMMEDIATE + MAX(seq) + INSERT + COMMIT이 되고, 그
+    # 전역 쓰기 락에 모든 워커의 생성이 직렬화된다. 화면 전달은 즉시 하고
+    # 저장만 모은다 — 재접속 복원은 합쳐진 텍스트로도 동일하다.
+    delta_buffers: dict[tuple[str, str], dict] = {}
+
+    def _persist(payload: dict) -> bool:
+        """Returns False once this Dispatch has lost ownership."""
         try:
             store.append_session_event(
                 session_id,
@@ -601,11 +612,40 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
                     "type": "stale_dispatch",
                     "error": "더 최신 Dispatch가 이 Task의 실행 권한을 소유합니다",
                 }))
+            return False
+        return True
+
+    def _flush_deltas(key: tuple[str, str] | None = None) -> None:
+        keys = [key] if key is not None else list(delta_buffers)
+        for item in keys:
+            buffered = delta_buffers.pop(item, None)
+            if buffered is not None and buffered["text"]:
+                _persist({**buffered["payload"], "text": buffered["text"]})
+
+    def send(event: dict) -> None:
+        """Persist before delivery and reject any event that lost Dispatch ownership."""
+        payload = _payload_with_ids(event)
+        kind = str(payload.get("kind") or "")
+        if kind in DELTA_EVENT_KINDS:
+            _direct_send(payload)  # 화면은 기다리지 않는다
+            key = (str(payload.get("worker_id") or ""), kind)
+            buffered = delta_buffers.get(key)
+            if buffered is None:
+                delta_buffers[key] = {"payload": payload, "text": str(payload.get("text") or "")}
+            else:
+                buffered["text"] += str(payload.get("text") or "")
+            if len(delta_buffers[key]["text"]) >= DELTA_FLUSH_CHARS:
+                _flush_deltas(key)
             return
-        _direct_send(payload)
+        # 델타가 아닌 이벤트가 나오면 순서를 지키기 위해 먼저 비운다.
+        _flush_deltas()
+        if _persist(payload):
+            _direct_send(payload)
 
     def persist_final(event: dict) -> dict | None:
         """Persist a terminal event only if this is still the latest Dispatch."""
+        # 남은 델타를 먼저 비워 종료 이벤트보다 앞선 seq를 받게 한다.
+        _flush_deltas()
         payload = _payload_with_ids(event)
         try:
             store.append_session_event(
@@ -964,6 +1004,10 @@ async def run_task_session(ws: WebSocket, task_id: str, session_id: str):
         if turn_task and not turn_task.done():
             with suppress(asyncio.CancelledError):
                 await asyncio.shield(turn_task)
+        # 버퍼에 남은 델타를 영속화한다 — 아니면 재접속 시 마지막 생성의 꼬리가
+        # 사라진 채로 복원된다.
+        with suppress(Exception):
+            _flush_deltas()
         with shared._TASK_RUNTIMES_LOCK:
             if orch is not None and shared._TASK_RUNTIMES.get(session_id) is orch:
                 shared._TASK_RUNTIMES.pop(session_id, None)

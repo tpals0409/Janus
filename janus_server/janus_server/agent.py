@@ -57,6 +57,9 @@ DISCOVERY_SUMMARY_CHARS = 700
 DISCOVERY_TOOLS = frozenset({
     "read_file", "grep", "glob", "load_skill", "read_skill_resource", "http_get",
 })
+# 생성 스레드가 실제로 요청을 보내기 시작할 때까지 기다리는 상한. 순서 보장용일
+# 뿐이라 짧다 — 넘겨도 그냥 진행한다.
+GENERATION_START_BARRIER_SECONDS = 1.0
 # 압축 임계는 토큰으로 사고하고 chars로 집행한다. 설정값(chars)은 4자/토큰
 # 가정으로 토큰 목표치로 환산해 두고, 실측 usage.prompt_tokens가 들어오면
 # chars/token 비율을 보정해 임계를 다시 chars로 환산한다. 한국어(1~2자/토큰)는
@@ -366,21 +369,33 @@ class GenerationCancelled(RuntimeError):
     """첫 청크가 오기 전에 취소된 생성."""
 
 
-def _open_stream(create, cancel, poll_seconds: float = 0.25):
+def _open_stream(create, cancel, poll_seconds: float = 0.25, on_start=None):
     """생성 요청을 별도 스레드에서 연다 — 첫 바이트 전에도 취소가 먹게.
 
     `create()`는 서버가 prefill을 끝낼 때까지 블로킹한다. 그동안 취소를 확인할
     길이 없으면 stop 버튼이 요청 타임아웃(기본 1,200초)까지 아무 효과가 없고,
     그 사이 model generation 슬롯도 계속 잡혀 있다.
+
+    `on_start`는 요청이 실제로 나가기 직전, 생성 스레드 안에서 불린다. "생성이
+    시작됐다"는 신호를 요청 전송과 같은 지점에 묶어야 create_worker의 launched
+    배리어가 뜻대로 동작한다 — 아니면 워커를 띄운 직후 부모가 모델을 먼저 잡는
+    역전이 스레드 스케줄링에 따라 생긴다.
     """
     if cancel is None:
+        if on_start is not None:
+            on_start()
         return create()
     box: dict = {}
+    entered = threading.Event()
 
     def open_it() -> None:
         try:
+            if on_start is not None:
+                on_start()
+            entered.set()
             stream = create()
         except BaseException as error:  # 호출부에서 그대로 다시 던진다
+            entered.set()
             box["error"] = error
             return
         if cancel.is_set():
@@ -395,6 +410,7 @@ def _open_stream(create, cancel, poll_seconds: float = 0.25):
 
     worker = threading.Thread(target=open_it, name="janus-generation", daemon=True)
     worker.start()
+    entered.wait(GENERATION_START_BARRIER_SECONDS)
     while worker.is_alive():
         worker.join(poll_seconds)
         if cancel.is_set():
@@ -641,12 +657,17 @@ def run(
             emit("resource_lease_acquired", resource="model_generation",
                  operation_id=generation_id, lease_id=generation_lease.id,
                  step=step + 1)
-            emit("model_generation_start", operation_id=generation_id, step=step + 1)
             try:
                 stream = _open_stream(
                     # 별도 스레드로 넘기므로 이번 반복의 kwargs를 즉시 묶는다.
                     lambda kw=kwargs: client.chat.completions.create(**kw),
                     effective_cancel,
+                    # 시작 신호는 요청이 실제로 나가는 지점에서 낸다 — 이 이벤트가
+                    # 워커의 launched 배리어를 푼다.
+                    on_start=lambda: emit(  # noqa: B023 — 같은 반복 안에서만 산다
+                        "model_generation_start",
+                        operation_id=generation_id, step=step + 1,  # noqa: B023
+                    ),
                 )
                 text, calls, usage, finish_reason = _assemble(
                     stream, emit, effective_cancel
