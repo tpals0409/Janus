@@ -57,6 +57,139 @@ class ToolSchemaAccountingTests(unittest.TestCase):
         )
 
 
+class PrefixCacheTests(unittest.TestCase):
+    def build(self) -> agent.Session:
+        session = agent.Session(
+            "SYSTEM PROMPT", context_max_chars=3_000, context_recent_blocks=2,
+        )
+        for index in range(12):
+            session.append("user", content=f"request {index} " + "본문 " * 60)
+            session.append("assistant", content=f"result {index} " + "본문 " * 60)
+        return session
+
+    def test_compaction_keeps_the_system_prompt_byte_identical(self):
+        """요약을 system에 붙이면 압축이 돌 때마다 KV prefix 캐시가 무효가 된다.
+
+        로컬에선 prefill이 지연의 지배 항이라, 컨텍스트를 줄이려는 최적화가
+        캐시를 통째로 버리는 자기모순이었다.
+        """
+        session = self.build()
+        messages = session.derive_messages()
+        self.assertTrue(session.context_stats["compacted"])
+        self.assertEqual("SYSTEM PROMPT", messages[0]["content"])
+
+        # 요약은 system 뒤 별도 메시지로 실린다.
+        self.assertIn(agent.SUMMARY_ENVELOPE.strip(), messages[1]["content"])
+
+    def test_prefix_hash_survives_further_compaction(self):
+        session = self.build()
+        session.derive_messages()
+        first = session.context_stats["prefix_hash"]
+
+        # 대화가 더 자라 요약 내용이 바뀌어도 안정 prefix는 그대로다.
+        for index in range(6):
+            session.append("user", content=f"more {index} " + "본문 " * 60)
+            session.append("assistant", content=f"done {index} " + "본문 " * 60)
+        session.derive_messages()
+
+        self.assertEqual(first, session.context_stats["prefix_hash"])
+        self.assertTrue(session.context_stats["prefix_reused"])
+        self.assertEqual(
+            len("SYSTEM PROMPT"), session.context_stats["cache_candidate_chars"]
+        )
+
+    def test_measured_cache_hits_sit_next_to_the_probe(self):
+        """접두사를 지켰는지(prefix_reused)와 서버가 실제로 재사용했는지는 다르다."""
+        session = agent.Session("system", context_max_chars=None)
+        session.append("user", content="hello")
+        session.derive_messages()
+        self.assertEqual(0.0, session.context_stats["last_cache_hit_ratio"])
+
+        session.observe_usage(1_000, 500, 400)
+        session.derive_messages()
+        self.assertEqual(0.8, session.context_stats["last_cache_hit_ratio"])
+
+        # APC 미지원 서버는 0으로 보고된다 — "지켰는데 헛수고"가 그대로 보인다.
+        session.observe_usage(1_000, 500, 0)
+        session.derive_messages()
+        self.assertEqual(0.0, session.context_stats["last_cache_hit_ratio"])
+
+
+class SummaryGranularityTests(unittest.TestCase):
+    def summarize_with(self, tool_name: str) -> str:
+        session = agent.Session("system")
+        block = [
+            {"role": "assistant", "content": "", "tool_calls": [{
+                "id": "c1", "type": "function",
+                "function": {"name": tool_name, "arguments": "{}"},
+            }]},
+            {"role": "tool", "tool_call_id": "c1", "content": "Z" * 3_000},
+        ]
+        return session._project_summary([block])
+
+    def test_discovery_results_keep_more_than_write_results(self):
+        """탐색 결과를 쓰기 결과와 같은 길이로 접으면 모델이 같은 파일을 다시 읽는다."""
+        discovery = self.summarize_with("read_file")
+        action = self.summarize_with("write_file")
+
+        self.assertGreater(len(discovery), len(action))
+        self.assertIn("Z" * agent.DEFAULT_SUMMARY_CHARS, action)
+        self.assertIn("Z" * agent.DISCOVERY_SUMMARY_CHARS, discovery)
+        # 둘 다 상한은 지킨다 — 차등이지 무제한이 아니다.
+        self.assertNotIn("Z" * (agent.DISCOVERY_SUMMARY_CHARS + 1), discovery)
+
+
+class SkillCatalogTests(unittest.TestCase):
+    """카탈로그는 매 요청 prefill에 고정으로 얹힌다 — 상한이 없으면 대화가 밀린다."""
+
+    def catalog(self, snapshots: list[dict]) -> str:
+        orchestration = object.__new__(runtime.Orchestration)
+        orchestration.skill_snapshots = snapshots
+        return runtime.Orchestration._skill_catalog_prompt(orchestration)
+
+    def skill(self, index: int, **overrides) -> dict:
+        item = {
+            "namespace": "ns", "name": f"skill{index}",
+            "activation_mode": "auto",
+            "description": "D" * 900,
+            "compiled": {"activation": {"model_invocable": True}},
+        }
+        item.update(overrides)
+        return item
+
+    def test_descriptions_are_truncated_and_entries_are_capped(self):
+        many = [self.skill(i) for i in range(runtime.SKILL_CATALOG_MAX_ENTRIES + 5)]
+        text = self.catalog(many)
+
+        self.assertNotIn("D" * (runtime.SKILL_CATALOG_DESCRIPTION_CHARS + 1), text)
+        listed = [line for line in text.splitlines() if line.startswith("- ns:")]
+        self.assertEqual(runtime.SKILL_CATALOG_MAX_ENTRIES, len(listed))
+        self.assertIn("and 5 more", text)
+
+    def test_auto_skills_survive_the_cap_before_manual_ones(self):
+        snapshots = [
+            self.skill(i, activation_mode="manual")
+            for i in range(runtime.SKILL_CATALOG_MAX_ENTRIES)
+        ] + [self.skill(99, activation_mode="auto")]
+        text = self.catalog(snapshots)
+        self.assertIn("ns:skill99", text)
+
+    def test_skills_the_model_cannot_invoke_are_not_advertised(self):
+        text = self.catalog([
+            self.skill(1, compiled={"activation": {"model_invocable": False}}),
+            self.skill(2),
+        ])
+        self.assertNotIn("ns:skill1", text)
+        self.assertIn("ns:skill2", text)
+
+    def test_activation_paths_reach_the_prompt(self):
+        """컴파일만 되고 죽어 있던 필드 — 언제 쓰는 스킬인지 알려주는 유일한 신호다."""
+        text = self.catalog([self.skill(1, compiled={
+            "activation": {"model_invocable": True, "paths": ["src/**/*.py"]},
+        })])
+        self.assertIn("applies to: src/**/*.py", text)
+
+
 class PromptHygieneTests(unittest.TestCase):
     def test_personas_do_not_cite_bundled_paths_the_model_cannot_read(self):
         """번들 본문은 같은 프롬프트에 이미 인라인돼 있다.

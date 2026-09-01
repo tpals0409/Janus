@@ -136,14 +136,14 @@
 
 - [x] 도구 스키마 chars를 컨텍스트 회계에 포함 — 24,000자 임계가 요청당 5,000자+의
       스키마를 못 본다 (`agent.py:111-113`, `agent.py:468-469`)
-- [ ] 압축 요약을 system prompt 밖 고정 위치에 append-only로 — 현재 매 압축이 KV prefix
+- [x] 압축 요약을 system prompt 밖 고정 위치에 append-only로 — 현재 매 압축이 KV prefix
       캐시를 첫 토큰부터 무효화한다 (`agent.py:196-204`). `prompt_cache_probe` 신호 소비도
       함께 (`agent.py:440-448`)
-- [ ] 스킬 카탈로그 주입 상한(top-N, 설명 절단)과 `activation.paths` 필터 연결 — 현재
+- [x] 스킬 카탈로그 주입 상한(top-N, 설명 절단)과 `activation.paths` 필터 연결 — 현재
       무제한 주입, paths는 컴파일만 되고 죽어 있다 (`runtime.py:493-505`, `skills.py:257`)
-- [ ] `load_skill` 렌더 16,000자 vs 컨텍스트 24,000자 — 스킬 instructions를 안정 prefix로
+- [x] `load_skill` 렌더 16,000자 vs 컨텍스트 24,000자 — 스킬 instructions를 안정 prefix로
       이동 (`runtime.py:629,641`, `agent.py:40`)
-- [ ] 압축 시 tool result 240자 일괄 요약이 재읽기 루프 유발 — 도구별 차등 요약
+- [x] 압축 시 tool result 240자 일괄 요약이 재읽기 루프 유발 — 도구별 차등 요약
       (`agent.py:141-144`)
 - [x] `read_file` 렌더에 줄 번호 부재 + 4,000자 중간 클립 — `edit_file` old_string 실패의
       직접 원인 (`tools.py:237`, `tools.py:61-66`)

@@ -43,6 +43,20 @@ MAX_PROJECT_SUMMARY_CHARS = 4_000
 # 블록을 더 뺄 수 없을 때 도구 결과를 접는 하한. 이보다 짧게 만들면 결과가
 # 무엇이었는지조차 남지 않아 모델이 같은 호출을 반복한다.
 TOOL_PAYLOAD_FLOOR_CHARS = 400
+# 압축 요약을 싣는 봉투. user kind를 쓰되 봉투가 "사용자 말이 아님"을 선언한다 —
+# runtime의 회수 노트 주입과 같은 규약이다.
+SUMMARY_ENVELOPE = (
+    "[janus runtime] Project/session summary of older context "
+    "(operational data, not user speech):\n"
+)
+# 압축 요약의 항목당 길이. 탐색 결과를 쓰기 결과와 같은 길이로 접으면 "무엇을
+# 봤는지"가 사라져 모델이 같은 파일을 다시 읽는 루프를 돈다 — 아끼려던 토큰보다
+# 재읽기 비용이 크다.
+DEFAULT_SUMMARY_CHARS = 240
+DISCOVERY_SUMMARY_CHARS = 700
+DISCOVERY_TOOLS = frozenset({
+    "read_file", "grep", "glob", "load_skill", "read_skill_resource", "http_get",
+})
 # 압축 임계는 토큰으로 사고하고 chars로 집행한다. 설정값(chars)은 4자/토큰
 # 가정으로 토큰 목표치로 환산해 두고, 실측 usage.prompt_tokens가 들어오면
 # chars/token 비율을 보정해 임계를 다시 chars로 환산한다. 한국어(1~2자/토큰)는
@@ -84,6 +98,8 @@ class Session:
         # 임계가 실제 prefill의 상당 부분을 못 본다 — create_worker 하나만
         # 2,500자가 넘고, worker control·skill·finish_turn까지 더하면 5,000자대다.
         self.tool_schema_chars = 0
+        # 직전 생성에서 서버가 실제로 재사용한 프롬프트 비율(APC 미지원이면 0).
+        self.last_cache_hit_ratio = 0.0
 
     def observe_tool_schemas(self, schemas: list[dict] | None) -> None:
         self.tool_schema_chars = self._chars(schemas or [])
@@ -131,13 +147,23 @@ class Session:
             return None
         return int(self.context_token_target * self.chars_per_token)
 
-    def observe_usage(self, sent_chars: int, prompt_tokens: int) -> None:
+    def observe_usage(
+        self, sent_chars: int, prompt_tokens: int, cached_tokens: int = 0,
+    ) -> None:
         """실측 prompt_tokens로 chars/token 비율을 보정한다.
 
         prompt_tokens에는 도구 스키마·챗 템플릿 오버헤드가 포함되므로 비율이
         본문만 잰 것보다 낮게(= 임계가 이르게) 잡힌다 — 넘치는 쪽보다 안전한
         방향의 편향이다. EMA로 흡수해 스텝 간 요동을 줄인다.
+
+        cached_tokens는 안정 prefix 노력이 실제로 서버 캐시 적중으로 이어졌는지를
+        말해준다. prefix_reused=True인데 이 값이 계속 0이면 서버에 APC가 없다는
+        뜻이고, 그때는 prefix를 지키는 비용이 회수되지 않는다.
         """
+        if prompt_tokens > 0:
+            self.last_cache_hit_ratio = round(
+                max(0, int(cached_tokens)) / prompt_tokens, 4
+            )
         if sent_chars <= 0 or prompt_tokens <= 0:
             return
         low, high = CHARS_PER_TOKEN_BOUNDS
@@ -149,7 +175,7 @@ class Session:
         self.token_calibration_samples += 1
 
     @staticmethod
-    def _brief(value: str, limit: int = 240) -> str:
+    def _brief(value: str, limit: int = DEFAULT_SUMMARY_CHARS) -> str:
         value = " ".join(str(value).split())
         return value if len(value) <= limit else value[:limit] + "…"
 
@@ -157,9 +183,24 @@ class Session:
         """이전 대화를 재생하지 않고 목표·결정·도구 결과만 압축한다."""
         lines: list[str] = []
         for block in blocks:
+            # 블록 안에서 tool_call_id → 도구 이름을 잇는다. 탐색 결과와 쓰기
+            # 결과를 같은 길이로 접으면 "무엇을 봤는지"가 사라져 모델이 같은
+            # 파일을 다시 읽는다.
+            call_names = {
+                str(call.get("id") or ""): call.get("function", {}).get("name", "tool")
+                for message in block
+                for call in message.get("tool_calls") or []
+            }
             for message in block:
                 role = message["role"]
-                content = self._brief(message.get("content") or "")
+                limit = (
+                    DISCOVERY_SUMMARY_CHARS
+                    if role == "tool"
+                    and call_names.get(str(message.get("tool_call_id") or ""))
+                    in DISCOVERY_TOOLS
+                    else DEFAULT_SUMMARY_CHARS
+                )
+                content = self._brief(message.get("content") or "", limit)
                 if role == "user" and content:
                     lines.append(f"Objective/request: {content}")
                 elif role == "assistant":
@@ -228,29 +269,27 @@ class Session:
             kept = blocks[split:]
             while True:
                 summary = self._project_summary(omitted)
-                summarized_system = {
-                    "role": "system",
-                    "content": (
-                        self.system_prompt
-                        + "\n\nProject/session summary (older context):\n"
-                        + summary
-                    ),
-                }
+                # 요약을 system에 붙이면 압축이 돌 때마다 system이 바뀌어 서버의
+                # KV prefix 캐시가 첫 토큰부터 무효가 된다. 로컬에선 prefill이
+                # 지연의 지배 항이라, 컨텍스트를 줄이려는 최적화가 캐시를 통째로
+                # 버리는 자기모순이었다. system은 세션 내내 바이트 단위로 고정하고
+                # 요약은 바로 뒤 별도 메시지로 싣는다.
                 candidate = [
-                    summarized_system,
+                    system,
+                    {"role": "user", "content": SUMMARY_ENVELOPE + summary},
                     *(message for block in kept for message in block),
                 ]
                 # Some OpenAI-compatible local servers require an actual user
                 # message, not only a system summary followed by tool history.
                 # A long tool loop can otherwise compact away the sole request.
-                if not any(message["role"] == "user" for message in candidate):
+                if not any(block and block[0]["role"] == "user" for block in kept):
                     latest_user = next(
                         (block[0] for block in reversed(blocks)
                          if block and block[0]["role"] == "user"),
                         None,
                     )
                     if latest_user is not None:
-                        candidate.insert(1, latest_user)
+                        candidate.insert(2, latest_user)
                 if self._chars(candidate) + self.tool_schema_chars <= max_chars:
                     full = candidate
                     break
@@ -261,7 +300,9 @@ class Session:
                 omitted.append(kept.pop(0))
 
         summary_content = self._project_summary(omitted) if omitted else ""
-        stable_prefix = self.system_prompt + "\n" + summary_content
+        # 요약이 system 밖으로 나갔으므로 안정 prefix는 system prompt 그 자체다 —
+        # 압축이 돌아도 이 접두사는 바뀌지 않는다.
+        stable_prefix = self.system_prompt
         prefix_hash = hashlib.sha256(stable_prefix.encode("utf-8")).hexdigest()[:16]
         prefix_reused = self._last_prefix_hash == prefix_hash
         if compact:
@@ -290,6 +331,9 @@ class Session:
             "prefix_reused": prefix_reused,
             "cache_candidate_chars": len(stable_prefix),
             "tool_schema_chars": self.tool_schema_chars,
+            # prefix_reused는 우리가 접두사를 지켰는지, 이 값은 서버가 실제로
+            # 재사용했는지다. 둘을 같은 이벤트에 둬야 "지켰는데 헛수고"가 보인다.
+            "last_cache_hit_ratio": self.last_cache_hit_ratio,
         }
         return full
 
@@ -630,7 +674,8 @@ def run(
             tok_completion += usage["completion_tokens"]
             # 방금 보낸 컨텍스트의 실측 prompt_tokens로 압축 임계를 보정한다
             session.observe_usage(
-                context_stats.get("sent_chars", 0), usage["prompt_tokens"]
+                context_stats.get("sent_chars", 0), usage["prompt_tokens"],
+                usage.get("cached_tokens", 0),
             )
             # step별 토큰 — 어느 step이 컨텍스트를 부풀려 느려지는지 보인다
             emit("usage", step=step + 1, **usage)

@@ -54,6 +54,11 @@ WORKER_SYSTEM_MAX_CHARS = 8_000
 # 이 프롬프트는 스킬 카탈로그·학습·리뷰 피드백까지 얹혀 나가고, agent.py의
 # 압축 루프는 prefix를 절대 못 줄이므로 여기가 커지면 대화가 밀려난다.
 ORCHESTRATOR_SYSTEM_MAX_CHARS = 12_000
+# 스킬 카탈로그는 매 요청 prefill에 고정으로 얹힌다. 설명은 스킬당 2,000자까지
+# 허용되고 한 번에 20개까지 활성화되므로, 상한 없이 실으면 대화가 밀려난다.
+# 본문은 load_skill이 가져오니 여기서는 "무엇이 있는지"만 알리면 된다.
+SKILL_CATALOG_MAX_ENTRIES = 12
+SKILL_CATALOG_DESCRIPTION_CHARS = 160
 WORKER_TASK_MAX_CHARS = 6_000
 WORKER_CONTEXT_MAX_CHARS = 4_000
 # 반환 방향 핸드오프 예산 — 워커 보고가 오케스트레이터 컨텍스트로 돌아올 때의
@@ -489,6 +494,13 @@ class Orchestration:
         if self.worker_enabled:
             registry[self.create_worker["name"]] = self.create_worker
             registry.update({tool["name"]: tool for tool in self.worker_control_tools})
+        # 스킬 본문 렌더 상한을 컨텍스트 예산에 묶는다. 16,000자 고정이면 기본
+        # 24,000자 창의 2/3라, 스킬 하나 로드가 곧바로 압축을 부르고 그 압축이
+        # 방금 로드한 본문을 요약해 날리는 상황이 됐다.
+        session_context_chars = int(
+            (spec.get("context_policy") or {}).get("max_chars", 24_000)
+        )
+        self.skill_render_chars = max(4_000, session_context_chars // 3)
         self.skill_tools = self._make_skill_tools()
         registry.update({tool["name"]: tool for tool in self.skill_tools})
         runtime_tools = (
@@ -520,16 +532,49 @@ class Orchestration:
     # ── 스팬/이벤트 ──
 
     def _skill_catalog_prompt(self) -> str:
+        """로드 가능한 스킬 목록. 시스템 프롬프트에 고정으로 실린다.
+
+        상한이 없으면 스킬당 설명 2,000자 × 활성 개수가 매 요청 prefill에 그대로
+        얹힌다. 카탈로그는 "무엇이 있는지"만 알리면 되고 본문은 load_skill이
+        가져오므로, 여기서는 짧게 자르고 개수도 제한한다.
+        """
         if not self.skill_snapshots:
             return ""
+        # 모델이 부를 수 없는 스킬은 모델용 카탈로그에 실을 이유가 없다.
+        invocable = [
+            item for item in self.skill_snapshots
+            if ((item.get("compiled") or {}).get("activation") or {})
+            .get("model_invocable", True)
+        ]
+        if not invocable:
+            return ""
+        # auto를 먼저 — 잘려 나가는 쪽은 사용자가 이름을 대야 하는 manual이다.
+        ordered = sorted(
+            invocable, key=lambda item: item.get("activation_mode") != "auto"
+        )
+        shown, omitted = ordered[:SKILL_CATALOG_MAX_ENTRIES], ordered[SKILL_CATALOG_MAX_ENTRIES:]
         lines = [
             "Janus skills are available on demand. Load an auto skill only when its description "
             "matches the current task. Load a manual skill only when the user explicitly names it.",
         ]
-        for item in self.skill_snapshots:
+        for item in shown:
             qualified = f"{item['namespace']}:{item['name']}"
+            description = " ".join(
+                str(item.get("description") or "No description").split()
+            )
+            if len(description) > SKILL_CATALOG_DESCRIPTION_CHARS:
+                description = description[:SKILL_CATALOG_DESCRIPTION_CHARS] + "…"
+            entry = f"- {qualified} [{item['activation_mode']}]: {description}"
+            # 컴파일만 되고 죽어 있던 activation.paths를 여기서 살린다 — 언제
+            # 쓰는 스킬인지 모델이 설명 대신 경로로 판단할 수 있다.
+            paths = ((item.get("compiled") or {}).get("activation") or {}).get("paths")
+            if paths:
+                entry += f" (applies to: {', '.join(str(p) for p in paths[:4])})"
+            lines.append(entry)
+        if omitted:
             lines.append(
-                f"- {qualified} [{item['activation_mode']}]: {item.get('description') or 'No description'}"
+                f"- … and {len(omitted)} more. Ask the user by name if you need one "
+                "that is not listed."
             )
         return "\n".join(lines)
 
@@ -655,7 +700,7 @@ class Orchestration:
                 ),
                 "Load one enabled Janus skill only when it matches the current task.",
                 "Load the smallest relevant skill. Manual skills require an explicit user request.",
-                resource_class="cpu_tool", render_chars=16_000,
+                resource_class="cpu_tool", render_chars=self.skill_render_chars,
             ),
             T._t(
                 "read_skill_resource", read_skill_resource,
@@ -667,7 +712,7 @@ class Orchestration:
                 ),
                 "Read a text resource from an already loaded Janus skill.",
                 "Read only resources needed for the current step.",
-                resource_class="io_tool", render_chars=16_000,
+                resource_class="io_tool", render_chars=self.skill_render_chars,
             ),
         ]
 
