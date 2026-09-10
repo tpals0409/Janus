@@ -1,198 +1,168 @@
 # Janus
 
-Janus is a local-first Agent Development Environment (ADE) for getting the most
-verified work out of a coding agent on your own machine. It turns requests into
-Tasks, runs an orchestrator with bounded sub-agents, and keeps the diff,
-verification, review, commit, push, pull request, terminal, editor, and preview
-context attached to the same Task.
+> 코딩 에이전트의 작업부터 검증, 리뷰, 커밋까지 이어지는
+> 로컬 우선 에이전트 개발 환경, Agent Development Environment.
 
-**Two ways to run a Task, and you pick per message:**
+[제품 설계](PRODUCT.md) · [검증 기록](V1_AUDIT.md) · [개발 기록](STATUS.md)
 
-- **A local model** — a Qwen3.8 27B MLX build served on your machine. Nothing
-  leaves the laptop. This is the default and the reason the project exists.
-- **A subscription CLI** — your own `claude` or `codex` login, driven headlessly.
-  Useful when the local model is too slow for the job, or before you have
-  downloaded 17 GB of weights.
+<!-- 대표 화면 캡처: Task 대화와 변경 diff, 검증 결과가 함께 보이는 실제 앱 화면 -->
 
-The two are not equivalent, and the difference matters before you delegate
-anything — see [Where the agent writes](#where-the-agent-writes).
+## 1. 프로젝트 소개
 
-GitHub integration is optional and uses an already authenticated `gh` CLI when a
-Task is ready to ship.
+Janus는 코딩 에이전트에게 작업을 맡기고, 변경 내용과 검증 결과를 확인한 뒤 커밋과 PR로 연결하는 데스크톱 개발 도구입니다. 대화, 터미널, 에디터, 미리보기와 리뷰를 하나의 Task에 모읍니다.
 
-## Where the agent writes
+출발점은 **로컬 컴퓨터의 제한된 자원으로 검증된 작업 결과를 얼마나 얻을 수 있는가**였습니다. 모델이 답변을 마친 뒤에도 파일 변경 확인, 테스트, 리뷰와 전달이 남습니다. 이 과정을 한 흐름으로 연결하고, 모델 생성과 도구 실행의 병목을 구분할 수 있도록 설계했습니다.
 
-**Janus works directly in the repository you select, on whatever branch it is
-currently on.** There is no scratch copy. When you delegate a Task, the agent
-edits your working tree, and commit/push go to that same branch.
+| 항목 | 내용 |
+| --- | --- |
+| 개발 형태 | 1인 개발 |
+| 대상 사용자 | 코딩 에이전트의 작업을 감독하고 결과를 직접 검토하는 개인 개발자 |
+| 실행 환경 | Apple Silicon macOS |
+| 모델 실행 | MLX 로컬 모델 또는 기존 Claude Code·Codex CLI |
+| 핵심 설계 | Task 중심 작업 관리 · Git 기반 diff · 검증한 변경에 대한 리뷰와 커밋 |
 
-That is a deliberate trade — it keeps the model close to your real state and
-makes `git` the single undo mechanism — but it has edges worth knowing:
+<!-- 보완: 개발 기간과 이 도구를 직접 만들게 된 개인적인 경험, 개발 과정의 AI 활용 사례 -->
 
-| | Local model | Subscription CLI |
-|---|---|---|
-| Where it runs | your checkout, current branch | same |
-| Path confinement | file tools jailed to the repo | jailed by `--restricted` / sandbox |
-| Tools available | exactly what the AgentProfile grants | same, derived from the profile |
-| Asks before each write or shell command | **yes**, default-deny | **no** |
-| Shell can leave the repo (`cd ..`) | approval is the only barrier | no barrier |
+## 2. 주요 기능과 화면
 
-Practical consequences:
+### Task에 모이는 작업 맥락
 
-- **Commit or stash before delegating.** Uncommitted edits of your own are not
-  recoverable from git if the agent touches the same files.
-- **Two Tasks in one project share one working tree.** Run them one at a time.
-- Prefer a scratch branch if you are trying Janus out on something you care about.
+프로젝트와 목표를 기준으로 에이전트를 실행하고, 대화와 변경 diff, 검증 결과를 같은 Task에서 확인합니다. 작업 중인 상태, 사용자 입력이 필요한 상태, 실패와 리뷰 대기를 구분합니다.
 
-## Supported machine
+<!-- 화면 캡처: 프로젝트와 Task 목록, 작업 상세 -->
 
-- Apple Silicon macOS (`arm64`)
-- Python 3.13 through [uv](https://docs.astral.sh/uv/)
-- Node.js 22 or newer and pnpm 11
-- Git; optional `gh` for pull requests and CI checks
-- Xcode Command Line Tools (`swift`), required by `pnpm package:mac`
-- For the local model: roughly 17 GB of disk for weights plus 8 GB free headroom,
-  and enough unified memory to hold a 27B 4-bit model (32 GB is a practical floor).
-  A subscription CLI needs none of this.
+### 로컬 모델과 구독형 CLI
 
-Check prerequisites without changing the machine:
+기본 실행 경로는 `mlx-community/Qwen3.8-27B-4bit`를 사용하는 MLX 로컬 모델입니다. 로컬 모델은 기기에서 추론하며, 사용자가 이미 로그인한 Claude Code나 Codex CLI도 실행기로 선택할 수 있습니다. 실행 경로에 따라 외부 서비스 이용 여부와 도구 승인 방식이 달라집니다.
 
-```bash
-zsh scripts/bootstrap_macos.sh --check-only
+<!-- 화면 캡처: 실행 모델 선택과 로컬 모델 상태 -->
+
+### 변경 검토부터 커밋까지
+
+Git에서 도출한 diff를 확인하고, 해당 변경에 대한 검증과 리뷰를 거쳐 커밋합니다. 선택적으로 인증된 `gh` CLI를 통해 push와 PR로 이어갈 수 있습니다.
+
+<!-- 화면 캡처: diff, 검증 결과와 리뷰 -->
+
+### 작업에 연결된 개발 도구
+
+분할 터미널, Monaco 에디터, 로컬 미리보기와 브라우저의 콘솔·네트워크 정보를 Task에 연결합니다. 화면 캡처와 DOM·CSS 맥락도 작업을 설명하는 자료로 활용합니다.
+
+<!-- 화면 캡처: 에디터, 터미널과 미리보기 -->
+
+## 3. 시스템 아키텍처
+
+```mermaid
+flowchart TB
+    UI[React UI · Task와 개발 화면] --> MAIN[Electron Main · 프로세스와 IPC]
+    UI -->|로컬 HTTP·WebSocket| API[FastAPI · Task API]
+    MAIN -->|프로세스 관리| API
+    MAIN -->|로컬 모델 서버 관리| MLX[MLX Runtime]
+    API --> STORE[(SQLite · 작업과 세션 기록)]
+    API --> AGENT[에이전트 실행과 자원 스케줄링]
+    AGENT --> MLX
+    AGENT --> CLI[Claude Code · Codex CLI]
+    AGENT --> TOOLS[파일·셸·검증 도구]
+    TOOLS --> REPO[선택한 저장소 · 현재 브랜치]
+    CLI --> REPO
+    API --> REVIEW[Git diff · 검증 · 리뷰]
+    REVIEW --> REPO
 ```
 
-## Install
+Electron은 데스크톱 앱과 백엔드·모델 프로세스를 관리합니다. FastAPI 백엔드는 Task, 세션, 도구 실행과 리뷰 흐름을 연결하고, SQLite에는 제품의 작업 기록을 저장합니다. 코드 변경의 기준은 별도 스냅샷이 아닌 실제 저장소의 Git입니다.
 
-Clone the repository, then install locked Python and Node dependencies:
+| 영역 | 기술 |
+| --- | --- |
+| 데스크톱 | Electron · React · TypeScript · Zustand |
+| 개발 화면 | Monaco Editor · 터미널 · 브라우저 미리보기 |
+| 백엔드 | Python · FastAPI · HTTP·WebSocket · SQLite |
+| 로컬 추론 | Apple Silicon · MLX · Qwen 27B 4-bit |
+| 결과 관리 | Git · 선택적 GitHub CLI 연동 |
+| 검증과 배포물 | pytest · TypeScript 검사 · 프론트엔드 테스트 · macOS 패키징 CI |
 
-```bash
-zsh scripts/bootstrap_macos.sh
-```
+## 4. AI 작업을 관리하는 방식
 
-Model files are deliberately not bundled in the app or downloaded implicitly.
+### 작업 단위로 맥락과 권한을 제한합니다
 
-**The terminal is not required for this step.** Start Janus and open
-**Settings › 로컬 모델**. It reports which snapshots are present, weighs the
-download against your free disk, and fetches them with visible progress.
-Cancelling is safe — resuming picks up where it stopped.
+오케스트레이터는 필요한 하위 작업을 worker에 맡기고, AgentProfile로 사용할 도구를 정합니다. worker 수와 시간·토큰·단계 예산을 제한해 위임이 자원 사용을 무제한으로 늘리지 않도록 구성했습니다.
 
-To prepare it ahead of time instead:
+### 생성과 검증의 대기를 나눕니다
 
-```bash
-zsh scripts/bootstrap_macos.sh --with-model
-```
+로컬 모델의 생성 슬롯과 도구·검증 작업을 구분해 관리합니다. 모델 생성이 대기하는 동안 수행할 수 있는 도구 작업과 검증은 겹쳐 실행하고, 생성량뿐 아니라 검증 통과율, 소요 시간, 토큰과 사용자 개입을 함께 비교합니다.
 
-Either path fetches `mlx-community/Qwen3.8-27B-4bit` plus the
-`mlx-community/Qwen3.8-27B-MTP-4bit` speculative drafter (~17 GB together). The
-drafter is required under the default MTP policy; lower that policy in Settings to
-run without it. Janus resolves the local snapshot path and refuses to pass a remote
-model ID to the MLX server, preventing an accidental full-repository download.
+### 검토한 변경과 커밋할 변경을 맞춥니다
 
-Settings also offers `orcarouter/Qwen3.8-27B-Uncensored-MLX` as an advanced
-alternative. It carries the base model's Apache-2.0 license, but its model card
-scopes it to research and excludes end-user deployment without your own moderation
-layer — the app repeats that warning where you select it.
+에이전트 실행 종료, 검증 완료, 리뷰 수락, 커밋·push 성공을 서로 다른 상태로 다룹니다. 커밋 흐름에서는 현재 revision에 대한 리뷰와 검증 결과를 확인하며, push에는 Janus가 기록한 커밋과 HEAD의 일치 및 명시적인 SHA 확인을 요구합니다.
 
-## Run and package
+[제품 원칙](PRODUCT.md) · [검증 당시의 감사 기록](V1_AUDIT.md)
 
-For development:
+## 5. 개발 철학과 설계 결정
 
-```bash
-cd janus
-pnpm dev
-```
+### 답변 완료와 작업 성공을 구분합니다
 
-For an unsigned local macOS application:
+모델이 응답을 끝냈다는 사실만으로 파일 수정이나 테스트가 성공했다고 판단할 수는 없습니다. Janus는 실행 상태와 변경·검증·리뷰 상태를 구분해 사용자가 다음 판단에 필요한 근거를 볼 수 있도록 합니다.
 
-```bash
-cd janus
-pnpm package:mac
-open dist/mac-arm64/Janus.app
-```
+### 코드 변경의 기준은 Git으로 유지합니다
 
-The package contains the backend source and both lockfiles, not the model or a
-machine-specific virtual environment. On first launch, `uv` creates locked
-environments under the Janus user-data directory. The package is intentionally
-unsigned for local verification; release signing and update rules are in
-[VERSIONING.md](VERSIONING.md).
+에이전트는 사용자가 선택한 저장소의 현재 브랜치에서 직접 작업합니다. 실제 개발 상태와 가까워지는 대신, Task별 작업 사본이나 독립 worktree는 제공하지 않습니다. 같은 프로젝트의 Task는 작업 트리를 공유하며 동시 실행을 제한합니다.
 
-## First Task
+이 선택은 커밋되지 않은 변경을 별도로 보존해주지 않는다는 한계가 있습니다. 작업 기록을 저장하는 SQLite와 코드 변경을 관리하는 Git의 역할도 구분합니다.
 
-1. Add a Project by selecting an existing Git repository.
-2. Create a Task with an objective, acceptance command, and base ref.
-3. Prepare the workspace — Janus validates the repository and base ref — and
-   choose an AgentProfile (local model, Claude Code, or Codex).
-4. Start or resume the session. Concurrent model generations are capped (3 by
-   default, configurable in Settings) while tool and verification work overlaps.
-5. Inspect the Git-derived diff, run verification, review the exact revision,
-   then commit and optionally push/create a pull request.
-6. Use the Task development surface for split terminals, Monaco editing, local
-   preview, console/network capture, screenshots, and DOM/CSS context.
+### 실행 경로별 통제 범위를 드러냅니다
 
-## Data, recovery, and diagnostics
+로컬 모델과 Claude Code 경로는 Janus의 도구 승인 흐름을 사용합니다. Claude Code에는 Janus 도구를 MCP로 연결하며, Codex 경로는 같은 방식의 개별 작업 승인을 제공하지 않습니다.
 
-Persistent data defaults to `~/.janus`; your repository and its Git history are
-never stored inside it. Janus never automatically resets data. Backup, restore,
-and explicit reset policy is documented in
-[janus_server/RECOVERY.md](janus_server/RECOVERY.md).
+파일 도구의 저장소 경로 제한은 OS 수준의 격리와 다릅니다. 특히 셸의 작업 디렉터리를 설정하는 것만으로 접근 경로 전체를 제한할 수는 없습니다. 제공하는 기능과 통제 범위를 함께 설명하는 것을 제품의 일부로 봅니다.
 
-Create a secret-redacted diagnostic bundle without including the database:
+[실행 권한과 보안 경계](SECURITY.md)
 
-```bash
-cd janus_server
-uv run python -m janus_server.diagnostics
-```
+## 6. 검증과 개선 기록
 
-The authenticated app API also exposes `POST /maintenance/diagnostics`,
-`POST /maintenance/backups`, and `GET /maintenance/recovery`. Electron-owned
-backend and MLX logs live in the platform Janus user-data `logs` directory and
-their exact paths appear in backend status.
+### 같은 조건에서 worker 효율 비교
 
-## Verification
+2026년 8월 23일 v1 감사 기록에는 동일한 고정 worker 정책의 초기·개선 결과를 비교한 실험이 남아 있습니다.
 
-```bash
-python3 scripts/check_versions.py
+| 지표 | 초기 기준 | 개선 결과 |
+| --- | ---: | ---: |
+| 수용 검증 통과 | 14/15 | 14/15 |
+| 소요 시간 | 109.93초 | 88.14초 |
+| 프롬프트 토큰 | 14,855 | 10,993.1 |
+| 생성 토큰 | 1,227.9 | 777.4 |
 
-cd janus_server
-uv run pytest -q
+해당 실험에서는 검증 통과 수를 유지하면서 시간과 토큰 사용량을 줄였습니다. 이는 당시의 모델·작업·정책에 대한 결과이며, 모든 프로젝트나 현재 버전의 성능을 보장하는 수치는 아닙니다.
 
-cd ../janus
-pnpm test          # main process + renderer
-npx tsc --noEmit
-pnpm build
-pnpm package:mac
-```
+같은 감사에는 실제 27B 모델로 수행한 TaskSuite 45회 중 44회 수용 검증 통과, 281회 복구 반복 후 일시 상태 잔여 수 0과 SQLite 무결성 확인도 기록돼 있습니다.
 
-CI runs the same suites plus `pnpm check:bundle` (a bundle-size budget) and a
-separate dependency-audit job, so a local pass is necessary but not sufficient.
-A macOS job packages the app, resolves the MLX runtime lockfile, and checks that
-the packaged bundle carries the backend and the license notices. What no CI job
-covers is the model server actually generating — that needs the 17 GB weights and
-is only ever exercised on a developer's own Mac.
+[실험 조건과 근거 — v1 감사](V1_AUDIT.md)
 
-The clean-install smoke copies only distributable source into a temporary
-directory, installs from both lockfiles, builds/packages the app, boots a blank
-backend data directory, creates a verified backup and redacted diagnostics, and
-checks process shutdown:
+### 문서와 구현의 차이도 검사
 
-```bash
-python3 scripts/fresh_install_smoke.py
-```
+과거 설계 문서가 현재 기능을 보장하는 것처럼 읽히지 않도록, 제공 모델과 작업 공간 경계 등 문서의 주요 설명을 코드와 대조하는 검사를 둡니다. 제거한 worktree 격리와 추가된 CLI 실행 경로도 문서에 반영합니다.
 
-## Status and scope
+CI에서는 백엔드와 UI 검사, 번들 크기, 의존성 감사와 macOS 패키징을 검증합니다. 실제 로컬 모델 생성은 모델 파일과 기기 자원이 필요하므로, CI와 별도의 실기기 검증으로 구분합니다.
 
-Janus is a young project — one author, and the design notes in
-[PRODUCT.md](PRODUCT.md) carry more history than the code does. Read them as
-intent, not as a specification of what ships today. [ROADMAP.md](ROADMAP.md),
-[CHECKLIST.md](CHECKLIST.md), and [STATUS.md](STATUS.md) are working documents
-kept for the record; `STATUS.md` in particular is a dated engineering journal
-rather than a changelog.
+[문서·코드 일치 검사](janus_server/tests/test_docs_match_code.py) · [CI 구성](.github/workflows/ci.yml)
 
-## License and security
+### 작업 기록의 복구 가능성
 
-Apache-2.0 — see [LICENSE](LICENSE). The Qwen3.8 27B MLX builds Janus downloads
-carry their own terms; the advanced (uncensored) option in particular scopes
-itself to research in its model card.
+작업 데이터의 백업·복원, 중단된 실행의 상태 정리, 민감정보를 제거한 진단 묶음을 제공합니다. 앱이 다시 시작됐을 때 이전 작업을 성공한 것처럼 표시하지 않고, 실제로 중단된 상태를 복구하는 데 초점을 둡니다.
 
-To report a vulnerability, see [SECURITY.md](SECURITY.md), which also states
-plainly what Janus can do on your machine and which boundaries do *not* exist.
+[데이터 복구 정책](janus_server/RECOVERY.md)
+
+## 7. 한계와 개선 방향
+
+Janus는 Apple Silicon macOS를 중심으로 개발 중인 개인 프로젝트입니다. 로컬 27B 모델은 상당한 디스크와 통합 메모리를 필요로 하며, CLI 실행 경로와 로컬 실행 경로의 승인 동작도 동일하지 않습니다.
+
+같은 저장소 안에서 Task를 격리하지 않는 현재 구조, 로컬 자원에서의 worker 효율, 실행기별 통제 차이는 계속 다뤄야 할 과제입니다. 제품 설계와 과거 실험은 현재 구현과 구분해 기록합니다.
+
+<!-- 보완: 실제 앱 화면, 개발 기간, Janus 자체 개발에서 AI를 활용한 구체적인 판단·검증 사례 -->
+
+## 관련 문서
+
+- [제품 설계](PRODUCT.md)
+- [개발 기록](STATUS.md) · [향후 계획](ROADMAP.md)
+- [디자인 시스템](DESIGN_SYSTEM.md)
+- [기여 안내](CONTRIBUTING.md) · [버전 정책](VERSIONING.md)
+
+## 라이선스
+
+Janus는 [Apache-2.0](LICENSE)으로 공개합니다. 다운로드하는 모델에는 각 모델의 별도 이용 조건이 적용됩니다. 고급 모델 선택지의 연구용 사용 범위 등은 해당 모델 카드와 앱의 안내를 따릅니다.
