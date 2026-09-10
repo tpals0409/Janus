@@ -6,8 +6,7 @@ are about to touch.
 
 ## What you need
 
-Everything in [README.md § Supported machine](README.md#supported-machine). The
-short version: Apple Silicon macOS, `uv`, Node 22+, pnpm 11, Xcode Command Line
+Apple Silicon macOS, Python 3.13 through `uv`, Node 22+, pnpm 11, Xcode Command Line
 Tools. Check without changing anything:
 
 ```bash
@@ -76,7 +75,7 @@ These are what I actually apply when reading a diff.
 - **Docs are load-bearing.** `janus_server/tests/test_docs_match_code.py` fails
   when documentation contradicts the code. If you change a default, a provider,
   or a safety boundary, the docs change in the same commit.
-- **Comments and docs in Korean, README and the public-facing files in English.**
+- **Comments, project docs, and README in Korean; other public-facing files in English.**
   Match the file you are editing.
 
 ## Database changes
